@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>课堂入口</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px; }
+    input, button { width: 100%; box-sizing: border-box; padding: 12px; margin-top: 10px; border-radius: 10px; border: 1px solid #d1d5db; font-size: 16px; }
+    button { background: #111827; color: #fff; border: 0; }
+    .hint { color: #6b7280; font-size: 14px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>课堂答题入口</h2>
+    <p id="status">正在检查入口状态...</p>
+    <div id="form" style="display:none;">
+      <input id="name" placeholder="姓名" />
+      <input id="student_no" placeholder="学号" />
+      <input id="class_name" placeholder="班级" />
+      <button id="start">开始答题</button>
+      <div class="hint">无需注册账号，系统会自动保存进度。</div>
+    </div>
+  </div>
+  <script>
+    const statusEl = document.getElementById('status');
+    const formEl = document.getElementById('form');
+    async function check() {
+      const r = await fetch('/api/entry-status', { credentials: 'include' });
+      if (!r.ok) {
+        statusEl.textContent = '状态读取失败，请稍后刷新。';
+        return;
+      }
+      const data = await r.json();
+      if (data.entry_open) {
+        statusEl.textContent = '入口已开放，请填写信息进入答题。';
+        formEl.style.display = 'block';
+        return;
+      }
+      statusEl.textContent = '入口暂未开放，请等待老师开启。';
+    }
+    document.getElementById('start').addEventListener('click', async () => {
+      const body = {
+        name: document.getElementById('name').value.trim(),
+        student_no: document.getElementById('student_no').value.trim(),
+        class_name: document.getElementById('class_name').value.trim()
+      };
+      const r = await fetch('/api/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      location.href = '/quiz';
+    });
+    check();
+  </script>
+</body>
+</html>

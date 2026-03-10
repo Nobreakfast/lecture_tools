@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理员面板</title>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 760px; margin: 24px auto; padding: 0 12px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    input, textarea, button { width:100%; box-sizing:border-box; padding:10px; margin-top:8px; border:1px solid #d1d5db; border-radius:10px; }
+    button { background:#111827; color:#fff; border:0; }
+    textarea { min-height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    table { width:100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+    .small { width:auto; display:inline-block; padding:6px 10px; margin-right:6px; }
+    .row { display:flex; gap:8px; }
+    .row button { margin-top:8px; }
+    .sortable { cursor: pointer; user-select: none; }
+    .modal { position: fixed; inset: 0; background: rgba(17,24,39,.5); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    .modal.show { display: flex; }
+    .modal-box { width: min(900px, 100%); max-height: 88vh; overflow: auto; background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
+    .meta { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+    .meta p { margin:0; padding:10px; border:1px solid #e5e7eb; border-radius:10px; }
+    .qitem { border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:8px; line-height:1.6; }
+    .good { color:#065f46; font-weight:600; }
+    .bad { color:#991b1b; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h2 style="margin:0;">管理员页面</h2>
+    <button id="shutdownBtn" class="small" style="background:#7f1d1d;">安全退出服务</button>
+  </div>
+  <div class="card" id="loginCard">
+    <p>请输入管理员密码</p>
+    <input type="password" id="pwd" placeholder="管理员密码" />
+    <button id="loginBtn">登录</button>
+  </div>
+  <div id="panel" style="display:none;">
+    <div class="card">
+      <p>入口状态：<strong id="entry">-</strong></p>
+      <p>已进入：<strong id="started">0</strong>，已提交：<strong id="submitted">0</strong></p>
+      <button id="openBtn">开启入口</button>
+      <button id="closeBtn" style="margin-top:8px;background:#991b1b;">关闭入口</button>
+      <button id="qrBtn" style="margin-top:8px;">下载入口二维码</button>
+    </div>
+    <div class="card">
+      <p>粘贴 YAML 题库后加载</p>
+      <textarea id="yaml"></textarea>
+      <input id="quizFile" type="file" accept=".yaml,.yml,text/yaml" style="display:none;" />
+      <div class="row">
+        <button id="pickQuiz">选择题库文件</button>
+        <button id="loadQuiz">加载已选文件或YAML文本</button>
+      </div>
+    </div>
+    <div class="card">
+      <p>课后整理</p>
+      <button id="exportBtn">导出全班 CSV</button>
+      <button id="clearAttemptsBtn" style="margin-top:8px;background:#7c2d12;">清空本次答题数据</button>
+      <div id="attempts"></div>
+    </div>
+    <div class="card">
+      <p>AI 总结状态</p>
+      <button id="aiHealthBtn">刷新 AI 状态</button>
+      <div id="aiHealth" style="margin-top:8px;font-size:14px;color:#374151;"></div>
+    </div>
+  </div>
+  <div id="detailModal" class="modal">
+    <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h3 style="margin:0;">学生答题详情</h3>
+        <button id="closeDetailBtn" class="small" style="margin-top:0;">关闭</button>
+      </div>
+      <div id="detail"></div>
+    </div>
+  </div>
+  <script>
+    function escapeHTML(s) {
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+    async function login() {
+      const password = document.getElementById('pwd').value;
+      const r = await fetch('/api/admin/login', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ password })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      document.getElementById('loginCard').style.display = 'none';
+      document.getElementById('panel').style.display = 'block';
+      refresh();
+      loadAttempts();
+      loadAIHealth();
+      listen();
+    }
+    async function toggle(open) {
+      const r = await fetch('/api/admin/entry', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ open })
+      });
+      if (!r.ok) alert(await r.text());
+      refresh();
+    }
+    let pickedYAML = '';
+    let attemptsCache = [];
+    let sortMode = 0;
+    function scoreValue(item) {
+      const total = Number(item.total || 0);
+      const correct = Number(item.correct || 0);
+      if (total <= 0) return -1;
+      return correct / total;
+    }
+    function sortAttempts(items) {
+      const withIndex = items.map((item, index) => ({ item, index }));
+      if (sortMode === 1) {
+        withIndex.sort((a, b) => {
+          const sa = scoreValue(a.item);
+          const sb = scoreValue(b.item);
+          if (sb !== sa) return sb - sa;
+          return a.index - b.index;
+        });
+      } else if (sortMode === 2) {
+        withIndex.sort((a, b) => {
+          const sa = scoreValue(a.item);
+          const sb = scoreValue(b.item);
+          if (sa !== sb) return sa - sb;
+          return a.index - b.index;
+        });
+      }
+      return withIndex.map(v => v.item);
+    }
+    function sortHint() {
+      if (sortMode === 1) return '（分数高）';
+      if (sortMode === 2) return '（分数低）';
+      return '（时间顺序）';
+    }
+    function renderAttempts() {
+      const root = document.getElementById('attempts');
+      const items = sortAttempts(attemptsCache || []);
+      const rows = items.map(item => `
+        <tr>
+          <td>${item.name}</td>
+          <td>${item.student_no}</td>
+          <td>${item.class_name}</td>
+          <td>${item.status}</td>
+          <td>${item.correct}/${item.total}</td>
+          <td><button class="small" onclick="showDetail('${item.id}')">查看</button></td>
+        </tr>
+      `).join('');
+      root.innerHTML = `<table><thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>状态</th><th id="scoreSorter" class="sortable">得分${sortHint()}</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const sorter = document.getElementById('scoreSorter');
+      if (sorter) sorter.onclick = toggleSortMode;
+    }
+    function toggleSortMode() {
+      sortMode = (sortMode + 1) % 3;
+      renderAttempts();
+    }
+    async function chooseQuizFile() {
+      document.getElementById('quizFile').click();
+    }
+    async function loadQuiz() {
+      const yamlBox = document.getElementById('yaml').value.trim();
+      const yaml = pickedYAML || yamlBox;
+      if (!yaml) {
+        alert('请先选择文件或粘贴YAML内容');
+        return;
+      }
+      const r = await fetch('/api/admin/load-quiz', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ yaml })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      alert('题库加载成功');
+      refresh();
+      loadAttempts();
+    }
+    async function refresh() {
+      const r = await fetch('/api/admin/state', { credentials:'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      document.getElementById('entry').textContent = data.entry_open ? '开放' : '关闭';
+      document.getElementById('started').textContent = data.started;
+      document.getElementById('submitted').textContent = data.submitted;
+    }
+    async function loadAttempts() {
+      const r = await fetch('/api/admin/attempts', { credentials:'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      attemptsCache = data.items || [];
+      renderAttempts();
+    }
+    async function showDetail(id) {
+      const r = await fetch('/api/admin/attempt-detail?id=' + encodeURIComponent(id), { credentials:'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      const data = await r.json();
+      const html = data.questions.map((q, i) => {
+        if (q.is_survey) {
+          return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div><div>学生作答：${escapeHTML(q.answer || '未作答')}（沟通题）</div></div>`;
+        }
+        return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div><div>学生选择：${escapeHTML(q.answer || '未作答')}</div><div>正确答案：${escapeHTML(q.correct)}</div><div class="${q.is_correct ? 'good' : 'bad'}">${q.is_correct ? '回答正确' : '回答错误'}</div></div>`;
+      }).join('');
+      document.getElementById('detail').innerHTML = `
+        <div class="meta">
+          <p><strong>姓名：</strong>${escapeHTML(data.student.name)}</p>
+          <p><strong>学号：</strong>${escapeHTML(data.student.student_no)}</p>
+          <p><strong>班级：</strong>${escapeHTML(data.student.class_name)}</p>
+          <p><strong>得分：</strong>${data.score.correct}/${data.score.total}</p>
+        </div>
+        ${html}
+      `;
+      document.getElementById('detailModal').classList.add('show');
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        await window.MathJax.typesetPromise([document.getElementById('detail')]);
+      }
+    }
+    function closeDetail() {
+      document.getElementById('detailModal').classList.remove('show');
+    }
+    function exportCSV() {
+      window.open('/api/admin/export-csv', '_blank');
+    }
+    function downloadQR() {
+      window.open('/api/admin/qr', '_blank');
+    }
+    async function loadAIHealth() {
+      const r = await fetch('/api/admin/ai-health', { credentials:'include' });
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById('aiHealth').innerHTML = `
+        endpoint: ${d.endpoint || '-'}<br/>
+        model: ${d.model || '-'}<br/>
+        key_loaded: ${d.key_loaded ? 'true' : 'false'}<br/>
+        last_success_at: ${d.last_success_at || '-'}<br/>
+        last_error: ${d.last_error || '-'}
+      `;
+    }
+    async function clearAttempts() {
+      const ok = confirm('确认清空当前题库对应的全部学生答题记录？');
+      if (!ok) return;
+      const r = await fetch('/api/admin/clear-attempts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ confirm: true })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      alert('已清空');
+      loadAttempts();
+      refresh();
+    }
+    async function shutdownService() {
+      const ok = confirm('确认安全退出服务？退出后页面将不可访问。');
+      if (!ok) return;
+      const r = await fetch('/api/admin/shutdown', { method: 'POST', credentials: 'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      alert('服务正在安全退出');
+    }
+    function listen() {
+      const sse = new EventSource('/api/admin/live', { withCredentials: true });
+      sse.onmessage = (evt) => {
+        const d = JSON.parse(evt.data);
+        document.getElementById('entry').textContent = d.entry_open ? '开放' : '关闭';
+        document.getElementById('started').textContent = d.started;
+        document.getElementById('submitted').textContent = d.submitted;
+        loadAttempts();
+      };
+    }
+    document.getElementById('loginBtn').onclick = login;
+    document.getElementById('openBtn').onclick = () => toggle(true);
+    document.getElementById('closeBtn').onclick = () => toggle(false);
+    document.getElementById('qrBtn').onclick = downloadQR;
+    document.getElementById('pickQuiz').onclick = chooseQuizFile;
+    document.getElementById('loadQuiz').onclick = loadQuiz;
+    document.getElementById('exportBtn').onclick = exportCSV;
+    document.getElementById('clearAttemptsBtn').onclick = clearAttempts;
+    document.getElementById('shutdownBtn').onclick = shutdownService;
+    document.getElementById('aiHealthBtn').onclick = loadAIHealth;
+    document.getElementById('closeDetailBtn').onclick = closeDetail;
+    document.getElementById('detailModal').onclick = (evt) => {
+      if (evt.target.id === 'detailModal') closeDetail();
+    };
+    document.getElementById('quizFile').onchange = async (evt) => {
+      const file = evt.target.files && evt.target.files[0];
+      if (!file) return;
+      pickedYAML = await file.text();
+      document.getElementById('yaml').value = pickedYAML;
+    };
+  </script>
+</body>
+</html>

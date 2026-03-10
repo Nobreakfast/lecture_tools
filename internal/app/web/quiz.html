@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>课堂答题</title>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 760px; margin: 24px auto; padding: 0 12px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    .opt { display:block; width:100%; text-align:left; padding:10px; margin-top:8px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
+    .active { border-color:#111827; background:#f3f4f6; }
+    .text-answer { width:100%; box-sizing:border-box; margin-top:8px; min-height:90px; padding:10px; border:1px solid #d1d5db; border-radius:10px; }
+    #submit { width:100%; padding:12px; border:0; border-radius:10px; background:#111827; color:#fff; font-size:16px; }
+  </style>
+</head>
+<body>
+  <h2 id="title">加载中...</h2>
+  <div id="questions"></div>
+  <button id="submit">提交并查看结果</button>
+  <script>
+    let state = null;
+    function escapeHTML(s) {
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+    async function load() {
+      const r = await fetch('/api/me', { credentials: 'include' });
+      if (!r.ok) {
+        alert('请先从入口进入');
+        location.href = '/join';
+        return;
+      }
+      state = await r.json();
+      document.getElementById('title').textContent = state.quiz.title;
+      render();
+      if (state.attempt.status === 'submitted') location.href = '/result';
+    }
+    function render() {
+      const root = document.getElementById('questions');
+      root.innerHTML = '';
+      state.quiz.questions.forEach((q, idx) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const image = q.image ? `<img src="/assets/${q.image}" style="max-width:100%;border-radius:8px;margin-top:8px;" />` : '';
+        card.innerHTML = `<strong>${idx + 1}. ${escapeHTML(q.stem)}</strong>${image}`;
+        if (q.type === 'short_answer') {
+          const area = document.createElement('textarea');
+          area.className = 'text-answer';
+          area.placeholder = '请输入你的回答...';
+          area.value = state.answers[q.id] || '';
+          const saveBtn = document.createElement('button');
+          saveBtn.className = 'opt';
+          saveBtn.textContent = '保存简答';
+          saveBtn.onclick = () => save(q.id, area.value.trim());
+          card.appendChild(area);
+          card.appendChild(saveBtn);
+        } else {
+          q.options.forEach(op => {
+            const b = document.createElement('button');
+            b.className = 'opt' + ((state.answers[q.id] === op.key) ? ' active' : '');
+            b.textContent = `${op.key}. ${op.text}`;
+            b.onclick = () => save(q.id, op.key);
+            card.appendChild(b);
+          });
+        }
+        root.appendChild(card);
+      });
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise([root]);
+      }
+    }
+    async function save(qid, ans) {
+      const r = await fetch('/api/answer', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ question_id: qid, answer: ans })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      state.answers[qid] = ans;
+      render();
+    }
+    document.getElementById('submit').onclick = async () => {
+      const r = await fetch('/api/submit', { method:'POST', credentials:'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      location.href = '/result';
+    };
+    load();
+  </script>
+</body>
+</html>
