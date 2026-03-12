@@ -466,7 +466,14 @@ func (s *Server) apiAdminClearAttempts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "need confirmation", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.ClearAttempts(r.Context()); err != nil {
+	s.mu.RLock()
+	current := s.currentQuiz
+	s.mu.RUnlock()
+	if current == nil {
+		http.Error(w, "当前未加载题库", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.ClearAttempts(r.Context(), current.QuizID); err != nil {
 		http.Error(w, "清空失败", http.StatusInternalServerError)
 		return
 	}

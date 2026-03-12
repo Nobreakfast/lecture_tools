@@ -223,20 +223,20 @@ func (s *SQLiteStore) GetLiveStats(ctx context.Context) (int, int, error) {
 	return started, submitted, nil
 }
 
-func (s *SQLiteStore) ClearAttempts(ctx context.Context) error {
+func (s *SQLiteStore) ClearAttempts(ctx context.Context, quizID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM answers`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM answers WHERE attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ?)`, quizID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries WHERE attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ?)`, quizID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM attempts`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attempts WHERE quiz_id = ?`, quizID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
