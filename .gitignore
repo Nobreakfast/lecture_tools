@@ -7,11 +7,8 @@
 .env.*
 !.env.example
 
-data/*.db
-data/*.sqlite
-data/*.sqlite3
-data/*.log
-data/*.png
+data/**
+!data/.gitkeep
 
 *.log
 *.out

@@ -15,6 +15,7 @@ type Store interface {
 	GetAttemptByID(ctx context.Context, attemptID string) (*domain.Attempt, error)
 	GetAttemptByToken(ctx context.Context, token string) (*domain.Attempt, error)
 	UpdateAttemptStatus(ctx context.Context, attemptID string, status domain.AttemptStatus) error
+	SubmitAttempt(ctx context.Context, attemptID string) (int, error)
 	SaveAnswer(ctx context.Context, answer domain.Answer) error
 	GetAnswers(ctx context.Context, attemptID string) (map[string]string, error)
 	UpsertSummary(ctx context.Context, attemptID string, summaryJSON string) error

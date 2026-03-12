@@ -7,3 +7,4 @@
 - 已内置 2 道固定 `short_answer` 交流题，固定出现在第 9、10 题，不参与判分
 - 若要额外加入交流题，可在 `questions` 末尾追加 `short_answer` 且不设置 `pool_tag`
 - 追加的不带 `pool_tag` 题目会固定展示，不占用抽题名额
+- 题图素材建议放在 `quiz/assets/`，题干图用 `image`，选项图用 `options[].image`（如 `w2l2_epi_A.svg`）

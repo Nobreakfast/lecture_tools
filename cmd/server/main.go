@@ -31,11 +31,15 @@ func main() {
 		BaseURL:       baseURL,
 		AdminPassword: env("ADMIN_PASSWORD", "admin123"),
 		DataDir:       env("DATA_DIR", "./data"),
+		QuizAssetsDir: env("QUIZ_ASSETS_DIR", "./quiz/assets"),
 		AIEndpoint:    env("AI_ENDPOINT", ""),
 		AIKey:         env("AI_API_KEY", ""),
 		AIModel:       env("AI_MODEL", ""),
 	}
 	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "assets"), 0o755); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.QuizAssetsDir, 0o755); err != nil {
 		log.Fatal(err)
 	}
 	st, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
@@ -56,9 +60,6 @@ func main() {
 		defer cancel()
 		_ = httpSrv.Shutdown(ctx)
 	})
-	if err := srv.PrintQRCode(); err != nil {
-		log.Printf("二维码生成失败: %v", err)
-	}
 	if len(loaded) > 0 {
 		fmt.Printf(".env 已加载: %s\n", strings.Join(loaded, ", "))
 	} else {

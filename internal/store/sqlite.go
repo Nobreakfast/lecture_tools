@@ -34,6 +34,7 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			name TEXT NOT NULL,
 			student_no TEXT NOT NULL,
 			class_name TEXT NOT NULL,
+			attempt_no INTEGER NOT NULL DEFAULT 0,
 			status TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
@@ -56,7 +57,7 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := s.ensureAttemptsQuizIDColumn(ctx); err != nil {
+	if err := s.ensureAttemptsColumns(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -77,13 +78,13 @@ func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
 }
 
 func (s *SQLiteStore) CreateAttempt(ctx context.Context, a *domain.Attempt) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO attempts(id, session_token, quiz_id, name, student_no, class_name, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.SessionToken, a.QuizID, a.Name, a.StudentNo, a.ClassName, string(a.Status), a.CreatedAt.Format(time.RFC3339Nano), a.UpdatedAt.Format(time.RFC3339Nano))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO attempts(id, session_token, quiz_id, name, student_no, class_name, attempt_no, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.SessionToken, a.QuizID, a.Name, a.StudentNo, a.ClassName, a.AttemptNo, string(a.Status), a.CreatedAt.Format(time.RFC3339Nano), a.UpdatedAt.Format(time.RFC3339Nano))
 	return err
 }
 
 func (s *SQLiteStore) ListAttempts(ctx context.Context) ([]domain.Attempt, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, status, created_at, updated_at, submitted_at FROM attempts ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, attempt_no, status, created_at, updated_at, submitted_at FROM attempts ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func (s *SQLiteStore) ListAttempts(ctx context.Context) ([]domain.Attempt, error
 }
 
 func (s *SQLiteStore) GetAttemptByID(ctx context.Context, attemptID string) (*domain.Attempt, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, status, created_at, updated_at, submitted_at FROM attempts WHERE id = ?`, attemptID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, attempt_no, status, created_at, updated_at, submitted_at FROM attempts WHERE id = ?`, attemptID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +113,7 @@ func (s *SQLiteStore) GetAttemptByID(ctx context.Context, attemptID string) (*do
 }
 
 func (s *SQLiteStore) GetAttemptByToken(ctx context.Context, token string) (*domain.Attempt, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, status, created_at, updated_at, submitted_at FROM attempts WHERE session_token = ?`, token)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, attempt_no, status, created_at, updated_at, submitted_at FROM attempts WHERE session_token = ?`, token)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +132,47 @@ func (s *SQLiteStore) UpdateAttemptStatus(ctx context.Context, attemptID string,
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET status = ?, updated_at = ? WHERE id = ?`, string(status), now, attemptID)
 	return err
+}
+
+func (s *SQLiteStore) SubmitAttempt(ctx context.Context, attemptID string) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var quizID string
+	var studentNo string
+	var status string
+	var existingAttemptNo int
+	err = tx.QueryRowContext(ctx, `SELECT quiz_id, student_no, status, attempt_no FROM attempts WHERE id = ?`, attemptID).Scan(&quizID, &studentNo, &status, &existingAttemptNo)
+	if err != nil {
+		return 0, err
+	}
+	if status == string(domain.StatusSubmitted) {
+		if err = tx.Commit(); err != nil {
+			return 0, err
+		}
+		return existingAttemptNo, nil
+	}
+
+	var nextAttemptNo int
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_no), 0) + 1 FROM attempts WHERE quiz_id = ? AND student_no = ? AND status = ?`, quizID, studentNo, string(domain.StatusSubmitted)).Scan(&nextAttemptNo); err != nil {
+		return 0, err
+	}
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err = tx.ExecContext(ctx, `UPDATE attempts SET status = ?, attempt_no = ?, updated_at = ?, submitted_at = ? WHERE id = ?`, string(domain.StatusSubmitted), nextAttemptNo, now, now, attemptID)
+	if err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return nextAttemptNo, nil
 }
 
 func (s *SQLiteStore) SaveAnswer(ctx context.Context, answer domain.Answer) error {
@@ -228,7 +270,7 @@ func scanAttemptRows(sc rowScanner) (*domain.Attempt, error) {
 	var status string
 	var created, updated string
 	var submitted sql.NullString
-	if err := sc.Scan(&a.ID, &a.SessionToken, &a.QuizID, &a.Name, &a.StudentNo, &a.ClassName, &status, &created, &updated, &submitted); err != nil {
+	if err := sc.Scan(&a.ID, &a.SessionToken, &a.QuizID, &a.Name, &a.StudentNo, &a.ClassName, &a.AttemptNo, &status, &created, &updated, &submitted); err != nil {
 		return nil, err
 	}
 	a.Status = domain.AttemptStatus(status)
@@ -241,12 +283,14 @@ func scanAttemptRows(sc rowScanner) (*domain.Attempt, error) {
 	return &a, nil
 }
 
-func (s *SQLiteStore) ensureAttemptsQuizIDColumn(ctx context.Context) error {
+func (s *SQLiteStore) ensureAttemptsColumns(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(attempts)`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	hasQuizID := false
+	hasAttemptNo := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -258,9 +302,21 @@ func (s *SQLiteStore) ensureAttemptsQuizIDColumn(ctx context.Context) error {
 			return err
 		}
 		if name == "quiz_id" {
-			return nil
+			hasQuizID = true
+		}
+		if name == "attempt_no" {
+			hasAttemptNo = true
 		}
 	}
-	_, err = s.db.ExecContext(ctx, `ALTER TABLE attempts ADD COLUMN quiz_id TEXT NOT NULL DEFAULT ''`)
-	return err
+	if !hasQuizID {
+		if _, err = s.db.ExecContext(ctx, `ALTER TABLE attempts ADD COLUMN quiz_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !hasAttemptNo {
+		if _, err = s.db.ExecContext(ctx, `ALTER TABLE attempts ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
 }

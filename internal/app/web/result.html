@@ -15,6 +15,7 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 820px; margin: 24px auto; padding: 0 12px; }
     .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    .qimage { width: min(100%, 340px); border-radius:8px; margin-top:8px; border:1px solid #e5e7eb; }
     .ok { color: #065f46; } .bad { color: #991b1b; }
     .btn { padding: 10px 14px; border: 0; border-radius: 10px; background:#111827; color:#fff; margin-right:8px; }
   </style>
@@ -41,8 +42,19 @@
     }
     function optionText(q, key) {
       if (!key) return '未作答';
+      if (q.is_multi) {
+        const parts = String(key).split(',').map(s => s.trim()).filter(Boolean);
+        if (!parts.length) return '未作答';
+        return parts.map(k => {
+          const found = (q.options || []).find(op => op.key === k);
+          if (!found) return k;
+          if (!found.text) return found.key;
+          return `${found.key}. ${found.text}`;
+        }).join('；');
+      }
       const found = (q.options || []).find(op => op.key === key);
       if (!found) return key;
+      if (!found.text) return found.key;
       return `${found.key}. ${found.text}`;
     }
     async function typesetResult() {
@@ -78,14 +90,17 @@
       data.questions.forEach((q, idx) => {
         const card = document.createElement('div');
         card.className = 'card';
+        const image = q.image ? `<img class="qimage" src="/assets/${q.image}" />` : '';
+        const reference = q.reference ? `<p><strong>参考答案：</strong>${escapeHTML(q.reference)}</p>` : '';
+        const explanation = q.explanation ? `<p><strong>解析：</strong>${escapeHTML(q.explanation)}</p>` : '';
         if (q.is_survey) {
           if (q.type === 'short_answer') {
-            card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong><p>你的回答：${escapeHTML(q.answer || '未作答')}</p><p>该题为沟通题，不判对错。</p>`;
+            card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong>${image}<p>你的回答：${escapeHTML(q.answer || '未作答')}</p>${reference}${explanation}<p>该题为沟通题，不判对错。</p>`;
           } else {
-            card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong><p>你的选择：${escapeHTML(optionText(q, q.answer))}</p><p>该题为沟通题，不判对错。</p>`;
+            card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong>${image}<p>你的选择：${escapeHTML(optionText(q, q.answer))}</p>${reference}${explanation}<p>该题为沟通题，不判对错。</p>`;
           }
         } else {
-          card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong><p>你的选择：${escapeHTML(optionText(q, q.answer))}</p><p>正确答案：${escapeHTML(optionText(q, q.correct))}</p><p class="${q.is_correct ? 'ok':'bad'}">${q.is_correct ? '回答正确' : '回答错误'}</p>`;
+          card.innerHTML = `<strong>${idx+1}. ${escapeHTML(q.stem)}</strong>${image}<p>你的选择：${escapeHTML(optionText(q, q.answer))}</p><p>正确答案：${escapeHTML(optionText(q, q.correct))}</p>${reference}${explanation}<p class="${q.is_correct ? 'ok':'bad'}">${q.is_correct ? '回答正确' : '回答错误'}</p>`;
         }
         root.appendChild(card);
       });

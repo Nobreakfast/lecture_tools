@@ -13,14 +13,16 @@ type QuestionType string
 
 const (
 	QuestionSingleChoice QuestionType = "single_choice"
+	QuestionMultiChoice  QuestionType = "multi_choice"
 	QuestionYesNo        QuestionType = "yes_no"
 	QuestionSurvey       QuestionType = "survey"
 	QuestionShortAnswer  QuestionType = "short_answer"
 )
 
 type Option struct {
-	Key  string `json:"key" yaml:"key"`
-	Text string `json:"text" yaml:"text"`
+	Key   string `json:"key" yaml:"key"`
+	Text  string `json:"text" yaml:"text"`
+	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 }
 
 type Question struct {
@@ -29,6 +31,8 @@ type Question struct {
 	Stem          string       `json:"stem" yaml:"stem"`
 	Options       []Option     `json:"options" yaml:"options"`
 	CorrectAnswer string       `json:"correct_answer,omitempty" yaml:"correct_answer,omitempty"`
+	ReferenceAnswer string     `json:"reference_answer,omitempty" yaml:"reference_answer,omitempty"`
+	Explanation   string       `json:"explanation,omitempty" yaml:"explanation,omitempty"`
 	KnowledgeTag  string       `json:"knowledge_tag,omitempty" yaml:"knowledge_tag,omitempty"`
 	PoolTag       string       `json:"pool_tag,omitempty" yaml:"pool_tag,omitempty"`
 	Image         string       `json:"image,omitempty" yaml:"image,omitempty"`
@@ -57,6 +61,7 @@ type Attempt struct {
 	Name        string
 	StudentNo   string
 	ClassName   string
+	AttemptNo   int
 	Status      AttemptStatus
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

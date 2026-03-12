@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +24,6 @@ import (
 	"course-assistant/internal/domain"
 	"course-assistant/internal/quiz"
 	"course-assistant/internal/store"
-
-	"github.com/skip2/go-qrcode"
 )
 
 //go:embed web/*
@@ -35,6 +34,7 @@ type Config struct {
 	BaseURL       string
 	AdminPassword string
 	DataDir       string
+	QuizAssetsDir string
 	AIEndpoint    string
 	AIKey         string
 	AIModel       string
@@ -105,14 +105,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/attempts", s.apiAdminAttempts)
 	mux.HandleFunc("/api/admin/attempt-detail", s.apiAdminAttemptDetail)
 	mux.HandleFunc("/api/admin/export-csv", s.apiAdminExportCSV)
-	mux.HandleFunc("/api/admin/qr", s.apiAdminQR)
 	return withCORS(mux)
-}
-
-func (s *Server) PrintQRCode() error {
-	fmt.Printf("学生入口地址: %s/join\n", strings.TrimRight(s.cfg.BaseURL, "/"))
-	file := filepath.Join(s.cfg.DataDir, "join_qr.png")
-	return qrcode.WriteFile(strings.TrimRight(s.cfg.BaseURL, "/")+"/join", qrcode.Medium, 256, file)
 }
 
 func (s *Server) pageJoin(w http.ResponseWriter, _ *http.Request) {
@@ -144,9 +137,13 @@ func (s *Server) servePage(w http.ResponseWriter, path string) {
 
 func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimPrefix(r.URL.Path, "/assets/")
-	fp := filepath.Join(s.cfg.DataDir, "assets", filepath.Clean(target))
-	if !strings.HasPrefix(fp, filepath.Join(s.cfg.DataDir, "assets")) {
+	fp, ok := s.resolveAssetPath(target)
+	if !ok {
 		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	if fp == "" {
+		http.Error(w, "asset not found", http.StatusNotFound)
 		return
 	}
 	http.ServeFile(w, r, fp)
@@ -283,14 +280,27 @@ func (s *Server) apiSaveAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if req.QuestionID == "" || req.Answer == "" {
+	if req.QuestionID == "" {
 		http.Error(w, "参数不完整", http.StatusBadRequest)
 		return
+	}
+	q, ok := findQuestion(current, req.QuestionID)
+	if !ok {
+		http.Error(w, "题目不存在", http.StatusBadRequest)
+		return
+	}
+	normalized := strings.TrimSpace(req.Answer)
+	if normalized != "" {
+		normalized, err = normalizeAnswer(*q, req.Answer)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	err = s.store.SaveAnswer(r.Context(), domain.Answer{
 		AttemptID:  attempt.ID,
 		QuestionID: req.QuestionID,
-		Value:      req.Answer,
+		Value:      normalized,
 		UpdatedAt:  time.Now(),
 	})
 	if err != nil {
@@ -321,7 +331,7 @@ func (s *Server) apiSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
 		return
 	}
-	if err := s.store.UpdateAttemptStatus(r.Context(), attempt.ID, domain.StatusSubmitted); err != nil {
+	if _, err := s.store.SubmitAttempt(r.Context(), attempt.ID); err != nil {
 		http.Error(w, "提交失败", http.StatusInternalServerError)
 		return
 	}
@@ -525,7 +535,7 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.MkdirAll(filepath.Join(s.cfg.DataDir, "assets"), 0o755)
-	if err := quiz.ValidateImagePaths(parsed, s.cfg.DataDir); err != nil {
+	if err := quiz.ValidateImagePaths(parsed, filepath.Join(s.cfg.DataDir, "assets"), s.cfg.QuizAssetsDir); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -618,6 +628,7 @@ func (s *Server) apiAdminAttempts(w http.ResponseWriter, r *http.Request) {
 			"name":       a.Name,
 			"student_no": a.StudentNo,
 			"class_name": a.ClassName,
+			"attempt_no": a.AttemptNo,
 			"status":     a.Status,
 			"correct":    correct,
 			"total":      total,
@@ -670,26 +681,30 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="class_report.csv"`)
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"姓名", "学号", "班级", "状态", "正确数", "总题数"})
+	header := []string{"姓名", "学号", "班级", "状态", "尝试次数", "正确数", "总题数"}
+	for idx := range current.Questions {
+		prefix := fmt.Sprintf("第%d题", idx+1)
+		header = append(header, prefix+"题号", prefix+"题干", prefix+"选项", prefix+"作答")
+	}
+	_ = cw.Write(header)
 	for _, a := range items {
 		correct, total := s.calcScore(r.Context(), current, a.ID)
-		_ = cw.Write([]string{a.Name, a.StudentNo, a.ClassName, string(a.Status), fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)})
+		attemptNo := ""
+		if a.AttemptNo > 0 {
+			attemptNo = fmt.Sprintf("%d", a.AttemptNo)
+		}
+		row := []string{a.Name, a.StudentNo, a.ClassName, string(a.Status), attemptNo, fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)}
+		answers, err := s.store.GetAnswers(r.Context(), a.ID)
+		if err != nil {
+			http.Error(w, "读取答案失败", http.StatusInternalServerError)
+			return
+		}
+		for _, q := range current.Questions {
+			row = append(row, q.ID, q.Stem, formatQuestionOptionsForCSV(q), answers[q.ID])
+		}
+		_ = cw.Write(row)
 	}
 	cw.Flush()
-}
-
-func (s *Server) apiAdminQR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	target := filepath.Join(s.cfg.DataDir, "join_qr.png")
-	if _, err := os.Stat(target); err != nil {
-		http.Error(w, "二维码不存在，请重启服务后再试", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Disposition", `attachment; filename="join_qr.png"`)
-	http.ServeFile(w, r, target)
 }
 
 func (s *Server) requireStudent(r *http.Request) (*domain.Attempt, error) {
@@ -750,18 +765,21 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 	for _, q := range questions {
 		ans := answers[q.ID]
 		item := map[string]any{
-			"id":       q.ID,
-			"stem":     q.Stem,
-			"type":     q.Type,
-			"answer":   ans,
-			"options":  q.Options,
-			"image":    q.Image,
-			"correct":  q.CorrectAnswer,
-			"is_survey": q.Type == domain.QuestionSurvey || q.Type == domain.QuestionShortAnswer,
+			"id":          q.ID,
+			"stem":        q.Stem,
+			"type":        q.Type,
+			"answer":      ans,
+			"options":     q.Options,
+			"image":       q.Image,
+			"correct":     q.CorrectAnswer,
+			"reference":   q.ReferenceAnswer,
+			"explanation": q.Explanation,
+			"is_multi":    q.Type == domain.QuestionMultiChoice,
+			"is_survey":   q.Type == domain.QuestionSurvey || q.Type == domain.QuestionShortAnswer,
 		}
 		if q.Type != domain.QuestionSurvey && q.Type != domain.QuestionShortAnswer {
 			total++
-			ok := ans != "" && ans == q.CorrectAnswer
+			ok := isCorrectAnswer(q, ans)
 			item["is_correct"] = ok
 			if ok {
 				correct++
@@ -783,6 +801,7 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 			"name":       attempt.Name,
 			"student_no": attempt.StudentNo,
 			"class_name": attempt.ClassName,
+			"attempt_no": attempt.AttemptNo,
 		},
 		"score": map[string]any{
 			"correct": correct,
@@ -806,11 +825,103 @@ func (s *Server) calcScore(ctx context.Context, q *domain.Quiz, attemptID string
 			continue
 		}
 		total++
-		if answers[item.ID] == item.CorrectAnswer {
+		if isCorrectAnswer(item, answers[item.ID]) {
 			correct++
 		}
 	}
 	return correct, total
+}
+
+func (s *Server) resolveAssetPath(raw string) (string, bool) {
+	name := filepath.Clean(strings.TrimSpace(raw))
+	if name == "" || name == "." {
+		return "", false
+	}
+	if strings.Contains(name, "..") || strings.HasPrefix(name, "/") {
+		return "", false
+	}
+	candidates := []string{
+		filepath.Join(s.cfg.QuizAssetsDir, name),
+		filepath.Join(s.cfg.DataDir, "assets", name),
+	}
+	for _, fp := range candidates {
+		if _, err := os.Stat(fp); err == nil {
+			return fp, true
+		}
+	}
+	return "", true
+}
+
+func findQuestion(qz *domain.Quiz, id string) (*domain.Question, bool) {
+	for i := range qz.Questions {
+		if qz.Questions[i].ID == id {
+			return &qz.Questions[i], true
+		}
+	}
+	return nil, false
+}
+
+func normalizeAnswer(q domain.Question, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("答案不能为空")
+	}
+	if q.Type == domain.QuestionShortAnswer {
+		return raw, nil
+	}
+	opt := map[string]struct{}{}
+	for _, it := range q.Options {
+		opt[it.Key] = struct{}{}
+	}
+	switch q.Type {
+	case domain.QuestionMultiChoice:
+		parts := strings.Split(raw, ",")
+		seen := map[string]struct{}{}
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			k := strings.TrimSpace(p)
+			if k == "" {
+				continue
+			}
+			if _, ok := opt[k]; !ok {
+				return "", errors.New("答案选项无效")
+			}
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			out = append(out, k)
+		}
+		if len(out) == 0 {
+			return "", errors.New("至少选择一个选项")
+		}
+		sort.Strings(out)
+		return strings.Join(out, ","), nil
+	case domain.QuestionSingleChoice, domain.QuestionYesNo, domain.QuestionSurvey:
+		if _, ok := opt[raw]; !ok {
+			return "", errors.New("答案选项无效")
+		}
+		return raw, nil
+	default:
+		return "", errors.New("暂不支持的题型")
+	}
+}
+
+func isCorrectAnswer(q domain.Question, ans string) bool {
+	if strings.TrimSpace(ans) == "" {
+		return false
+	}
+	switch q.Type {
+	case domain.QuestionMultiChoice:
+		normAns, err1 := normalizeAnswer(q, ans)
+		normCorrect, err2 := normalizeAnswer(q, q.CorrectAnswer)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		return normAns == normCorrect
+	default:
+		return ans == q.CorrectAnswer
+	}
 }
 
 func topKeys(m map[string]int, n int) []string {
@@ -878,8 +989,25 @@ func shuffledQuestions(q *domain.Quiz, attemptID string) []domain.Question {
 	}
 	r := seededRandom(q.QuizID + ":" + attemptID + ":final")
 	r.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
+	for i := range items {
+		items[i] = shuffleQuestionOptions(items[i], q.QuizID, attemptID)
+	}
+	for i := range tailFixed {
+		tailFixed[i] = shuffleQuestionOptions(tailFixed[i], q.QuizID, attemptID)
+	}
 	items = append(items, tailFixed...)
 	return items
+}
+
+func shuffleQuestionOptions(question domain.Question, quizID, attemptID string) domain.Question {
+	if len(question.Options) <= 1 {
+		return question
+	}
+	opts := append([]domain.Option(nil), question.Options...)
+	r := seededRandom(quizID + ":" + attemptID + ":options:" + question.ID)
+	r.Shuffle(len(opts), func(i, j int) { opts[i], opts[j] = opts[j], opts[i] })
+	question.Options = opts
+	return question
 }
 
 func (s *Server) listAttemptsByQuizID(ctx context.Context, quizID string) ([]domain.Attempt, error) {
@@ -904,6 +1032,28 @@ func countSubmitted(items []domain.Attempt) int {
 		}
 	}
 	return sum
+}
+
+func formatQuestionOptionsForCSV(q domain.Question) string {
+	if len(q.Options) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(q.Options))
+	for _, opt := range q.Options {
+		text := strings.TrimSpace(opt.Text)
+		image := strings.TrimSpace(opt.Image)
+		switch {
+		case text != "" && image != "":
+			parts = append(parts, fmt.Sprintf("%s:%s(图片:%s)", opt.Key, text, image))
+		case text != "":
+			parts = append(parts, fmt.Sprintf("%s:%s", opt.Key, text))
+		case image != "":
+			parts = append(parts, fmt.Sprintf("%s:[图片:%s]", opt.Key, image))
+		default:
+			parts = append(parts, opt.Key)
+		}
+	}
+	return strings.Join(parts, " | ")
 }
 
 func seededRandom(key string) *mrand.Rand {

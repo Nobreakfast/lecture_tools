@@ -29,6 +29,7 @@
     .meta { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
     .meta p { margin:0; padding:10px; border:1px solid #e5e7eb; border-radius:10px; }
     .qitem { border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:8px; line-height:1.6; }
+    .qimage { width: min(100%, 300px); border-radius:8px; margin-top:8px; border:1px solid #e5e7eb; }
     .good { color:#065f46; font-weight:600; }
     .bad { color:#991b1b; font-weight:600; }
   </style>
@@ -49,7 +50,6 @@
       <p>已进入：<strong id="started">0</strong>，已提交：<strong id="submitted">0</strong></p>
       <button id="openBtn">开启入口</button>
       <button id="closeBtn" style="margin-top:8px;background:#991b1b;">关闭入口</button>
-      <button id="qrBtn" style="margin-top:8px;">下载入口二维码</button>
     </div>
     <div class="card">
       <p>粘贴 YAML 题库后加载</p>
@@ -89,6 +89,24 @@
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+    function optionText(q, key) {
+      if (!key) return '未作答';
+      if (q.is_multi) {
+        const parts = String(key).split(',').map(s => s.trim()).filter(Boolean);
+        if (!parts.length) return '未作答';
+        return parts.map(k => {
+          const found = (q.options || []).find(op => op.key === k);
+          if (!found) return k;
+          if (!found.text) return found.key;
+          return `${found.key}. ${found.text}`;
+        }).join('；');
+      }
+      const found = (q.options || []).find(op => op.key === key);
+      if (!found) return key;
+      if (!found.text) return found.key;
+      const text = found.text || '';
+      return `${found.key}. ${text}`.trim();
     }
     async function login() {
       const password = document.getElementById('pwd').value;
@@ -160,12 +178,13 @@
           <td>${item.name}</td>
           <td>${item.student_no}</td>
           <td>${item.class_name}</td>
+          <td>${item.attempt_no ? `第${item.attempt_no}次` : '-'}</td>
           <td>${item.status}</td>
           <td>${item.correct}/${item.total}</td>
           <td><button class="small" onclick="showDetail('${item.id}')">查看</button></td>
         </tr>
       `).join('');
-      root.innerHTML = `<table><thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>状态</th><th id="scoreSorter" class="sortable">得分${sortHint()}</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>尝试</th><th>状态</th><th id="scoreSorter" class="sortable">得分${sortHint()}</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
       const sorter = document.getElementById('scoreSorter');
       if (sorter) sorter.onclick = toggleSortMode;
     }
@@ -220,16 +239,23 @@
       }
       const data = await r.json();
       const html = data.questions.map((q, i) => {
+        const image = q.image ? `<div><img class="qimage" src="/assets/${q.image}" /></div>` : '';
+        const reference = q.reference ? `<div>参考答案：${escapeHTML(q.reference)}</div>` : '';
+        const explanation = q.explanation ? `<div>解析：${escapeHTML(q.explanation)}</div>` : '';
         if (q.is_survey) {
-          return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div><div>学生作答：${escapeHTML(q.answer || '未作答')}（沟通题）</div></div>`;
+          if (q.type === 'short_answer') {
+            return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生作答：${escapeHTML(q.answer || '未作答')}（沟通题）</div>${reference}${explanation}</div>`;
+          }
+          return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生作答：${escapeHTML(optionText(q, q.answer))}（沟通题）</div>${reference}${explanation}</div>`;
         }
-        return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div><div>学生选择：${escapeHTML(q.answer || '未作答')}</div><div>正确答案：${escapeHTML(q.correct)}</div><div class="${q.is_correct ? 'good' : 'bad'}">${q.is_correct ? '回答正确' : '回答错误'}</div></div>`;
+        return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生选择：${escapeHTML(optionText(q, q.answer))}</div><div>正确答案：${escapeHTML(optionText(q, q.correct))}</div>${reference}${explanation}<div class="${q.is_correct ? 'good' : 'bad'}">${q.is_correct ? '回答正确' : '回答错误'}</div></div>`;
       }).join('');
       document.getElementById('detail').innerHTML = `
         <div class="meta">
           <p><strong>姓名：</strong>${escapeHTML(data.student.name)}</p>
           <p><strong>学号：</strong>${escapeHTML(data.student.student_no)}</p>
           <p><strong>班级：</strong>${escapeHTML(data.student.class_name)}</p>
+          <p><strong>尝试：</strong>${data.student.attempt_no ? `第${data.student.attempt_no}次` : '-'}</p>
           <p><strong>得分：</strong>${data.score.correct}/${data.score.total}</p>
         </div>
         ${html}
@@ -244,9 +270,6 @@
     }
     function exportCSV() {
       window.open('/api/admin/export-csv', '_blank');
-    }
-    function downloadQR() {
-      window.open('/api/admin/qr', '_blank');
     }
     async function loadAIHealth() {
       const r = await fetch('/api/admin/ai-health', { credentials:'include' });
@@ -300,7 +323,6 @@
     document.getElementById('loginBtn').onclick = login;
     document.getElementById('openBtn').onclick = () => toggle(true);
     document.getElementById('closeBtn').onclick = () => toggle(false);
-    document.getElementById('qrBtn').onclick = downloadQR;
     document.getElementById('pickQuiz').onclick = chooseQuizFile;
     document.getElementById('loadQuiz').onclick = loadQuiz;
     document.getElementById('exportBtn').onclick = exportCSV;

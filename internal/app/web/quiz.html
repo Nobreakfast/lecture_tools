@@ -14,8 +14,12 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 760px; margin: 24px auto; padding: 0 12px; }
     .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    .qimage { width: min(100%, 340px); border-radius:8px; margin-top:8px; border:1px solid #e5e7eb; }
+    .opt-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin-top:8px; }
     .opt { display:block; width:100%; text-align:left; padding:10px; margin-top:8px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
     .active { border-color:#111827; background:#f3f4f6; }
+    .opt-image { width:100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius:8px; border:1px solid #e5e7eb; background:#fff; margin-top:6px; }
+    .hint { color:#4b5563; font-size:13px; margin-top:8px; }
     .text-answer { width:100%; box-sizing:border-box; margin-top:8px; min-height:90px; padding:10px; border:1px solid #d1d5db; border-radius:10px; }
     #submit { width:100%; padding:12px; border:0; border-radius:10px; background:#111827; color:#fff; font-size:16px; }
   </style>
@@ -26,6 +30,10 @@
   <button id="submit">提交并查看结果</button>
   <script>
     let state = null;
+    function orderLabel(index) {
+      const labels = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+      return labels[index] || String(index + 1);
+    }
     function escapeHTML(s) {
       return String(s || '')
         .replaceAll('&', '&amp;')
@@ -52,7 +60,7 @@
       state.quiz.questions.forEach((q, idx) => {
         const card = document.createElement('div');
         card.className = 'card';
-        const image = q.image ? `<img src="/assets/${q.image}" style="max-width:100%;border-radius:8px;margin-top:8px;" />` : '';
+        const image = q.image ? `<img class="qimage" src="/assets/${q.image}" />` : '';
         card.innerHTML = `<strong>${idx + 1}. ${escapeHTML(q.stem)}</strong>${image}`;
         if (q.type === 'short_answer') {
           const area = document.createElement('textarea');
@@ -65,11 +73,40 @@
           saveBtn.onclick = () => save(q.id, area.value.trim());
           card.appendChild(area);
           card.appendChild(saveBtn);
+        } else if (q.type === 'multi_choice') {
+          const selected = new Set(String(state.answers[q.id] || '').split(',').map(s => s.trim()).filter(Boolean));
+          const box = document.createElement('div');
+          const hasImageOption = (q.options || []).some(op => !!op.image);
+          box.className = hasImageOption ? 'opt-grid' : '';
+          q.options.forEach((op, opIndex) => {
+            const b = document.createElement('button');
+            b.className = 'opt' + (selected.has(op.key) ? ' active' : '');
+            const text = op.image ? '' : (op.text ? escapeHTML(op.text) : `选项 ${escapeHTML(op.key)}`);
+            const opImage = op.image ? `<img class="opt-image" src="/assets/${escapeHTML(op.image)}" />` : '';
+            b.innerHTML = `<strong>${orderLabel(opIndex)}</strong> ${text}${opImage}`;
+            b.onclick = () => {
+              if (selected.has(op.key)) {
+                selected.delete(op.key);
+              } else {
+                selected.add(op.key);
+              }
+              const answer = Array.from(selected).sort().join(',');
+              save(q.id, answer);
+            };
+            box.appendChild(b);
+          });
+          card.appendChild(box);
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.textContent = '本题可多选，再次点击可取消。';
+          card.appendChild(hint);
         } else {
-          q.options.forEach(op => {
+          q.options.forEach((op, opIndex) => {
             const b = document.createElement('button');
             b.className = 'opt' + ((state.answers[q.id] === op.key) ? ' active' : '');
-            b.textContent = `${op.key}. ${op.text}`;
+            const text = op.image ? '' : (op.text ? escapeHTML(op.text) : `选项 ${escapeHTML(op.key)}`);
+            const opImage = op.image ? `<img class="opt-image" src="/assets/${escapeHTML(op.image)}" />` : '';
+            b.innerHTML = `<strong>${orderLabel(opIndex)}</strong> ${text}${opImage}`;
             b.onclick = () => save(q.id, op.key);
             card.appendChild(b);
           });
