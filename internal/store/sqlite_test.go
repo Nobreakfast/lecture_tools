@@ -43,21 +43,21 @@ func TestSubmitAttemptAssignsAttemptNoBySubmitted(t *testing.T) {
 		t.Fatalf("first submit attempt_no invalid: no=%d err=%v", no1, err)
 	}
 
+	// a1 is now submitted, so we can create a2 for the same student
 	createAttempt("a2", "t2", "quiz-a")
 	no2, err := st.SubmitAttempt(ctx, "a2")
 	if err != nil || no2 != 2 {
 		t.Fatalf("second submit attempt_no invalid: no=%d err=%v", no2, err)
 	}
 
+	// a2 is now submitted, create a3
 	createAttempt("a3", "t3", "quiz-a")
-
-	createAttempt("a4", "t4", "quiz-a")
-	no3, err := st.SubmitAttempt(ctx, "a4")
+	no3, err := st.SubmitAttempt(ctx, "a3")
 	if err != nil || no3 != 3 {
 		t.Fatalf("third submit attempt_no invalid: no=%d err=%v", no3, err)
 	}
 
-	no3Again, err := st.SubmitAttempt(ctx, "a4")
+	no3Again, err := st.SubmitAttempt(ctx, "a3")
 	if err != nil || no3Again != 3 {
 		t.Fatalf("resubmit should keep attempt_no: no=%d err=%v", no3Again, err)
 	}
@@ -68,12 +68,12 @@ func TestSubmitAttemptAssignsAttemptNoBySubmitted(t *testing.T) {
 		t.Fatalf("new quiz should restart attempt_no: no=%d err=%v", noQuizB, err)
 	}
 
-	a4, err := st.GetAttemptByID(ctx, "a4")
+	a3, err := st.GetAttemptByID(ctx, "a3")
 	if err != nil {
 		t.Fatalf("get attempt failed: %v", err)
 	}
-	if a4.Status != domain.StatusSubmitted || a4.AttemptNo != 3 {
-		t.Fatalf("stored attempt invalid: status=%s attempt_no=%d", a4.Status, a4.AttemptNo)
+	if a3.Status != domain.StatusSubmitted || a3.AttemptNo != 3 {
+		t.Fatalf("stored attempt invalid: status=%s attempt_no=%d", a3.Status, a3.AttemptNo)
 	}
 }
 

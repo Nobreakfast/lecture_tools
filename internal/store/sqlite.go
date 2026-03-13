@@ -25,6 +25,17 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) Init(ctx context.Context) error {
+	pragmas := []string{
+		`PRAGMA journal_mode = WAL;`,
+		`PRAGMA synchronous = NORMAL;`,
+		`PRAGMA busy_timeout = 5000;`,
+	}
+	for _, p := range pragmas {
+		if _, err := s.db.ExecContext(ctx, p); err != nil {
+			return err
+		}
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS attempts (
@@ -60,6 +71,19 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 	if err := s.ensureAttemptsColumns(ctx); err != nil {
 		return err
 	}
+
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_attempts_quiz_status ON attempts(quiz_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON attempts(quiz_id, student_no, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_answers_attempt ON answers(attempt_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_one_active ON attempts(quiz_id, student_no) WHERE status = 'in_progress';`,
+	}
+	for _, idx := range indexes {
+		if _, err := s.db.ExecContext(ctx, idx); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -221,6 +245,24 @@ func (s *SQLiteStore) GetLiveStats(ctx context.Context) (int, int, error) {
 		return 0, 0, err
 	}
 	return started, submitted, nil
+}
+
+func (s *SQLiteStore) GetInProgressAttempt(ctx context.Context, quizID, studentNo string) (*domain.Attempt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, quiz_id, name, student_no, class_name, attempt_no, status, created_at, updated_at, submitted_at FROM attempts WHERE quiz_id = ? AND student_no = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1`, quizID, studentNo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, sql.ErrNoRows
+	}
+	return scanAttemptRows(rows)
+}
+
+func (s *SQLiteStore) UpdateAttemptSession(ctx context.Context, attemptID, token, name, className string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET session_token = ?, name = ?, class_name = ?, updated_at = ? WHERE id = ?`, token, name, className, now, attemptID)
+	return err
 }
 
 func (s *SQLiteStore) ClearAttempts(ctx context.Context, quizID string) error {

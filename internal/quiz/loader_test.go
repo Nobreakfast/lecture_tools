@@ -10,7 +10,7 @@ import (
 func TestParseWeek2L1Quiz(t *testing.T) {
 	_, currentFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
-	target := filepath.Join(root, "quiz", "week2_l1.yaml")
+	target := filepath.Join(root, "quiz", "最优化方法", "week2_l1.yaml")
 	raw, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("read quiz file failed: %v", err)
@@ -59,7 +59,7 @@ questions:
 func TestParseWeek2L2Quiz(t *testing.T) {
 	_, currentFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
-	target := filepath.Join(root, "quiz", "week2_l2.yaml")
+	target := filepath.Join(root, "quiz", "最优化方法", "week2_l2.yaml")
 	raw, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("read quiz file failed: %v", err)

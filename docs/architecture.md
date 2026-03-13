@@ -28,16 +28,38 @@
 - 已有会话可继续答题与提交
 - `submitted` 状态禁止修改答案
 - `survey` 题不参与判分与总结
+- 同一学生（`quiz_id + student_no`）只允许一个 `in_progress` 状态的 attempt（数据库唯一索引保证）
+- `/api/me` 不返回 `correct_answer`、`explanation`、`reference_answer` 等敏感字段，防止学生通过开发者工具查看答案
+- 提交时自动保存所有未保存的简答题，无需手动保存
+
+## 会话恢复
+- 学生 cookie（`student_token`）有效期 7 天，关闭浏览器后仍可恢复
+- 学生信息（姓名、学号、班级）缓存在 localStorage，下次访问自动填充
+- 同一学号重新加入时，服务器自动复用已有的 `in_progress` attempt，不会创建重复记录
+- `/join` 页面加载时自动检测已有会话，有则直接跳转到 `/quiz` 或 `/result`
+
+## 安全措施
+- 学生提交的字段全部使用 HTML 转义（`escapeHTML`），防止存储型 XSS
+- CSV 导出使用 `safeCSV` 防止公式注入（`=`、`+`、`-`、`@` 开头的单元格前缀 `'`）
+- 移除了通配符 CORS（`Access-Control-Allow-Origin: *`），全部为同源访问
+- Cookie 设置 `HttpOnly` + `SameSite=Lax`
+
+## 数据库优化
+- SQLite 启用 WAL 模式（`journal_mode=WAL`）+ `busy_timeout=5000`
+- 索引：`idx_attempts_quiz_status`、`idx_attempts_lookup`、`idx_answers_attempt`
+- 唯一约束索引：`idx_attempts_one_active`（防止同一学生同一题库同时存在多个进行中的 attempt）
 
 ## 数据流
 1. 管理员登录并加载 YAML 题库
 2. 管理员开启入口
-3. 学生访问 `/join` 进入，创建匿名会话并写入 cookie
-4. 学生作答实时保存到 `answers`
-5. 学生提交后写入 `summaries`，状态锁定
-6. 学生查看结果并导出
+3. 学生访问 `/join`，前端先检查已有会话（`/api/me`），无则填写信息加入
+4. 服务器检查是否已有同学号的进行中 attempt，有则复用并更新 session token
+5. 学生作答：选择题实时保存，简答题在提交时自动批量保存
+6. 学生提交后状态锁定，查看结果并可导出 PDF/图片
+7. 管理员可查看全班答题情况、导出精简 CSV
 
 ## 扩展原则
 - 新题型：扩展 `domain.QuestionType` 与判分逻辑
 - 新数据库：实现 `store.Store` 接口
 - 新 AI 厂商：替换 `internal/ai` 的 HTTP 适配
+- 多班级并行：当前为单活跃题库架构，如需多班同时答题需引入 `quiz_instance` 概念

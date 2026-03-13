@@ -12,32 +12,223 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 760px; margin: 24px auto; padding: 0 12px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
-    input, textarea, button { width:100%; box-sizing:border-box; padding:10px; margin-top:8px; border:1px solid #d1d5db; border-radius:10px; }
-    button { background:#111827; color:#fff; border:0; }
-    textarea { min-height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    table { width:100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-    .small { width:auto; display:inline-block; padding:6px 10px; margin-right:6px; }
-    .row { display:flex; gap:8px; }
-    .row button { margin-top:8px; }
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      max-width: 760px;
+      margin: 24px auto;
+      padding: 0 12px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .card p { margin-bottom: 4px; }
+    input, textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 14px;
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--card-bg);
+      transition: border-color .2s;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.1);
+    }
+    button {
+      background: var(--primary);
+      color: #fff;
+      border: 0;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background .2s;
+    }
+    button:hover { background: var(--primary-hover); }
+    textarea {
+      min-height: 180px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      resize: vertical;
+    }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin-top: 8px;
+      font-size: 14px;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    thead { background: var(--bg); }
+    th {
+      padding: 10px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-secondary);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #eef2ff; transition: background .15s; }
+    .small { width: auto; display: inline-block; padding: 6px 12px; margin-right: 6px; border-radius: 8px; font-size: 13px; }
+    .row { display: flex; gap: 8px; }
+    .row button { margin-top: 8px; }
     .sortable { cursor: pointer; user-select: none; }
-    .modal { position: fixed; inset: 0; background: rgba(17,24,39,.5); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
-    .modal.show { display: flex; }
-    .modal-box { width: min(900px, 100%); max-height: 88vh; overflow: auto; background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 20px 40px rgba(0,0,0,.2); }
-    .meta { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
-    .meta p { margin:0; padding:10px; border:1px solid #e5e7eb; border-radius:10px; }
-    .qitem { border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:8px; line-height:1.6; }
-    .qimage { width: min(100%, 300px); border-radius:8px; margin-top:8px; border:1px solid #e5e7eb; }
-    .good { color:#065f46; font-weight:600; }
-    .bad { color:#991b1b; font-weight:600; }
+    .sortable:hover { color: var(--primary); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .badge-warning {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+    .badge-success {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .badge-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .score-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .score-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      min-width: 40px;
+    }
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width .3s;
+    }
+    .score-text {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .btn-danger { background: var(--danger); }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-danger-dark { background: #7f1d1d; }
+    .btn-danger-dark:hover { background: #651414; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 50;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+    .modal.show { display: flex; opacity: 1; }
+    .modal-box {
+      width: min(900px, 100%);
+      max-height: 88vh;
+      overflow: auto;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: 0 25px 50px rgba(0,0,0,.15);
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .meta p {
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+    }
+    .qitem {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+    .qimage { width: min(100%, 300px); border-radius: 8px; margin-top: 8px; border: 1px solid var(--border); }
+    .good { color: var(--success); font-weight: 600; }
+    .bad { color: var(--danger); font-weight: 600; }
+    #loginCard {
+      max-width: 380px;
+      margin: 80px auto;
+      text-align: center;
+    }
+    #loginCard p { margin-bottom: 8px; font-weight: 600; font-size: 16px; }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .header-bar h2 { font-size: 20px; }
   </style>
 </head>
 <body>
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <h2 style="margin:0;">管理员页面</h2>
-    <button id="shutdownBtn" class="small" style="background:#7f1d1d;">安全退出服务</button>
+  <div class="header-bar">
+    <h2>管理员页面</h2>
+    <button id="shutdownBtn" class="small btn-danger-dark">安全退出服务</button>
   </div>
   <div class="card" id="loginCard">
     <p>请输入管理员密码</p>
@@ -49,33 +240,52 @@
       <p>入口状态：<strong id="entry">-</strong></p>
       <p>已进入：<strong id="started">0</strong>，已提交：<strong id="submitted">0</strong></p>
       <button id="openBtn">开启入口</button>
-      <button id="closeBtn" style="margin-top:8px;background:#991b1b;">关闭入口</button>
+      <button id="closeBtn" class="btn-danger" style="margin-top:8px;">关闭入口</button>
     </div>
     <div class="card">
-      <p>粘贴 YAML 题库后加载</p>
-      <textarea id="yaml"></textarea>
-      <input id="quizFile" type="file" accept=".yaml,.yml,text/yaml" style="display:none;" />
-      <div class="row">
-        <button id="pickQuiz">选择题库文件</button>
-        <button id="loadQuiz">加载已选文件或YAML文本</button>
+      <p>选择题库</p>
+      <div class="row" style="margin-bottom:8px;">
+        <select id="courseSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
+          <option value="">-- 选择课程 --</option>
+        </select>
+        <select id="quizSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
+          <option value="">-- 选择题库 --</option>
+        </select>
       </div>
+      <button id="loadServerQuiz">加载所选题库</button>
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">或手动上传/粘贴 YAML</summary>
+        <textarea id="yaml" style="margin-top:8px;"></textarea>
+        <input id="quizFile" type="file" accept=".yaml,.yml,text/yaml" style="display:none;" />
+        <div class="row">
+          <button id="pickQuiz">选择本地文件</button>
+          <button id="loadQuiz">加载YAML文本</button>
+        </div>
+      </details>
     </div>
     <div class="card">
       <p>课后整理</p>
       <button id="exportBtn">导出全班 CSV</button>
-      <button id="clearAttemptsBtn" style="margin-top:8px;background:#7c2d12;">清空本次答题数据</button>
+      <button id="clearAttemptsBtn" class="btn-danger" style="margin-top:8px;">清空本次答题数据</button>
       <div id="attempts"></div>
     </div>
     <div class="card">
       <p>AI 总结状态</p>
       <button id="aiHealthBtn">刷新 AI 状态</button>
-      <div id="aiHealth" style="margin-top:8px;font-size:14px;color:#374151;"></div>
+      <div id="aiHealth" style="margin-top:8px;font-size:14px;color:var(--text-secondary);"></div>
+    </div>
+    <div class="card">
+      <p>AI 总结配置</p>
+      <input id="aiEndpoint" placeholder="API Endpoint (如 https://api.openai.com/v1)" />
+      <input id="aiKey" type="password" placeholder="API Key" />
+      <input id="aiModel" placeholder="Model (如 gpt-4o-mini)" />
+      <button id="saveAIConfigBtn" style="margin-top:8px;">保存 AI 配置</button>
     </div>
   </div>
   <div id="detailModal" class="modal">
     <div class="modal-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <h3 style="margin:0;">学生答题详情</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3>学生答题详情</h3>
         <button id="closeDetailBtn" class="small" style="margin-top:0;">关闭</button>
       </div>
       <div id="detail"></div>
@@ -108,6 +318,11 @@
       const text = found.text || '';
       return `${found.key}. ${text}`.trim();
     }
+    function scoreBarColor(ratio) {
+      if (ratio >= 0.8) return 'var(--success)';
+      if (ratio >= 0.5) return 'var(--warning)';
+      return 'var(--danger)';
+    }
     async function login() {
       const password = document.getElementById('pwd').value;
       const r = await fetch('/api/admin/login', {
@@ -125,6 +340,7 @@
       refresh();
       loadAttempts();
       loadAIHealth();
+      loadQuizFiles();
       listen();
     }
     async function toggle(open) {
@@ -170,20 +386,37 @@
       if (sortMode === 2) return '（分数低）';
       return '（时间顺序）';
     }
+    function statusBadge(status) {
+      if (status === 'submitted') return '<span class="badge badge-success"><span class="badge-dot"></span>已提交</span>';
+      if (status === 'in_progress') return '<span class="badge badge-warning"><span class="badge-dot"></span>答题中</span>';
+      return escapeHTML(status);
+    }
     function renderAttempts() {
       const root = document.getElementById('attempts');
       const items = sortAttempts(attemptsCache || []);
-      const rows = items.map(item => `
+      const rows = items.map(item => {
+        const total = Number(item.total || 0);
+        const correct = Number(item.correct || 0);
+        const ratio = total > 0 ? correct / total : 0;
+        const pct = total > 0 ? Math.round(ratio * 100) : 0;
+        const barColor = scoreBarColor(ratio);
+        return `
         <tr>
-          <td>${item.name}</td>
-          <td>${item.student_no}</td>
-          <td>${item.class_name}</td>
+          <td>${escapeHTML(item.name)}</td>
+          <td>${escapeHTML(item.student_no)}</td>
+          <td>${escapeHTML(item.class_name)}</td>
           <td>${item.attempt_no ? `第${item.attempt_no}次` : '-'}</td>
-          <td>${item.status}</td>
-          <td>${item.correct}/${item.total}</td>
-          <td><button class="small" onclick="showDetail('${item.id}')">查看</button></td>
+          <td>${statusBadge(item.status)}</td>
+          <td>
+            <div class="score-bar-wrap">
+              <div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${barColor};"></div></div>
+              <span class="score-text">${correct}/${total}</span>
+            </div>
+          </td>
+          <td><button class="small" onclick="showDetail('${escapeHTML(item.id)}')">查看</button></td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
       root.innerHTML = `<table><thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>尝试</th><th>状态</th><th id="scoreSorter" class="sortable">得分${sortHint()}</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
       const sorter = document.getElementById('scoreSorter');
       if (sorter) sorter.onclick = toggleSortMode;
@@ -239,7 +472,7 @@
       }
       const data = await r.json();
       const html = data.questions.map((q, i) => {
-        const image = q.image ? `<div><img class="qimage" src="/assets/${q.image}" /></div>` : '';
+        const image = q.image ? `<div><img class="qimage" src="/assets/${escapeHTML(q.image)}" /></div>` : '';
         const reference = q.reference ? `<div>参考答案：${escapeHTML(q.reference)}</div>` : '';
         const explanation = q.explanation ? `<div>解析：${escapeHTML(q.explanation)}</div>` : '';
         if (q.is_survey) {
@@ -261,12 +494,14 @@
         ${html}
       `;
       document.getElementById('detailModal').classList.add('show');
+      document.body.style.overflow = 'hidden';
       if (window.MathJax && window.MathJax.typesetPromise) {
         await window.MathJax.typesetPromise([document.getElementById('detail')]);
       }
     }
     function closeDetail() {
       document.getElementById('detailModal').classList.remove('show');
+      document.body.style.overflow = '';
     }
     function exportCSV() {
       window.open('/api/admin/export-csv', '_blank');
@@ -276,11 +511,11 @@
       if (!r.ok) return;
       const d = await r.json();
       document.getElementById('aiHealth').innerHTML = `
-        endpoint: ${d.endpoint || '-'}<br/>
-        model: ${d.model || '-'}<br/>
+        endpoint: ${escapeHTML(d.endpoint || '-')}<br/>
+        model: ${escapeHTML(d.model || '-')}<br/>
         key_loaded: ${d.key_loaded ? 'true' : 'false'}<br/>
-        last_success_at: ${d.last_success_at || '-'}<br/>
-        last_error: ${d.last_error || '-'}
+        last_success_at: ${escapeHTML(d.last_success_at || '-')}<br/>
+        last_error: ${escapeHTML(d.last_error || '-')}
       `;
     }
     async function clearAttempts() {
@@ -320,6 +555,72 @@
         loadAttempts();
       };
     }
+    let quizFilesCache = [];
+    async function loadQuizFiles() {
+      try {
+        const r = await fetch('/api/admin/quiz-files', { credentials:'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        quizFilesCache = data.items || [];
+        const courseSet = new Set(quizFilesCache.map(i => i.course));
+        const cs = document.getElementById('courseSelect');
+        cs.innerHTML = '<option value="">-- 选择课程 --</option>';
+        for (const c of courseSet) {
+          cs.innerHTML += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
+        }
+      } catch(e) {}
+    }
+    function updateQuizSelect() {
+      const course = document.getElementById('courseSelect').value;
+      const qs = document.getElementById('quizSelect');
+      qs.innerHTML = '<option value="">-- 选择题库 --</option>';
+      if (!course) return;
+      const items = quizFilesCache.filter(i => i.course === course);
+      for (const item of items) {
+        qs.innerHTML += `<option value="${escapeHTML(item.path)}">${escapeHTML(item.file)}</option>`;
+      }
+    }
+    async function loadServerQuiz() {
+      const path = document.getElementById('quizSelect').value;
+      if (!path) {
+        alert('请先选择一个题库文件');
+        return;
+      }
+      try {
+        const r = await fetch('/api/admin/load-quiz', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'include',
+          body: JSON.stringify({ file_path: path })
+        });
+        if (!r.ok) {
+          alert(await r.text());
+          return;
+        }
+        alert('题库加载成功');
+        refresh();
+        loadAttempts();
+      } catch(e) {
+        alert('加载失败');
+      }
+    }
+    async function saveAIConfig() {
+      const endpoint = document.getElementById('aiEndpoint').value.trim();
+      const apiKey = document.getElementById('aiKey').value.trim();
+      const model = document.getElementById('aiModel').value.trim();
+      const r = await fetch('/api/admin/ai-config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ endpoint, api_key: apiKey, model })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      alert('AI 配置已保存');
+      loadAIHealth();
+    }
     document.getElementById('loginBtn').onclick = login;
     document.getElementById('openBtn').onclick = () => toggle(true);
     document.getElementById('closeBtn').onclick = () => toggle(false);
@@ -329,6 +630,9 @@
     document.getElementById('clearAttemptsBtn').onclick = clearAttempts;
     document.getElementById('shutdownBtn').onclick = shutdownService;
     document.getElementById('aiHealthBtn').onclick = loadAIHealth;
+    document.getElementById('courseSelect').onchange = updateQuizSelect;
+    document.getElementById('loadServerQuiz').onclick = loadServerQuiz;
+    document.getElementById('saveAIConfigBtn').onclick = saveAIConfig;
     document.getElementById('closeDetailBtn').onclick = closeDetail;
     document.getElementById('detailModal').onclick = (evt) => {
       if (evt.target.id === 'detailModal') closeDetail();

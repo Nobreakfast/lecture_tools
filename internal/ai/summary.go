@@ -13,18 +13,28 @@ import (
 	"course-assistant/internal/domain"
 )
 
-type Input struct {
-	ScoreCorrect int      `json:"score_correct"`
-	ScoreTotal   int      `json:"score_total"`
-	Strengths    []string `json:"strengths"`
-	Weaknesses   []string `json:"weaknesses"`
+type WrongQuestion struct {
+	Stem          string `json:"stem"`
+	StudentAnswer string `json:"student_answer"`
+	CorrectAnswer string `json:"correct_answer"`
+	KnowledgeTag  string `json:"knowledge_tag,omitempty"`
+	Explanation   string `json:"explanation,omitempty"`
+}
+
+type SummarizeInput struct {
+	QuizTitle      string          `json:"quiz_title"`
+	ScoreCorrect   int             `json:"score_correct"`
+	ScoreTotal     int             `json:"score_total"`
+	Strengths      []string        `json:"strengths"`
+	Weaknesses     []string        `json:"weaknesses"`
+	WrongQuestions []WrongQuestion `json:"wrong_questions"`
 }
 
 type Client struct {
-	Endpoint string
-	APIKey   string
-	Model    string
-	HTTP     *http.Client
+	endpoint string
+	apiKey   string
+	model    string
+	httpCli  *http.Client
 	mu       sync.RWMutex
 	lastOK   time.Time
 	lastErr  string
@@ -32,71 +42,137 @@ type Client struct {
 
 func NewClient(endpoint, apiKey, model string) *Client {
 	return &Client{
-		Endpoint: endpoint,
-		APIKey:   apiKey,
-		Model:    model,
-		HTTP:     &http.Client{Timeout: 15 * time.Second},
+		endpoint: strings.TrimSpace(endpoint),
+		apiKey:   strings.TrimSpace(apiKey),
+		model:    strings.TrimSpace(model),
+		httpCli:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
-func (c *Client) Summarize(ctx context.Context, in Input) domain.ResultSummary {
-	base := ruleBased(in)
-	if strings.TrimSpace(c.Endpoint) == "" {
-		return base
+const systemPrompt = `你是一位大学课堂教学助手。学生刚完成一次课堂小测，请根据他的错题信息给出个性化的学习反馈。
+
+要求：
+1. 分析学生的掌握情况，指出哪些知识点掌握良好，哪些有问题
+2. 对每道错题，解释关键知识点和错误原因
+3. 尽量给出一个生活中的例子帮助学生理解错题涉及的概念，格式如：
+   "生活中的xxx例子可以帮助你理解这个问题：xxx是xxx样子，它与这道题的关系是xxx。当你下次遇到类似问题，可以想想这个例子。"
+4. 给出具体可执行的改进建议
+
+请输出 JSON，包含以下字段：
+- strengths: string[] — 掌握较好的知识点（简短）
+- weaknesses: string[] — 需要加强的知识点（简短）
+- next_actions: string[] — 具体的行动建议（每条包含错题分析、生活类比、改进方法，可以较长）
+- priority_level: string — 优先级（"高"/"中"/"低"）
+- encouragement: string — 一句鼓励的话
+
+注意：语言要亲切自然，像老师对学生说话一样。不要使用空洞的套话。只输出合法 JSON，不要 markdown 代码块或其他内容。`
+
+func (c *Client) Summarize(ctx context.Context, in SummarizeInput) (domain.ResultSummary, error) {
+	c.mu.RLock()
+	endpoint := c.endpoint
+	apiKey := c.apiKey
+	model := c.model
+	c.mu.RUnlock()
+
+	if strings.TrimSpace(endpoint) == "" {
+		return ruleBased(in), fmt.Errorf("AI endpoint 未配置")
 	}
+
+	userMsg, _ := json.Marshal(in)
+	url := resolveEndpoint(endpoint)
 	payload := map[string]any{
-		"model": c.Model,
-		"input": map[string]any{
-			"instruction": "请输出 JSON，字段: strengths, weaknesses, next_actions, priority_level, encouragement。内容要给学生可执行建议，中文简洁。",
-			"data":        in,
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": string(userMsg)},
 		},
+		"temperature": 0.7,
 	}
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		c.setLastError(err.Error())
-		return base
+		return ruleBased(in), err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	resp, err := c.HTTP.Do(req)
+
+	resp, err := c.httpCli.Do(req)
 	if err != nil {
 		c.setLastError(err.Error())
-		return base
+		return ruleBased(in), err
 	}
 	defer resp.Body.Close()
-	var out struct {
-		Output domain.ResultSummary `json:"output"`
+
+	if resp.StatusCode != http.StatusOK {
+		msg := fmt.Sprintf("AI 返回状态码 %d", resp.StatusCode)
+		c.setLastError(msg)
+		return ruleBased(in), fmt.Errorf("%s", msg)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
 		c.setLastError(err.Error())
-		return base
+		return ruleBased(in), err
 	}
-	if len(out.Output.NextActions) == 0 {
-		c.setLastError("output.next_actions empty")
-		return base
+	if len(chatResp.Choices) == 0 {
+		msg := "AI 返回空 choices"
+		c.setLastError(msg)
+		return ruleBased(in), fmt.Errorf("%s", msg)
 	}
+
+	content := stripCodeFence(strings.TrimSpace(chatResp.Choices[0].Message.Content))
+	var summary domain.ResultSummary
+	if err := json.Unmarshal([]byte(content), &summary); err != nil {
+		c.setLastError("解析 AI JSON 失败: " + err.Error())
+		return ruleBased(in), err
+	}
+
 	c.setLastSuccess(time.Now())
-	return out.Output
+	return summary, nil
+}
+
+func (c *Client) UpdateConfig(endpoint, apiKey, model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if endpoint != "" {
+		c.endpoint = strings.TrimSpace(endpoint)
+	}
+	if apiKey != "" {
+		c.apiKey = strings.TrimSpace(apiKey)
+	}
+	if model != "" {
+		c.model = strings.TrimSpace(model)
+	}
 }
 
 func (c *Client) Health() map[string]any {
 	c.mu.RLock()
-	lastOK := c.lastOK
-	lastErr := c.lastErr
+	ep := c.endpoint
+	m := c.model
+	k := c.apiKey
+	ok := c.lastOK
+	le := c.lastErr
 	c.mu.RUnlock()
-	lastSuccessAt := ""
-	if !lastOK.IsZero() {
-		lastSuccessAt = lastOK.Format(time.RFC3339)
+	las := ""
+	if !ok.IsZero() {
+		las = ok.Format(time.RFC3339)
 	}
 	return map[string]any{
-		"endpoint":        c.Endpoint,
-		"model":           c.Model,
-		"key_loaded":      strings.TrimSpace(c.APIKey) != "",
-		"last_success_at": lastSuccessAt,
-		"last_error":      lastErr,
+		"endpoint":        ep,
+		"model":           m,
+		"key_loaded":      strings.TrimSpace(k) != "",
+		"last_success_at": las,
+		"last_error":      le,
 	}
 }
 
@@ -113,7 +189,32 @@ func (c *Client) setLastSuccess(t time.Time) {
 	c.mu.Unlock()
 }
 
-func ruleBased(in Input) domain.ResultSummary {
+func resolveEndpoint(endpoint string) string {
+	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/chat/completions") {
+		return endpoint
+	}
+	if strings.HasSuffix(endpoint, "/v1") {
+		return endpoint + "/chat/completions"
+	}
+	return endpoint + "/v1/chat/completions"
+}
+
+func stripCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		lines := strings.SplitN(s, "\n", 2)
+		if len(lines) == 2 {
+			s = lines[1]
+		}
+		if idx := strings.LastIndex(s, "```"); idx >= 0 {
+			s = s[:idx]
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func ruleBased(in SummarizeInput) domain.ResultSummary {
 	ratio := 0.0
 	if in.ScoreTotal > 0 {
 		ratio = float64(in.ScoreCorrect) / float64(in.ScoreTotal)

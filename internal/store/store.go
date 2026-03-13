@@ -21,5 +21,7 @@ type Store interface {
 	UpsertSummary(ctx context.Context, attemptID string, summaryJSON string) error
 	GetSummary(ctx context.Context, attemptID string) (string, error)
 	GetLiveStats(ctx context.Context) (int, int, error)
+	GetInProgressAttempt(ctx context.Context, quizID, studentNo string) (*domain.Attempt, error)
+	UpdateAttemptSession(ctx context.Context, attemptID, token, name, className string) error
 	ClearAttempts(ctx context.Context, quizID string) error
 }

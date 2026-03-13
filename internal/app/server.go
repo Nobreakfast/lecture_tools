@@ -105,6 +105,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/attempts", s.apiAdminAttempts)
 	mux.HandleFunc("/api/admin/attempt-detail", s.apiAdminAttemptDetail)
 	mux.HandleFunc("/api/admin/export-csv", s.apiAdminExportCSV)
+	mux.HandleFunc("/api/retry", s.apiRetry)
+	mux.HandleFunc("/api/ai-summary", s.apiAISummary)
+	mux.HandleFunc("/api/admin/ai-config", s.apiAdminAIConfig)
+	mux.HandleFunc("/api/admin/quiz-files", s.apiAdminQuizFiles)
 	return withCORS(mux)
 }
 
@@ -179,16 +183,34 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "当前未加载题库", http.StatusServiceUnavailable)
 		return
 	}
-	attemptID := newID()
+	studentNo := strings.TrimSpace(req.StudentNo)
 	token := newID() + newID()
+	existing, existErr := s.store.GetInProgressAttempt(r.Context(), current.QuizID, studentNo)
+	if existErr == nil && existing != nil {
+		existing.SessionToken = token
+		existing.Name = strings.TrimSpace(req.Name)
+		existing.ClassName = strings.TrimSpace(req.ClassName)
+		_ = s.store.UpdateAttemptSession(r.Context(), existing.ID, token, existing.Name, existing.ClassName)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "student_token",
+			Value:    token,
+			Path:     "/",
+			MaxAge:   7 * 24 * 3600,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
+	attemptID := newID()
 	now := time.Now()
 	a := &domain.Attempt{
 		ID:           attemptID,
 		SessionToken: token,
 		QuizID:       current.QuizID,
-		Name:         req.Name,
-		StudentNo:    req.StudentNo,
-		ClassName:    req.ClassName,
+		Name:         strings.TrimSpace(req.Name),
+		StudentNo:    studentNo,
+		ClassName:    strings.TrimSpace(req.ClassName),
 		Status:       domain.StatusInProgress,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -201,6 +223,7 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		Name:     "student_token",
 		Value:    token,
 		Path:     "/",
+		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -239,6 +262,22 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qs := shuffledQuestions(current, attempt.ID)
+	safeQs := make([]map[string]any, 0, len(qs))
+	for _, q := range qs {
+		sq := map[string]any{
+			"id":      q.ID,
+			"type":    q.Type,
+			"stem":    q.Stem,
+			"options": q.Options,
+		}
+		if q.Image != "" {
+			sq["image"] = q.Image
+		}
+		if q.PoolTag != "" {
+			sq["pool_tag"] = q.PoolTag
+		}
+		safeQs = append(safeQs, sq)
+	}
 	writeJSON(w, map[string]any{
 		"attempt": map[string]any{
 			"name":       attempt.Name,
@@ -246,7 +285,7 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			"class_name": attempt.ClassName,
 			"status":     attempt.Status,
 		},
-		"quiz":    map[string]any{"quiz_id": current.QuizID, "title": current.Title, "questions": qs},
+		"quiz":    map[string]any{"quiz_id": current.QuizID, "title": current.Title, "questions": safeQs},
 		"answers": answers,
 	})
 }
@@ -361,6 +400,206 @@ func (s *Server) apiResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, res)
+}
+
+func (s *Server) apiRetry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	attempt, err := s.requireStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	if attempt.Status != domain.StatusSubmitted {
+		http.Error(w, "当前状态不可重试", http.StatusForbidden)
+		return
+	}
+	s.mu.RLock()
+	current := s.currentQuiz
+	s.mu.RUnlock()
+	if current == nil || attempt.QuizID != current.QuizID {
+		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		return
+	}
+	token := newID() + newID()
+	now := time.Now()
+	a := &domain.Attempt{
+		ID:           newID(),
+		SessionToken: token,
+		QuizID:       current.QuizID,
+		Name:         attempt.Name,
+		StudentNo:    attempt.StudentNo,
+		ClassName:    attempt.ClassName,
+		Status:       domain.StatusInProgress,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.store.CreateAttempt(r.Context(), a); err != nil {
+		http.Error(w, "创建重试会话失败", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "student_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   7 * 24 * 3600,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiAISummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	attempt, err := s.requireStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	if attempt.Status != domain.StatusSubmitted {
+		http.Error(w, "未提交", http.StatusForbidden)
+		return
+	}
+	s.mu.RLock()
+	current := s.currentQuiz
+	s.mu.RUnlock()
+	if current == nil || attempt.QuizID != current.QuizID {
+		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		return
+	}
+	saved, sErr := s.store.GetSummary(r.Context(), attempt.ID)
+	if sErr == nil && strings.TrimSpace(saved) != "" {
+		var summary domain.ResultSummary
+		if json.Unmarshal([]byte(saved), &summary) == nil && len(summary.NextActions) > 0 {
+			writeJSON(w, map[string]any{"summary": summary, "cached": true})
+			return
+		}
+	}
+	answers, err := s.store.GetAnswers(r.Context(), attempt.ID)
+	if err != nil {
+		http.Error(w, "读取答案失败", http.StatusInternalServerError)
+		return
+	}
+	questions := shuffledQuestions(current, attempt.ID)
+	correct := 0
+	total := 0
+	knowledgeGood := map[string]int{}
+	knowledgeBad := map[string]int{}
+	var wrongQs []ai.WrongQuestion
+	for _, q := range questions {
+		if q.Type == domain.QuestionSurvey || q.Type == domain.QuestionShortAnswer {
+			continue
+		}
+		total++
+		ans := answers[q.ID]
+		if isCorrectAnswer(q, ans) {
+			correct++
+			if q.KnowledgeTag != "" {
+				knowledgeGood[q.KnowledgeTag]++
+			}
+		} else {
+			if q.KnowledgeTag != "" {
+				knowledgeBad[q.KnowledgeTag]++
+			}
+			wrongQs = append(wrongQs, ai.WrongQuestion{
+				Stem:          q.Stem,
+				StudentAnswer: ans,
+				CorrectAnswer: q.CorrectAnswer,
+				KnowledgeTag:  q.KnowledgeTag,
+				Explanation:   q.Explanation,
+			})
+		}
+	}
+	input := ai.SummarizeInput{
+		QuizTitle:      current.Title,
+		ScoreCorrect:   correct,
+		ScoreTotal:     total,
+		Strengths:      topKeys(knowledgeGood, 5),
+		Weaknesses:     topKeys(knowledgeBad, 5),
+		WrongQuestions: wrongQs,
+	}
+	summary, aiErr := s.aiClient.Summarize(r.Context(), input)
+	if aiErr != nil {
+		writeJSON(w, map[string]any{"summary": summary, "ai_error": aiErr.Error()})
+		return
+	}
+	summaryJSON, _ := json.Marshal(summary)
+	_ = s.store.UpsertSummary(r.Context(), attempt.ID, string(summaryJSON))
+	writeJSON(w, map[string]any{"summary": summary, "cached": false})
+}
+
+func (s *Server) apiAdminAIConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Endpoint string `json:"endpoint"`
+		APIKey   string `json:"api_key"`
+		Model    string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	s.aiClient.UpdateConfig(req.Endpoint, req.APIKey, req.Model)
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiAdminQuizFiles(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	quizDir := filepath.Join(filepath.Dir(s.cfg.DataDir), "quiz")
+	if info, err := os.Stat(quizDir); err != nil || !info.IsDir() {
+		quizDir = "./quiz"
+	}
+	type quizFileItem struct {
+		Course string `json:"course"`
+		File   string `json:"file"`
+		Path   string `json:"path"`
+	}
+	var items []quizFileItem
+	entries, err := os.ReadDir(quizDir)
+	if err != nil {
+		writeJSON(w, map[string]any{"items": items})
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		courseName := entry.Name()
+		courseDir := filepath.Join(quizDir, courseName)
+		files, err := os.ReadDir(courseDir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			name := f.Name()
+			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+				items = append(items, quizFileItem{
+					Course: courseName,
+					File:   name,
+					Path:   filepath.Join(courseDir, name),
+				})
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"items": items})
 }
 
 func (s *Server) apiAdminLogin(w http.ResponseWriter, r *http.Request) {
@@ -528,13 +767,23 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 		raw, _ = io.ReadAll(f)
 	} else {
 		var req struct {
-			YAML string `json:"yaml"`
+			YAML     string `json:"yaml"`
+			FilePath string `json:"file_path"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
-		raw = []byte(req.YAML)
+		if req.FilePath != "" {
+			data, err := os.ReadFile(req.FilePath)
+			if err != nil {
+				http.Error(w, "读取题库文件失败: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			raw = data
+		} else {
+			raw = []byte(req.YAML)
+		}
 	}
 	parsed, err := quiz.Parse(raw)
 	if err != nil {
@@ -687,11 +936,11 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="class_report.csv"`)
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	cw := csv.NewWriter(w)
 	header := []string{"姓名", "学号", "班级", "状态", "尝试次数", "正确数", "总题数"}
 	for idx := range current.Questions {
-		prefix := fmt.Sprintf("第%d题", idx+1)
-		header = append(header, prefix+"题号", prefix+"题干", prefix+"选项", prefix+"作答")
+		header = append(header, fmt.Sprintf("第%d题", idx+1))
 	}
 	_ = cw.Write(header)
 	for _, a := range items {
@@ -700,14 +949,14 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 		if a.AttemptNo > 0 {
 			attemptNo = fmt.Sprintf("%d", a.AttemptNo)
 		}
-		row := []string{a.Name, a.StudentNo, a.ClassName, string(a.Status), attemptNo, fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)}
+		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)}
 		answers, err := s.store.GetAnswers(r.Context(), a.ID)
 		if err != nil {
 			http.Error(w, "读取答案失败", http.StatusInternalServerError)
 			return
 		}
 		for _, q := range current.Questions {
-			row = append(row, q.ID, q.Stem, formatQuestionOptionsForCSV(q), answers[q.ID])
+			row = append(row, safeCSV(answers[q.ID]))
 		}
 		_ = cw.Write(row)
 	}
@@ -1041,6 +1290,51 @@ func countSubmitted(items []domain.Attempt) int {
 	return sum
 }
 
+func formatQuestionCorrectForCSV(q domain.Question) string {
+	switch q.Type {
+	case domain.QuestionShortAnswer:
+		return q.ReferenceAnswer
+	case domain.QuestionSurvey:
+		return ""
+	case domain.QuestionMultiChoice:
+		keys := strings.Split(q.CorrectAnswer, ",")
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			text := ""
+			for _, opt := range q.Options {
+				if opt.Key == k {
+					text = opt.Text
+					break
+				}
+			}
+			if text != "" {
+				parts = append(parts, k+":"+text)
+			} else {
+				parts = append(parts, k)
+			}
+		}
+		return strings.Join(parts, "；")
+	default:
+		key := strings.TrimSpace(q.CorrectAnswer)
+		if key == "" {
+			return ""
+		}
+		for _, opt := range q.Options {
+			if opt.Key == key {
+				if opt.Text != "" {
+					return key + ":" + opt.Text
+				}
+				return key
+			}
+		}
+		return key
+	}
+}
+
 func formatQuestionOptionsForCSV(q domain.Question) string {
 	if len(q.Options) == 0 {
 		return ""
@@ -1082,15 +1376,20 @@ func writeJSON(w http.ResponseWriter, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+func safeCSV(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@':
+		return "'" + s
+	}
+	return s
+}
+
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		next.ServeHTTP(w, r)
 	})
 }
