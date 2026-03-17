@@ -13,3 +13,6 @@ questions:
   - id: 'w3l1_q4'
     type: 'short_answer'
     stem: '你希望在小组大作业时，做什么课题？有什么推荐吗？'
+  - id: 'w3l1_q5'
+    type: 'short_answer'
+    stem: '其它想跟老师交流的内容？'
