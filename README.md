@@ -70,21 +70,23 @@ go run ./cmd/qrgen -url "https://example.com" -out "./qrcode.png" -size 256
 - `-size` 可选，二维码尺寸，范围 `64-2048`
 
 ## 环境变量
-- `APP_ADDR` 默认 `0.0.0.0:8080`
-- `APP_BASE_URL` 默认自动推导为 `http://局域网IP:端口`
+- `APP_ADDR` 默认 `0.0.0.0:8080`；若检测到证书并启用 HTTPS，默认改为 `0.0.0.0:443`
+- `APP_BASE_URL` 默认自动推导；HTTPS 模式下为 `https://局域网IP:端口`
 - `ADMIN_PASSWORD` 默认 `admin123`
 - `DATA_DIR` 默认 `./data`
 - `CERT_PATH` 可选，证书目录；设置后自动读取目录下首个 `*.pem` 与 `*.key` 启用 HTTPS，若证书不存在则自动回退 HTTP
+- `APP_HTTP_REDIRECT_ADDR` 可选，仅在 HTTPS 启用时生效；默认 `:8080`，自动 301 跳转到 HTTPS
 - `AI_ENDPOINT` 可选，AI 服务地址
 - `AI_API_KEY` 可选，AI 鉴权密钥
 - `AI_MODEL` 可选，模型名
 
 示例：
 ```bash
-APP_ADDR=0.0.0.0:8080 \
-APP_BASE_URL=https://192.168.1.10:8080 \
+APP_ADDR=0.0.0.0:443 \
+APP_BASE_URL=https://192.168.1.10:443 \
 ADMIN_PASSWORD=你的管理员密码 \
 CERT_PATH=./certs \
+APP_HTTP_REDIRECT_ADDR=:8080 \
 AI_ENDPOINT=https://your-api-endpoint \
 AI_API_KEY=your_key \
 AI_MODEL=your_model \

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,7 +23,6 @@ import (
 
 func main() {
 	loaded := loadDotEnvCandidates()
-	addr := env("APP_ADDR", "0.0.0.0:8080")
 	certPath := env("CERT_PATH", "")
 	certFile := ""
 	keyFile := ""
@@ -35,9 +35,22 @@ func main() {
 			keyFile = ""
 		}
 	}
+	httpsEnabled := certFile != "" && keyFile != ""
+	defaultAddr := "0.0.0.0:8080"
+	if httpsEnabled {
+		defaultAddr = "0.0.0.0:443"
+	}
+	addr := env("APP_ADDR", defaultAddr)
 	baseURL := env("APP_BASE_URL", "")
 	if baseURL == "" {
-		baseURL = guessBaseURL(addr, certFile != "" && keyFile != "")
+		baseURL = guessBaseURL(addr, httpsEnabled)
+	}
+	if httpsEnabled {
+		baseURL = normalizeHTTPSBaseURL(baseURL, addr)
+	}
+	redirectAddr := env("APP_HTTP_REDIRECT_ADDR", "")
+	if httpsEnabled && strings.TrimSpace(redirectAddr) == "" {
+		redirectAddr = ":8080"
 	}
 	cfg := app.Config{
 		Addr:          addr,
@@ -68,19 +81,36 @@ func main() {
 		Addr:    cfg.Addr,
 		Handler: srv.Routes(),
 	}
-	srv.SetShutdownFunc(func() {
+	var redirectSrv *http.Server
+	if httpsEnabled && strings.TrimSpace(redirectAddr) != "" {
+		redirectSrv = &http.Server{
+			Addr: redirectAddr,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				target := buildRedirectTarget(cfg.BaseURL, r)
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+			}),
+		}
+	}
+	shutdownAll := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(ctx)
-	})
+		if redirectSrv != nil {
+			_ = redirectSrv.Shutdown(ctx)
+		}
+	}
+	srv.SetShutdownFunc(shutdownAll)
 	if len(loaded) > 0 {
 		fmt.Printf(".env 已加载: %s\n", strings.Join(loaded, ", "))
 	} else {
 		fmt.Println(".env 未加载: 使用系统环境变量")
 	}
 	fmt.Printf("AI配置: endpoint=%s model=%s key_loaded=%v\n", mask(cfg.AIEndpoint), cfg.AIModel, cfg.AIKey != "")
-	if certFile != "" && keyFile != "" {
+	if httpsEnabled {
 		fmt.Printf("HTTPS已启用: cert=%s key=%s\n", certFile, keyFile)
+		if redirectSrv != nil {
+			fmt.Printf("HTTP跳转已启用: addr=%s -> %s\n", redirectAddr, cfg.BaseURL)
+		}
 	} else {
 		fmt.Println("HTTPS未启用: 使用HTTP")
 	}
@@ -89,11 +119,17 @@ func main() {
 	signal.Notify(stopSig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-stopSig
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = httpSrv.Shutdown(ctx)
+		shutdownAll()
 	}()
-	if certFile != "" && keyFile != "" {
+	if redirectSrv != nil {
+		go func() {
+			err := redirectSrv.ListenAndServe()
+			if err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTP跳转服务启动失败: %v", err)
+			}
+		}()
+	}
+	if httpsEnabled {
 		err = httpSrv.ListenAndServeTLS(certFile, keyFile)
 	} else {
 		err = httpSrv.ListenAndServe()
@@ -113,12 +149,14 @@ func env(k, v string) string {
 
 func guessBaseURL(addr string, https bool) string {
 	scheme := "http"
+	defaultPort := "8080"
 	if https {
 		scheme = "https"
+		defaultPort = "443"
 	}
 	host, port, err := splitHostPort(addr)
 	if err != nil {
-		return scheme + "://127.0.0.1:8080"
+		return scheme + "://127.0.0.1:" + defaultPort
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = localIPv4()
@@ -127,6 +165,48 @@ func guessBaseURL(addr string, https bool) string {
 		host = "127.0.0.1"
 	}
 	return scheme + "://" + host + ":" + port
+}
+
+func normalizeHTTPSBaseURL(baseURL, addr string) string {
+	raw := strings.TrimSpace(baseURL)
+	if raw == "" {
+		return guessBaseURL(addr, true)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return guessBaseURL(addr, true)
+	}
+	u.Scheme = "https"
+	_, port, err := splitHostPort(addr)
+	if err == nil {
+		u.Host = hostWithPort(u.Host, port)
+	}
+	return strings.TrimRight(u.String(), "/")
+}
+
+func hostWithPort(host, port string) string {
+	if host == "" {
+		return host
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	trimmed := host
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		trimmed = strings.TrimPrefix(strings.TrimSuffix(trimmed, "]"), "[")
+	}
+	return net.JoinHostPort(trimmed, port)
+}
+
+func buildRedirectTarget(baseURL string, r *http.Request) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return "https://" + r.Host + r.URL.RequestURI()
+	}
+	u.Path = r.URL.Path
+	u.RawQuery = r.URL.RawQuery
+	u.Fragment = ""
+	return u.String()
 }
 
 func discoverTLSFiles(certPath string) (string, string, error) {
