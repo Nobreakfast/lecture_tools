@@ -7,10 +7,30 @@
   <script>
     window.MathJax = {
       tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
-      svg: { fontCache: 'global' }
+      chtml: { scale: 1 }
     };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) {
+          reject(new Error('mathjax load failed'));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => loadNext();
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -184,6 +204,15 @@
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
     }
+    async function waitMathJax(timeoutMs = 8000) {
+      const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+      if (window.__mathJaxReady) {
+        await Promise.race([window.__mathJaxReady.catch(() => null), timeout]);
+      }
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
+      }
+    }
     async function load() {
       const r = await fetch('/api/me', { credentials: 'include' });
       if (!r.ok) {
@@ -193,10 +222,10 @@
       }
       state = await r.json();
       document.getElementById('title').textContent = state.quiz.title;
-      render();
+      await render();
       if (state.attempt.status === 'submitted') location.href = '/result';
     }
-    function render() {
+    async function render() {
       const root = document.getElementById('questions');
       root.innerHTML = '';
       state.quiz.questions.forEach((q, idx) => {
@@ -251,8 +280,9 @@
         }
         root.appendChild(card);
       });
+      await waitMathJax();
       if (window.MathJax && window.MathJax.typesetPromise) {
-        window.MathJax.typesetPromise([root]);
+        await window.MathJax.typesetPromise([root]);
       }
     }
     async function save(qid, ans) {
@@ -267,7 +297,7 @@
         return;
       }
       state.answers[qid] = ans;
-      render();
+      await render();
     }
     document.getElementById('submit').onclick = async () => {
       const areas = document.querySelectorAll('textarea.text-answer[data-qid]');

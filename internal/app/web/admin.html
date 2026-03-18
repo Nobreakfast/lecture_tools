@@ -7,10 +7,30 @@
   <script>
     window.MathJax = {
       tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
-      svg: { fontCache: 'global' }
+      chtml: { scale: 1 }
     };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) {
+          reject(new Error('mathjax load failed'));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => loadNext();
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -318,6 +338,15 @@
       const text = found.text || '';
       return `${found.key}. ${text}`.trim();
     }
+    async function waitMathJax(timeoutMs = 8000) {
+      const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+      if (window.__mathJaxReady) {
+        await Promise.race([window.__mathJaxReady.catch(() => null), timeout]);
+      }
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
+      }
+    }
     function scoreBarColor(ratio) {
       if (ratio >= 0.8) return 'var(--success)';
       if (ratio >= 0.5) return 'var(--warning)';
@@ -495,6 +524,7 @@
       `;
       document.getElementById('detailModal').classList.add('show');
       document.body.style.overflow = 'hidden';
+      await waitMathJax();
       if (window.MathJax && window.MathJax.typesetPromise) {
         await window.MathJax.typesetPromise([document.getElementById('detail')]);
       }

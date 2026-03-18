@@ -7,10 +7,30 @@
   <script>
     window.MathJax = {
       tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
-      svg: { fontCache: 'global' }
+      chtml: { scale: 1 }
     };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) {
+          reject(new Error('mathjax load failed'));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => loadNext();
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     :root {
@@ -299,8 +319,18 @@
       if (!found.text) return found.key;
       return `${found.key}. ${found.text}`;
     }
+    async function waitMathJax(timeoutMs = 8000) {
+      const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+      if (window.__mathJaxReady) {
+        await Promise.race([window.__mathJaxReady.catch(() => null), timeout]);
+      }
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
+      }
+    }
     async function typesetResult() {
       const root = document.getElementById('captureRoot');
+      await waitMathJax();
       if (window.MathJax && window.MathJax.typesetPromise) {
         if (window.MathJax.typesetClear) {
           window.MathJax.typesetClear([root]);
