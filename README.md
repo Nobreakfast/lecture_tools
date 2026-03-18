@@ -26,6 +26,16 @@ go mod tidy
 go run ./cmd/server
 ```
 
+## 编译
+```bash
+make build
+```
+
+编译产物会放到 `./bin` 目录：
+- `bin/server`
+- `bin/migrate`
+- `bin/qrgen`
+
 默认地址：
 - 学生入口：自动使用本机局域网 IP（如 `http://192.168.x.x:8080/join`）
 - 管理员：自动使用本机局域网 IP（如 `http://192.168.x.x:8080/admin`）
@@ -64,6 +74,7 @@ go run ./cmd/qrgen -url "https://example.com" -out "./qrcode.png" -size 256
 - `APP_BASE_URL` 默认自动推导为 `http://局域网IP:端口`
 - `ADMIN_PASSWORD` 默认 `admin123`
 - `DATA_DIR` 默认 `./data`
+- `CERT_PATH` 可选，证书目录；设置后自动读取目录下首个 `*.pem` 与 `*.key` 启用 HTTPS，若证书不存在则自动回退 HTTP
 - `AI_ENDPOINT` 可选，AI 服务地址
 - `AI_API_KEY` 可选，AI 鉴权密钥
 - `AI_MODEL` 可选，模型名
@@ -71,8 +82,9 @@ go run ./cmd/qrgen -url "https://example.com" -out "./qrcode.png" -size 256
 示例：
 ```bash
 APP_ADDR=0.0.0.0:8080 \
-APP_BASE_URL=http://192.168.1.10:8080 \
+APP_BASE_URL=https://192.168.1.10:8080 \
 ADMIN_PASSWORD=你的管理员密码 \
+CERT_PATH=./certs \
 AI_ENDPOINT=https://your-api-endpoint \
 AI_API_KEY=your_key \
 AI_MODEL=your_model \

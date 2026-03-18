@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,9 +23,21 @@ import (
 func main() {
 	loaded := loadDotEnvCandidates()
 	addr := env("APP_ADDR", "0.0.0.0:8080")
+	certPath := env("CERT_PATH", "")
+	certFile := ""
+	keyFile := ""
+	if strings.TrimSpace(certPath) != "" {
+		var err error
+		certFile, keyFile, err = discoverTLSFiles(certPath)
+		if err != nil {
+			fmt.Printf("HTTPS证书加载失败，回退HTTP: %v\n", err)
+			certFile = ""
+			keyFile = ""
+		}
+	}
 	baseURL := env("APP_BASE_URL", "")
 	if baseURL == "" {
-		baseURL = guessBaseURL(addr)
+		baseURL = guessBaseURL(addr, certFile != "" && keyFile != "")
 	}
 	cfg := app.Config{
 		Addr:          addr,
@@ -66,6 +79,11 @@ func main() {
 		fmt.Println(".env 未加载: 使用系统环境变量")
 	}
 	fmt.Printf("AI配置: endpoint=%s model=%s key_loaded=%v\n", mask(cfg.AIEndpoint), cfg.AIModel, cfg.AIKey != "")
+	if certFile != "" && keyFile != "" {
+		fmt.Printf("HTTPS已启用: cert=%s key=%s\n", certFile, keyFile)
+	} else {
+		fmt.Println("HTTPS未启用: 使用HTTP")
+	}
 	fmt.Printf("管理员页面: %s/admin\n", cfg.BaseURL)
 	stopSig := make(chan os.Signal, 1)
 	signal.Notify(stopSig, syscall.SIGINT, syscall.SIGTERM)
@@ -75,7 +93,12 @@ func main() {
 		defer cancel()
 		_ = httpSrv.Shutdown(ctx)
 	}()
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if certFile != "" && keyFile != "" {
+		err = httpSrv.ListenAndServeTLS(certFile, keyFile)
+	} else {
+		err = httpSrv.ListenAndServe()
+	}
+	if err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
@@ -88,10 +111,14 @@ func env(k, v string) string {
 	return got
 }
 
-func guessBaseURL(addr string) string {
+func guessBaseURL(addr string, https bool) string {
+	scheme := "http"
+	if https {
+		scheme = "https"
+	}
 	host, port, err := splitHostPort(addr)
 	if err != nil {
-		return "http://127.0.0.1:8080"
+		return scheme + "://127.0.0.1:8080"
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = localIPv4()
@@ -99,7 +126,42 @@ func guessBaseURL(addr string) string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	return "http://" + host + ":" + port
+	return scheme + "://" + host + ":" + port
+}
+
+func discoverTLSFiles(certPath string) (string, string, error) {
+	dir := strings.TrimSpace(certPath)
+	if dir == "" {
+		return "", "", nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("读取CERT_PATH失败: %w", err)
+	}
+	pemFiles := make([]string, 0)
+	keyFiles := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".pem":
+			pemFiles = append(pemFiles, filepath.Join(dir, name))
+		case ".key":
+			keyFiles = append(keyFiles, filepath.Join(dir, name))
+		}
+	}
+	sort.Strings(pemFiles)
+	sort.Strings(keyFiles)
+	if len(pemFiles) == 0 {
+		return "", "", fmt.Errorf("CERT_PATH目录未找到*.pem证书文件: %s", dir)
+	}
+	if len(keyFiles) == 0 {
+		return "", "", fmt.Errorf("CERT_PATH目录未找到*.key私钥文件: %s", dir)
+	}
+	return pemFiles[0], keyFiles[0], nil
 }
 
 func splitHostPort(addr string) (string, string, error) {
