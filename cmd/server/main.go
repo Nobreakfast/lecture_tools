@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -19,10 +20,16 @@ import (
 
 	"course-assistant/internal/app"
 	"course-assistant/internal/store"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 func main() {
 	loaded := loadDotEnvCandidates()
+	requestedAutocert := parseBool(env("AUTOCERT_ENABLE", ""))
+	autocertEnabled := requestedAutocert
+	_, hasCustomAddr := os.LookupEnv("APP_ADDR")
+	_, hasCustomBaseURL := os.LookupEnv("APP_BASE_URL")
 	certPath := env("CERT_PATH", "")
 	certFile := ""
 	keyFile := ""
@@ -35,7 +42,8 @@ func main() {
 			keyFile = ""
 		}
 	}
-	httpsEnabled := certFile != "" && keyFile != ""
+	manualHTTPSEnabled := certFile != "" && keyFile != ""
+	httpsEnabled := manualHTTPSEnabled || requestedAutocert
 	defaultAddr := "0.0.0.0:8080"
 	if httpsEnabled {
 		defaultAddr = "0.0.0.0:443"
@@ -49,9 +57,6 @@ func main() {
 		baseURL = normalizeHTTPSBaseURL(baseURL, addr)
 	}
 	redirectAddr := env("APP_HTTP_REDIRECT_ADDR", "")
-	if httpsEnabled && strings.TrimSpace(redirectAddr) == "" {
-		redirectAddr = ":8080"
-	}
 	cfg := app.Config{
 		Addr:          addr,
 		BaseURL:       baseURL,
@@ -81,14 +86,65 @@ func main() {
 		Addr:    cfg.Addr,
 		Handler: srv.Routes(),
 	}
+	var autocertManager *autocert.Manager
+	autocertHosts := []string{}
+	if autocertEnabled {
+		autocertHosts = filterAutocertHosts(resolveAutocertHosts(env("AUTOCERT_HOSTS", ""), cfg.BaseURL))
+		if len(autocertHosts) == 0 {
+			fmt.Println("AUTOCERT未启用: 未检测到可签发证书的公网域名，已回退默认策略")
+			autocertEnabled = false
+		}
+		if autocertEnabled {
+			cacheDir := strings.TrimSpace(env("AUTOCERT_CACHE_DIR", filepath.Join(cfg.DataDir, "autocert")))
+			if cacheDir == "" {
+				log.Fatal("AUTOCERT_CACHE_DIR 不能为空")
+			}
+			if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+				log.Fatalf("AUTOCERT_CACHE_DIR创建失败: %v", err)
+			}
+			autocertManager = &autocert.Manager{
+				Prompt:     autocert.AcceptTOS,
+				Cache:      autocert.DirCache(cacheDir),
+				Email:      strings.TrimSpace(env("AUTOCERT_EMAIL", "")),
+				HostPolicy: autocert.HostWhitelist(autocertHosts...),
+			}
+			httpSrv.TLSConfig = &tls.Config{
+				MinVersion:     tls.VersionTLS12,
+				GetCertificate: autocertManager.GetCertificate,
+				NextProtos:     []string{"h2", "http/1.1", acme.ALPNProto},
+			}
+		}
+	}
+	httpsEnabled = manualHTTPSEnabled || autocertEnabled
+	if !httpsEnabled {
+		if !hasCustomAddr {
+			cfg.Addr = "0.0.0.0:8080"
+			httpSrv.Addr = cfg.Addr
+		}
+		if !hasCustomBaseURL {
+			cfg.BaseURL = guessBaseURL(cfg.Addr, false)
+		}
+	}
+	if httpsEnabled && strings.TrimSpace(redirectAddr) == "" {
+		if autocertEnabled {
+			redirectAddr = ":80"
+		} else {
+			redirectAddr = ":8080"
+		}
+	}
 	var redirectSrv *http.Server
 	if httpsEnabled && strings.TrimSpace(redirectAddr) != "" {
+		redirectHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			target := buildRedirectTarget(cfg.BaseURL, r)
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		})
+		handler := http.Handler(redirectHandler)
+		if autocertManager != nil {
+			handler = autocertManager.HTTPHandler(redirectHandler)
+		}
 		redirectSrv = &http.Server{
-			Addr: redirectAddr,
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				target := buildRedirectTarget(cfg.BaseURL, r)
-				http.Redirect(w, r, target, http.StatusMovedPermanently)
-			}),
+			Addr:    redirectAddr,
+			Handler: handler,
 		}
 	}
 	shutdownAll := func() {
@@ -107,7 +163,11 @@ func main() {
 	}
 	fmt.Printf("AI配置: endpoint=%s model=%s key_loaded=%v\n", mask(cfg.AIEndpoint), cfg.AIModel, cfg.AIKey != "")
 	if httpsEnabled {
-		fmt.Printf("HTTPS已启用: cert=%s key=%s\n", certFile, keyFile)
+		if autocertEnabled {
+			fmt.Printf("HTTPS已启用: autocert hosts=%s\n", strings.Join(autocertHosts, ","))
+		} else {
+			fmt.Printf("HTTPS已启用: cert=%s key=%s\n", certFile, keyFile)
+		}
 		if redirectSrv != nil {
 			fmt.Printf("HTTP跳转已启用: addr=%s -> %s\n", redirectAddr, cfg.BaseURL)
 		}
@@ -130,7 +190,11 @@ func main() {
 		}()
 	}
 	if httpsEnabled {
-		err = httpSrv.ListenAndServeTLS(certFile, keyFile)
+		if autocertEnabled {
+			err = httpSrv.ListenAndServeTLS("", "")
+		} else {
+			err = httpSrv.ListenAndServeTLS(certFile, keyFile)
+		}
 	} else {
 		err = httpSrv.ListenAndServe()
 	}
@@ -351,4 +415,71 @@ func mask(s string) string {
 		return "****"
 	}
 	return s[:8] + "..." + s[len(s)-4:]
+}
+
+func parseBool(raw string) bool {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func resolveAutocertHosts(rawHosts, baseURL string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	addHost := func(host string) {
+		host = strings.TrimSpace(strings.ToLower(host))
+		host = strings.TrimPrefix(host, "http://")
+		host = strings.TrimPrefix(host, "https://")
+		if host == "" {
+			return
+		}
+		if strings.Contains(host, "/") {
+			host = strings.SplitN(host, "/", 2)[0]
+		}
+		if strings.Contains(host, ":") {
+			parsedHost, _, err := net.SplitHostPort(host)
+			if err == nil {
+				host = parsedHost
+			}
+		}
+		host = strings.Trim(host, "[]")
+		if host == "" {
+			return
+		}
+		if _, exists := seen[host]; exists {
+			return
+		}
+		seen[host] = struct{}{}
+		out = append(out, host)
+	}
+	for _, item := range strings.Split(rawHosts, ",") {
+		addHost(item)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Host == "" {
+		return out
+	}
+	addHost(u.Host)
+	return out
+}
+
+func filterAutocertHosts(hosts []string) []string {
+	out := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		h := strings.TrimSpace(strings.ToLower(host))
+		h = strings.TrimSuffix(h, ".")
+		if h == "" || h == "localhost" {
+			continue
+		}
+		if ip := net.ParseIP(h); ip != nil {
+			continue
+		}
+		if !strings.Contains(h, ".") {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
 }

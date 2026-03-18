@@ -11,6 +11,7 @@
 - 结果页显示逐题反馈与 AI 学习建议
 - 答案安全保护：学生答题过程中无法通过开发者工具查看正确答案
 - CSV 导出精简格式（每题一列仅显示作答），带 BOM 头兼容 Excel
+- 支持 `golang.org/x/crypto/acme/autocert` 自动签发与续签 HTTPS 证书
 
 ## 安全特性
 - 防存储型 XSS：所有学生输入在管理员页面经过 HTML 转义
@@ -75,7 +76,12 @@ go run ./cmd/qrgen -url "https://example.com" -out "./qrcode.png" -size 256
 - `ADMIN_PASSWORD` 默认 `admin123`
 - `DATA_DIR` 默认 `./data`
 - `CERT_PATH` 可选，证书目录；设置后自动读取目录下首个 `*.pem` 与 `*.key` 启用 HTTPS，若证书不存在则自动回退 HTTP
-- `APP_HTTP_REDIRECT_ADDR` 可选，仅在 HTTPS 启用时生效；默认 `:8080`，自动 301 跳转到 HTTPS
+- `AUTOCERT_ENABLE` 可选，`true/1/yes/on` 启用 `autocert` 自动签发与续签；启用后使用 443 监听 HTTPS
+- `AUTOCERT_HOSTS` 可选，逗号分隔域名白名单（如 `a.example.com,b.example.com`）；未设置时尝试从 `APP_BASE_URL` 自动提取
+- `AUTOCERT_EMAIL` 可选，证书注册邮箱
+- `AUTOCERT_CACHE_DIR` 可选，证书缓存目录；默认 `${DATA_DIR}/autocert`
+- `APP_HTTP_REDIRECT_ADDR` 可选，仅在 HTTPS 启用时生效；手动证书默认 `:8080`，`autocert` 默认 `:80`，自动 301 跳转到 HTTPS
+- `AUTOCERT_ENABLE=true` 且域名不可签发（如 `localhost`、`127.0.0.1`、局域网 IP）时，服务会自动回退到原有 HTTP/手动证书策略
 - `AI_ENDPOINT` 可选，AI 服务地址
 - `AI_API_KEY` 可选，AI 鉴权密钥
 - `AI_MODEL` 可选，模型名
@@ -90,6 +96,17 @@ APP_HTTP_REDIRECT_ADDR=:8080 \
 AI_ENDPOINT=https://your-api-endpoint \
 AI_API_KEY=your_key \
 AI_MODEL=your_model \
+go run ./cmd/server
+```
+
+`autocert` 示例：
+```bash
+APP_ADDR=0.0.0.0:443 \
+APP_BASE_URL=https://your.domain.com \
+AUTOCERT_ENABLE=true \
+AUTOCERT_HOSTS=your.domain.com \
+AUTOCERT_EMAIL=you@example.com \
+APP_HTTP_REDIRECT_ADDR=:80 \
 go run ./cmd/server
 ```
 
