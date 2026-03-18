@@ -270,7 +270,29 @@ func buildRedirectTarget(baseURL string, r *http.Request) string {
 	u.Path = r.URL.Path
 	u.RawQuery = r.URL.RawQuery
 	u.Fragment = ""
+	if u.Scheme == "https" {
+		u.Host = trimDefaultPort(u.Host, "443")
+	} else if u.Scheme == "http" {
+		u.Host = trimDefaultPort(u.Host, "80")
+	}
 	return u.String()
+}
+
+func trimDefaultPort(host, defaultPort string) string {
+	if host == "" {
+		return host
+	}
+	parsedHost, parsedPort, err := net.SplitHostPort(host)
+	if err != nil {
+		return host
+	}
+	if parsedPort != defaultPort {
+		return host
+	}
+	if strings.Contains(parsedHost, ":") {
+		return "[" + strings.Trim(parsedHost, "[]") + "]"
+	}
+	return parsedHost
 }
 
 func discoverTLSFiles(certPath string) (string, string, error) {
