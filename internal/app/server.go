@@ -270,6 +270,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			"stem":    q.Stem,
 			"options": q.Options,
 		}
+		if q.AllowMultiple {
+			sq["allow_multiple"] = true
+		}
 		if q.Image != "" {
 			sq["image"] = q.Image
 		}
@@ -1030,8 +1033,11 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 			"correct":     q.CorrectAnswer,
 			"reference":   q.ReferenceAnswer,
 			"explanation": q.Explanation,
-			"is_multi":    q.Type == domain.QuestionMultiChoice,
+			"is_multi":    q.Type == domain.QuestionMultiChoice || (q.Type == domain.QuestionSurvey && q.AllowMultiple),
 			"is_survey":   q.Type == domain.QuestionSurvey || q.Type == domain.QuestionShortAnswer,
+		}
+		if q.AllowMultiple {
+			item["allow_multiple"] = true
 		}
 		if q.Type != domain.QuestionSurvey && q.Type != domain.QuestionShortAnswer {
 			total++
@@ -1129,9 +1135,8 @@ func normalizeAnswer(q domain.Question, raw string) (string, error) {
 	for _, it := range q.Options {
 		opt[it.Key] = struct{}{}
 	}
-	switch q.Type {
-	case domain.QuestionMultiChoice:
-		parts := strings.Split(raw, ",")
+	normalizeMulti := func(v string) (string, error) {
+		parts := strings.Split(v, ",")
 		seen := map[string]struct{}{}
 		out := make([]string, 0, len(parts))
 		for _, p := range parts {
@@ -1153,7 +1158,19 @@ func normalizeAnswer(q domain.Question, raw string) (string, error) {
 		}
 		sort.Strings(out)
 		return strings.Join(out, ","), nil
-	case domain.QuestionSingleChoice, domain.QuestionYesNo, domain.QuestionSurvey:
+	}
+	switch q.Type {
+	case domain.QuestionMultiChoice:
+		return normalizeMulti(raw)
+	case domain.QuestionSurvey:
+		if q.AllowMultiple {
+			return normalizeMulti(raw)
+		}
+		if _, ok := opt[raw]; !ok {
+			return "", errors.New("答案选项无效")
+		}
+		return raw, nil
+	case domain.QuestionSingleChoice, domain.QuestionYesNo:
 		if _, ok := opt[raw]; !ok {
 			return "", errors.New("答案选项无效")
 		}

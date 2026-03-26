@@ -240,7 +240,7 @@
           area.placeholder = '请输入你的回答...';
           area.value = state.answers[q.id] || '';
           card.appendChild(area);
-        } else if (q.type === 'multi_choice') {
+        } else if (q.type === 'multi_choice' || (q.type === 'survey' && q.allow_multiple)) {
           const selected = new Set(String(state.answers[q.id] || '').split(',').map(s => s.trim()).filter(Boolean));
           const box = document.createElement('div');
           const hasImageOption = (q.options || []).some(op => !!op.image);
@@ -265,7 +265,7 @@
           card.appendChild(box);
           const hint = document.createElement('div');
           hint.className = 'hint';
-          hint.textContent = '本题可多选，再次点击可取消。';
+          hint.textContent = q.type === 'survey' ? '本题为多选问卷，再次点击可取消。' : '本题可多选，再次点击可取消。';
           card.appendChild(hint);
         } else {
           q.options.forEach((op, opIndex) => {

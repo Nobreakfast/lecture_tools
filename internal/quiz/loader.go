@@ -46,6 +46,9 @@ func Validate(q *domain.Quiz) error {
 		default:
 			return fmt.Errorf("题目 %s 类型无效: %s", item.ID, item.Type)
 		}
+		if item.Type != domain.QuestionSurvey && item.AllowMultiple {
+			return fmt.Errorf("题目 %s 仅 survey 题型支持 allow_multiple", item.ID)
+		}
 		if strings.TrimSpace(item.Stem) == "" {
 			return fmt.Errorf("题目 %s stem 不能为空", item.ID)
 		}

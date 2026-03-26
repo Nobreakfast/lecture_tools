@@ -83,6 +83,50 @@ func TestNormalizeAnswerMultiChoice(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerSurveyAllowMultiple(t *testing.T) {
+	q := domain.Question{
+		ID:            "s1",
+		Type:          domain.QuestionSurvey,
+		AllowMultiple: true,
+		Options: []domain.Option{
+			{Key: "A", Text: "1"},
+			{Key: "B", Text: "2"},
+			{Key: "C", Text: "3"},
+		},
+	}
+	got, err := normalizeAnswer(q, " C, A ,C ")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got != "A,C" {
+		t.Fatalf("unexpected normalized answer: %s", got)
+	}
+	if _, err := normalizeAnswer(q, "D"); err == nil {
+		t.Fatalf("invalid option should fail")
+	}
+}
+
+func TestNormalizeAnswerSurveySingleChoice(t *testing.T) {
+	q := domain.Question{
+		ID:   "s2",
+		Type: domain.QuestionSurvey,
+		Options: []domain.Option{
+			{Key: "A", Text: "1"},
+			{Key: "B", Text: "2"},
+		},
+	}
+	got, err := normalizeAnswer(q, "B")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got != "B" {
+		t.Fatalf("unexpected normalized answer: %s", got)
+	}
+	if _, err := normalizeAnswer(q, "A,B"); err == nil {
+		t.Fatalf("single survey should reject multi answer")
+	}
+}
+
 func TestIsCorrectAnswerMultiChoice(t *testing.T) {
 	q := domain.Question{
 		ID:            "m2",

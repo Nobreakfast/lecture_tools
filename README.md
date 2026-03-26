@@ -119,6 +119,7 @@ go run ./cmd/server
 - 每题必须有唯一 `id`、`type`、`stem`
 - `type` 仅支持：`single_choice`、`multi_choice`、`yes_no`、`survey`、`short_answer`
 - `single_choice`/`multi_choice`/`yes_no`/`survey` 需配置 `options`（至少 2 个）
+- `survey` 可选 `allow_multiple: true` 表示问卷多选（不判分）
 - `single_choice`/`yes_no` 必须配置 `correct_answer` 且命中选项
 - `multi_choice` 必须配置 `correct_answer`，格式为英文逗号分隔的选项 key（如 `A,C,D`）
 - 选项可配置 `image` 字段（可与文本同时存在，或仅图片）
@@ -139,8 +140,22 @@ go run ./cmd/server
 - `docs/architecture.md`
 - `docs/api-spec.md`
 - `docs/adr/0001-tech-stack.md`
+- `docs/quiz-prep-step-by-step.md`（题库准备流程）
+
+## 题库准备（Cursor 工作流）
+- 目标：你只描述每道题“想测什么/想问什么”，Cursor 直接生成可导入 YAML
+- 推荐先看：`docs/quiz-prep-step-by-step.md`
+- 最常用规则：
+  - 判分类题目（`single_choice`/`multi_choice`/`yes_no`）必须有 `correct_answer`
+  - 问卷题用 `survey`；多选问卷用 `allow_multiple: true`（不判分）
+  - 反馈题用 `short_answer`（不判分）
 
 ## Project Rules（Trae IDE）
 - 规则文件：`.trae/rules.md`
 - 所有新增功能或特色能力都要同步更新本 README。
 - 任何实现都应遵循既有架构，不破坏初始设计思路。
+
+## Project Rules（Cursor）
+- 规则目录：`.cursor/rules/`
+- 题库准备规则：`.cursor/rules/quiz-authoring.mdc`
+- 该规则会约束 Cursor 在生成题库时自动对齐题型、字段和校验要求。

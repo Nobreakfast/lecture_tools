@@ -75,3 +75,48 @@ func TestParseWeek2L2Quiz(t *testing.T) {
 		t.Fatalf("unexpected question count: %d", len(parsed.Questions))
 	}
 }
+
+func TestParseSurveyAllowMultiple(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_survey_multi"
+title: "t"
+questions:
+  - id: "s1"
+    type: "survey"
+    allow_multiple: true
+    stem: "s"
+    options:
+      - key: "A"
+        text: "a"
+      - key: "B"
+        text: "b"
+`)
+	q, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !q.Questions[0].AllowMultiple {
+		t.Fatalf("expected allow_multiple=true")
+	}
+}
+
+func TestParseAllowMultipleOnlyForSurvey(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_invalid"
+title: "t"
+questions:
+  - id: "m1"
+    type: "multi_choice"
+    allow_multiple: true
+    stem: "s"
+    options:
+      - key: "A"
+        text: "a"
+      - key: "B"
+        text: "b"
+    correct_answer: "A"
+`)
+	if _, err := Parse(raw); err == nil {
+		t.Fatalf("expected parse error for non-survey allow_multiple")
+	}
+}
