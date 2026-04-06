@@ -31,6 +31,9 @@
       loadNext();
     });
   </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -243,6 +246,56 @@
       margin-bottom: 16px;
     }
     .header-bar h2 { font-size: 20px; }
+    pre.code-block {
+      background: #f6f8fa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    pre.code-block code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .thumb-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .thumb-item {
+      width: 100px;
+      height: 100px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform .2s;
+    }
+    .thumb-item:hover { transform: scale(1.05); }
+    .thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      cursor: pointer;
+    }
+    .lightbox.show { display: flex; }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+    }
   </style>
 </head>
 <body>
@@ -311,6 +364,9 @@
       <div id="detail"></div>
     </div>
   </div>
+  <div class="lightbox" id="imgLightbox" onclick="this.classList.remove('show')">
+    <img id="imgLightboxImg" src="" />
+  </div>
   <script>
     function escapeHTML(s) {
       return String(s || '')
@@ -320,6 +376,31 @@
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
     }
+    function openImgLightbox(src) {
+      document.getElementById('imgLightboxImg').src = src;
+      document.getElementById('imgLightbox').classList.add('show');
+    }
+
+    function looksLikePython(text) {
+      if (!text) return false;
+      return /(^|\n)\s*(def |class |import |from .+ import|for .+ in |while |if __name__|print\(|return |elif |except |try:|with )/.test(text);
+    }
+
+    function renderAnswerContent(text) {
+      if (!text) return '未作答';
+      if (looksLikePython(text)) {
+        return `<pre class="code-block"><code class="language-python">${escapeHTML(text)}</code></pre>`;
+      }
+      return escapeHTML(text);
+    }
+
+    function renderImageThumbs(images) {
+      if (!images || !images.length) return '';
+      return '<div class="thumb-row">' + images.map((url, i) =>
+        `<div class="thumb-item"><img src="${escapeHTML(url)}" /></div>`
+      ).join('') + '</div>';
+    }
+
     function optionText(q, key) {
       if (!key) return '未作答';
       if (q.is_multi) {
@@ -506,7 +587,10 @@
         const explanation = q.explanation ? `<div>解析：${escapeHTML(q.explanation)}</div>` : '';
         if (q.is_survey) {
           if (q.type === 'short_answer') {
-            return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生作答：${escapeHTML(q.answer || '未作答')}（沟通题）</div>${reference}${explanation}</div>`;
+            const ansContent = renderAnswerContent(q.answer);
+            const imgThumbs = renderImageThumbs(q.answer_images);
+            const refContent = q.reference ? `<div>参考答案：${looksLikePython(q.reference) ? `<pre class="code-block"><code class="language-python">${escapeHTML(q.reference)}</code></pre>` : escapeHTML(q.reference)}</div>` : '';
+            return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生作答：${ansContent}</div>${imgThumbs}${refContent}${explanation}</div>`;
           }
           return `<div class="qitem"><div><strong>${i+1}. ${escapeHTML(q.stem)}</strong></div>${image}<div>学生作答：${escapeHTML(optionText(q, q.answer))}（沟通题）</div>${reference}${explanation}</div>`;
         }
@@ -528,6 +612,15 @@
       if (window.MathJax && window.MathJax.typesetPromise) {
         await window.MathJax.typesetPromise([document.getElementById('detail')]);
       }
+      if (window.hljs) {
+        document.querySelectorAll('#detail pre.code-block code').forEach(el => hljs.highlightElement(el));
+      }
+      document.getElementById('detail').addEventListener('click', (e) => {
+        const item = e.target.closest('.thumb-item');
+        if (!item) return;
+        const img = item.querySelector('img');
+        if (img) openImgLightbox(img.src);
+      });
     }
     function closeDetail() {
       document.getElementById('detailModal').classList.remove('show');

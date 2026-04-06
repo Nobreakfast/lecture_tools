@@ -184,12 +184,77 @@
     }
     #submit:hover { background: var(--primary-hover); }
     #submit:active { transform: scale(.98); }
+    .upload-area {
+      margin-top: 10px;
+    }
+    .upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .upload-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .upload-btn.uploading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .thumb-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .thumb-item {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      cursor: pointer;
+    }
+    .lightbox.show {
+      display: flex;
+    }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+    }
   </style>
 </head>
 <body>
   <h2 id="title">加载中...</h2>
   <div id="questions"></div>
   <div class="bottom-bar"><div class="bottom-bar-inner"><button id="submit">提交并查看结果</button></div></div>
+  <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
+    <img id="lightboxImg" src="" />
+  </div>
   <script>
     let state = null;
     function orderLabel(index) {
@@ -213,6 +278,69 @@
         await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
       }
     }
+    function openLightbox(src) {
+      document.getElementById('lightboxImg').src = src;
+      document.getElementById('lightbox').classList.add('show');
+    }
+
+    async function compressImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxSize = 1200;
+            let w = img.width, h = img.height;
+            if (w > maxSize || h > maxSize) {
+              if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+              else { w = Math.round(w * maxSize / h); h = maxSize; }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            canvas.toBlob((blob) => {
+              if (!blob) { reject(new Error('压缩失败')); return; }
+              resolve(new File([blob], 'upload.jpg', { type: 'image/jpeg' }));
+            }, 'image/jpeg', 0.7);
+          };
+          img.onerror = () => reject(new Error('图片加载失败'));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('读取失败'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadImage(qid, file) {
+      const compressed = await compressImage(file);
+      const fd = new FormData();
+      fd.append('question_id', qid);
+      fd.append('image', compressed);
+      const r = await fetch('/api/answer-image', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd
+      });
+      if (!r.ok) {
+        alert('上传失败：' + await r.text());
+        return null;
+      }
+      return await r.json();
+    }
+
+    function renderThumbs(container, qid) {
+      container.innerHTML = '';
+      const images = (state.answer_images || {})[qid] || [];
+      images.forEach(url => {
+        const item = document.createElement('div');
+        item.className = 'thumb-item';
+        item.onclick = () => openLightbox(url);
+        item.innerHTML = `<img src="${url}" />`;
+        container.appendChild(item);
+      });
+    }
+
     async function load() {
       const r = await fetch('/api/me', { credentials: 'include' });
       if (!r.ok) {
@@ -221,6 +349,7 @@
         return;
       }
       state = await r.json();
+      if (!state.answer_images) state.answer_images = {};
       document.getElementById('title').textContent = state.quiz.title;
       await render();
       if (state.attempt.status === 'submitted') location.href = '/result';
@@ -234,12 +363,60 @@
         const image = q.image ? `<img class="qimage" src="/assets/${q.image}" />` : '';
         card.innerHTML = `<strong>${idx + 1}. ${escapeHTML(q.stem)}</strong>${image}`;
         if (q.type === 'short_answer') {
-          const area = document.createElement('textarea');
-          area.className = 'text-answer';
-          area.dataset.qid = q.id;
-          area.placeholder = '请输入你的回答...';
-          area.value = state.answers[q.id] || '';
-          card.appendChild(area);
+          const stem = q.stem || '';
+          const isUploadOnly = /上传|截图/.test(stem) && !/粘贴|代码|输入/.test(stem);
+          const isTextOnly = /粘贴|代码/.test(stem) && !/上传|截图/.test(stem);
+          const showText = !isUploadOnly;
+          const showUpload = !isTextOnly;
+
+          if (showText) {
+            const area = document.createElement('textarea');
+            area.className = 'text-answer';
+            area.dataset.qid = q.id;
+            area.placeholder = isTextOnly ? '请粘贴你的代码...' : '请输入你的回答...';
+            area.value = state.answers[q.id] || '';
+            card.appendChild(area);
+          }
+
+          if (showUpload) {
+            const uploadArea = document.createElement('div');
+            uploadArea.className = 'upload-area';
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'upload-btn';
+            btn.innerHTML = '📷 上传图片';
+            btn.onclick = () => input.click();
+            input.onchange = async () => {
+              if (!input.files || !input.files[0]) return;
+              btn.classList.add('uploading');
+              btn.innerHTML = '⏳ 上传中...';
+              try {
+                const res = await uploadImage(q.id, input.files[0]);
+                if (res && res.images) {
+                  if (!state.answer_images) state.answer_images = {};
+                  state.answer_images[q.id] = res.images;
+                  renderThumbs(thumbRow, q.id);
+                }
+              } catch (e) {
+                alert('上传失败');
+              }
+              btn.classList.remove('uploading');
+              btn.innerHTML = '📷 上传图片';
+              input.value = '';
+            };
+            uploadArea.appendChild(input);
+            uploadArea.appendChild(btn);
+            card.appendChild(uploadArea);
+
+            const thumbRow = document.createElement('div');
+            thumbRow.className = 'thumb-row';
+            card.appendChild(thumbRow);
+            renderThumbs(thumbRow, q.id);
+          }
         } else if (q.type === 'multi_choice' || (q.type === 'survey' && q.allow_multiple)) {
           const selected = new Set(String(state.answers[q.id] || '').split(',').map(s => s.trim()).filter(Boolean));
           const box = document.createElement('div');
@@ -285,7 +462,13 @@
         await window.MathJax.typesetPromise([root]);
       }
     }
+    function syncTextAreas() {
+      document.querySelectorAll('textarea.text-answer[data-qid]').forEach(area => {
+        state.answers[area.dataset.qid] = area.value;
+      });
+    }
     async function save(qid, ans) {
+      syncTextAreas();
       const r = await fetch('/api/answer', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -304,7 +487,7 @@
       for (const area of areas) {
         const qid = area.dataset.qid;
         const val = area.value.trim();
-        if (val && val !== (state.answers[qid] || '')) {
+        if (val) {
           const sr = await fetch('/api/answer', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},

@@ -76,6 +76,12 @@ type Answer struct {
 	UpdatedAt  time.Time
 }
 
+type ShortAnswerValue struct {
+	V      int      `json:"v,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	Images []string `json:"images,omitempty"`
+}
+
 type ResultSummary struct {
 	Strengths    []string `json:"strengths"`
 	Weaknesses   []string `json:"weaknesses"`

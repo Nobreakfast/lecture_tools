@@ -109,6 +109,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-summary", s.apiAISummary)
 	mux.HandleFunc("/api/admin/ai-config", s.apiAdminAIConfig)
 	mux.HandleFunc("/api/admin/quiz-files", s.apiAdminQuizFiles)
+	mux.HandleFunc("/api/answer-image", s.apiUploadAnswerImage)
+	mux.HandleFunc("/uploads/", s.serveUpload)
 	return withCORS(mux)
 }
 
@@ -281,6 +283,28 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		}
 		safeQs = append(safeQs, sq)
 	}
+	answerImages := map[string][]string{}
+	for qid, val := range answers {
+		imgs := domain.ShortAnswerImages(val)
+		if len(imgs) > 0 {
+			answerImages[qid] = imgs
+		}
+	}
+	textAnswers := map[string]string{}
+	for qid, val := range answers {
+		isShort := false
+		for _, q := range qs {
+			if q.ID == qid && q.Type == domain.QuestionShortAnswer {
+				isShort = true
+				break
+			}
+		}
+		if isShort {
+			textAnswers[qid] = domain.ShortAnswerText(val)
+		} else {
+			textAnswers[qid] = val
+		}
+	}
 	writeJSON(w, map[string]any{
 		"attempt": map[string]any{
 			"name":       attempt.Name,
@@ -288,8 +312,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			"class_name": attempt.ClassName,
 			"status":     attempt.Status,
 		},
-		"quiz":    map[string]any{"quiz_id": current.QuizID, "title": current.Title, "questions": safeQs},
-		"answers": answers,
+		"quiz":          map[string]any{"quiz_id": current.QuizID, "title": current.Title, "questions": safeQs},
+		"answers":       textAnswers,
+		"answer_images": answerImages,
 	})
 }
 
@@ -337,6 +362,16 @@ func (s *Server) apiSaveAnswer(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+	}
+	if q.Type == domain.QuestionShortAnswer && normalized != "" {
+		existing, _ := s.store.GetAnswers(r.Context(), attempt.ID)
+		if old, ok := existing[req.QuestionID]; ok && old != "" {
+			sa := domain.ParseShortAnswer(old)
+			if len(sa.Images) > 0 {
+				sa.Text = normalized
+				normalized = domain.EncodeShortAnswer(sa)
+			}
 		}
 	}
 	err = s.store.SaveAnswer(r.Context(), domain.Answer{
@@ -959,7 +994,11 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, q := range current.Questions {
-			row = append(row, safeCSV(answers[q.ID]))
+			val := answers[q.ID]
+			if q.Type == domain.QuestionShortAnswer {
+				val = domain.ShortAnswerText(val)
+			}
+			row = append(row, safeCSV(val))
 		}
 		_ = cw.Write(row)
 	}
@@ -1035,6 +1074,15 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 			"explanation": q.Explanation,
 			"is_multi":    q.Type == domain.QuestionMultiChoice || (q.Type == domain.QuestionSurvey && q.AllowMultiple),
 			"is_survey":   q.Type == domain.QuestionSurvey || q.Type == domain.QuestionShortAnswer,
+		}
+		if q.Type == domain.QuestionShortAnswer {
+			sa := domain.ParseShortAnswer(ans)
+			item["answer"] = sa.Text
+			imgs := sa.Images
+			if imgs == nil {
+				imgs = []string{}
+			}
+			item["answer_images"] = imgs
 		}
 		if q.AllowMultiple {
 			item["allow_multiple"] = true
@@ -1112,6 +1160,124 @@ func (s *Server) resolveAssetPath(raw string) (string, bool) {
 		}
 	}
 	return "", true
+}
+
+func (s *Server) apiUploadAnswerImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	attempt, err := s.requireStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	if attempt.Status != domain.StatusInProgress {
+		http.Error(w, "已提交不可修改", http.StatusForbidden)
+		return
+	}
+	s.mu.RLock()
+	current := s.currentQuiz
+	s.mu.RUnlock()
+	if current == nil || attempt.QuizID != current.QuizID {
+		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
+		return
+	}
+	questionID := strings.TrimSpace(r.FormValue("question_id"))
+	if questionID == "" {
+		http.Error(w, "参数不完整", http.StatusBadRequest)
+		return
+	}
+	q, ok := findQuestion(current, questionID)
+	if !ok {
+		http.Error(w, "题目不存在", http.StatusBadRequest)
+		return
+	}
+	if q.Type != domain.QuestionShortAnswer {
+		http.Error(w, "该题型不支持图片上传", http.StatusBadRequest)
+		return
+	}
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "未找到上传文件", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "读取文件失败", http.StatusInternalServerError)
+		return
+	}
+	if len(data) < 4 {
+		http.Error(w, "文件太小", http.StatusBadRequest)
+		return
+	}
+	isJPEG := data[0] == 0xFF && data[1] == 0xD8
+	isPNG := data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
+	if !isJPEG && !isPNG {
+		http.Error(w, "仅支持 JPEG/PNG 格式图片", http.StatusBadRequest)
+		return
+	}
+	dir := filepath.Join(s.cfg.DataDir, "quiz",
+		safePathPart(attempt.ClassName),
+		safePathPart(current.QuizID),
+		safePathPart(attempt.Name+"_"+attempt.StudentNo))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "创建目录失败", http.StatusInternalServerError)
+		return
+	}
+	filename := fmt.Sprintf("q_%s_%d.jpg", questionID, time.Now().UnixMilli())
+	if err := os.WriteFile(filepath.Join(dir, filename), data, 0o644); err != nil {
+		http.Error(w, "写入文件失败", http.StatusInternalServerError)
+		return
+	}
+	urlPath := "/uploads/" +
+		safePathPart(attempt.ClassName) + "/" +
+		safePathPart(current.QuizID) + "/" +
+		safePathPart(attempt.Name+"_"+attempt.StudentNo) + "/" +
+		filename
+	answers, _ := s.store.GetAnswers(r.Context(), attempt.ID)
+	sa := domain.ParseShortAnswer(answers[questionID])
+	sa.Images = append(sa.Images, urlPath)
+	encoded := domain.EncodeShortAnswer(sa)
+	_ = s.store.SaveAnswer(r.Context(), domain.Answer{
+		AttemptID:  attempt.ID,
+		QuestionID: questionID,
+		Value:      encoded,
+		UpdatedAt:  time.Now(),
+	})
+	writeJSON(w, map[string]any{"ok": true, "url": urlPath, "images": sa.Images})
+}
+
+func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
+	rel := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	cleaned := filepath.Clean(rel)
+	if cleaned == "." || strings.Contains(cleaned, "..") || filepath.IsAbs(cleaned) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	fp := filepath.Join(s.cfg.DataDir, "quiz", cleaned)
+	http.ServeFile(w, r, fp)
+}
+
+func safePathPart(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\x00':
+			return '_'
+		}
+		return r
+	}, s)
+	if s == "" || s == "." || s == ".." {
+		return "_"
+	}
+	return s
 }
 
 func findQuestion(qz *domain.Quiz, id string) (*domain.Question, bool) {
