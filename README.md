@@ -1,4 +1,12 @@
-# 课程助手（课堂统计与签到）
+# 课程助手（课堂答题与统计）
+
+面向课堂现场的轻量答题系统：固定入口、可控放行、匿名恢复、YAML 题库、可执行学习建议。
+
+## 设计灵感
+- 教室里最需要的是“稳定 + 可控”：入口固定、老师随时开关、学生无需注册即可继续作答
+- 题库要能被老师自己维护：YAML 可读可改，可复制粘贴导入
+- 答案要尽量“看不到”：学生端接口不下发正确答案字段，降低通过开发者工具偷看风险
+- 部署要足够轻：Go + SQLite 单机运行，不依赖外部数据库或前端构建流程
 
 ## 功能
 - 固定学生入口 `/join`
@@ -7,10 +15,13 @@
 - 同一学号自动复用进行中的答题会话，防止重复记录
 - YAML 题库加载，支持图片路径
 - 选择题实时保存，简答题提交时自动批量保存（无需手动保存）
+- 简答题支持上传图片（JPEG/PNG）
 - 同一学生支持按提交次数记录“第几次尝试”
-- 结果页显示逐题反馈与 AI 学习建议
+- 结果页显示逐题反馈与 AI 学习建议（可缓存）
+- 全班总结：管理端可生成课程整体复盘（可选结合匹配 PDF 的文本上下文）
 - 答案安全保护：学生答题过程中无法通过开发者工具查看正确答案
 - CSV 导出精简格式（每题一列仅显示作答），带 BOM 头兼容 Excel
+- 课件下载页 `/pdf`（从 `../ppt` 目录读取 PDF）
 - 支持 `golang.org/x/crypto/acme/autocert` 自动签发与续签 HTTPS 证书
 
 ## 安全特性
@@ -40,7 +51,7 @@ make build
 默认地址：
 - 学生入口：自动使用本机局域网 IP（如 `http://192.168.x.x:8080/join`）
 - 管理员：自动使用本机局域网 IP（如 `http://192.168.x.x:8080/admin`）
-- 管理员密码：`admin123`
+- 管理员密码：默认 `admin123`（课堂外网/线上部署务必修改 `ADMIN_PASSWORD`）
 
 ## 数据库迁移
 
@@ -75,6 +86,7 @@ go run ./cmd/qrgen -url "https://example.com" -out "./qrcode.png" -size 256
 - `APP_BASE_URL` 默认自动推导；HTTPS 模式下为 `https://局域网IP:端口`
 - `ADMIN_PASSWORD` 默认 `admin123`
 - `DATA_DIR` 默认 `./data`
+- `QUIZ_ASSETS_DIR` 默认 `./quiz/assets`（题库图片目录）
 - `CERT_PATH` 可选，证书目录；设置后自动读取目录下首个 `*.pem` 与 `*.key` 启用 HTTPS，若证书不存在则自动回退 HTTP
 - `AUTOCERT_ENABLE` 可选，`true/1/yes/on` 启用 `autocert` 自动签发与续签；启用后使用 443 监听 HTTPS
 - `AUTOCERT_HOSTS` 可选，逗号分隔域名白名单（如 `a.example.com,b.example.com`）；未设置时尝试从 `APP_BASE_URL` 自动提取
@@ -129,6 +141,11 @@ go run ./cmd/server
 - 有图片时使用 `image` 字段，服务会优先读取 `QUIZ_ASSETS_DIR`（默认 `./quiz/assets`），其次读取 `DATA_DIR/assets`
 - 系统会对选择题选项做“按学生会话稳定打乱”，同一学生重进页面顺序保持一致
 
+## 题库目录建议（可选）
+- 推荐结构：`quiz/课程名/*.yaml`
+- 推荐把图片放到 `QUIZ_ASSETS_DIR`（默认 `./quiz/assets`）或 `${DATA_DIR}/assets`，在 YAML 中写 `image: 文件名.svg`
+- 若希望每门课单独管理图片，可把 `QUIZ_ASSETS_DIR` 指向某门课的 `assets` 目录（例如 `./quiz/最优化方法/assets`）
+
 ## 管理员查看
 - 管理员登录后可查看学生列表、状态和得分
 - 学生记录支持展示“第几次尝试”（仅提交后计次）
@@ -137,13 +154,12 @@ go run ./cmd/server
 - 点击“清空本次答题数据”仅清空当前已加载题库（当前 `quiz_id`）的数据
 
 ## 架构文档
-- `docs/architecture.md`
-- `docs/api-spec.md`
+- `docs/architecture.md`（含 API 概览）
 - `docs/adr/0001-tech-stack.md`
 - `docs/quiz-prep-step-by-step.md`（题库准备流程）
 
-## 题库准备（Cursor 工作流）
-- 目标：你只描述每道题“想测什么/想问什么”，Cursor 直接生成可导入 YAML
+## 题库准备（AI 工作流）
+- 目标：你只描述每道题“想测什么/想问什么”，Trae/Cursor 直接生成可导入 YAML
 - 推荐先看：`docs/quiz-prep-step-by-step.md`
 - 最常用规则：
   - 判分类题目（`single_choice`/`multi_choice`/`yes_no`）必须有 `correct_answer`
@@ -151,11 +167,6 @@ go run ./cmd/server
   - 反馈题用 `short_answer`（不判分）
 
 ## Project Rules（Trae IDE）
-- 规则文件：`.trae/rules.md`
+- 规则文件：`.trae/rules/requirements.md`
 - 所有新增功能或特色能力都要同步更新本 README。
 - 任何实现都应遵循既有架构，不破坏初始设计思路。
-
-## Project Rules（Cursor）
-- 规则目录：`.cursor/rules/`
-- 题库准备规则：`.cursor/rules/quiz-authoring.mdc`
-- 该规则会约束 Cursor 在生成题库时自动对齐题型、字段和校验要求。

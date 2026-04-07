@@ -32,6 +32,54 @@
 - `/api/me` 不返回 `correct_answer`、`explanation`、`reference_answer` 等敏感字段，防止学生通过开发者工具查看答案
 - 提交时自动保存所有未保存的简答题，无需手动保存
 
+## 路由与资源
+
+页面路由：
+- `/`、`/join`：入口页
+- `/quiz`：答题页
+- `/result`：结果页
+- `/admin`：管理后台
+- `/pdf`：课件下载页
+
+静态资源：
+- `/assets/<path>`：题库图片资源。按顺序查找：
+  - `QUIZ_ASSETS_DIR`（默认 `./quiz/assets`）
+  - `${DATA_DIR}/assets`（默认 `./data/assets`）
+- `/ppt/<folder>/<file>.pdf`：课件 PDF 文件，根目录为 `../ppt`（与 `DATA_DIR` 同级）
+- `/uploads/<...>`：学生简答题图片上传后的访问路径，文件写入 `${DATA_DIR}/quiz/...`
+
+## API 概览
+
+学生接口：
+- `POST /api/join`：加入课堂（仅入口开放时允许）
+- `GET /api/entry-status`：查询入口是否开放
+- `GET /api/me`：获取当前会话、题库（脱敏）与已保存答案
+- `POST /api/answer`：保存答案（选择题实时保存；提交后禁止修改）
+- `POST /api/answer-image`：上传简答题图片（仅 JPEG/PNG，提交后禁止）
+- `POST /api/submit`：提交并锁定
+- `GET /api/result`：获取逐题反馈与得分
+- `POST /api/ai-summary`：生成/获取 AI 学习建议（可缓存）
+- `POST /api/retry`：提交后发起“再做一次”（创建新的 `in_progress` attempt，并发新 cookie）
+
+管理员接口（均需登录）：
+- `POST /api/admin/login`：登录
+- `GET /api/admin/state`：入口状态、人数统计、当前题库信息
+- `POST /api/admin/entry`：开启/关闭入口
+- `POST /api/admin/load-quiz`：加载题库（粘贴 YAML / 上传文件 / 指定服务器文件路径）
+- `GET /api/admin/quiz-files`：列出服务器上的题库文件（用于下拉选择）
+- `GET /api/admin/live`：SSE 实时推送人数与入口状态
+- `GET /api/admin/attempts`：学生列表（按当前 `quiz_id` 过滤）
+- `GET /api/admin/attempt-detail?id=...`：单个学生详情
+- `GET /api/admin/export-csv`：导出 CSV
+- `POST /api/admin/clear-attempts`：清空当前题库（当前 `quiz_id`）数据
+- `POST /api/admin/shutdown`：安全关闭服务
+- `GET /api/admin/ai-health`：AI 健康检查
+- `POST /api/admin/ai-config`：保存 AI 配置（endpoint/key/model）
+- `GET /api/admin/admin-summary` / `POST /api/admin/admin-summary`：获取/生成全班总结（可结合匹配 PDF 的文本作为上下文）
+- `POST /api/admin/pdfs/upload`：上传课件 PDF
+- `POST /api/admin/pdfs/delete`：删除课件 PDF
+- `POST /api/admin/pdfs/rename`：重命名课件 PDF
+
 ## 会话恢复
 - 学生 cookie（`student_token`）有效期 7 天，关闭浏览器后仍可恢复
 - 学生信息（姓名、学号、班级）缓存在 localStorage，下次访问自动填充
