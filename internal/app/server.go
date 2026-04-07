@@ -705,11 +705,50 @@ func (s *Server) apiAdminState(w http.ResponseWriter, r *http.Request) {
 	if q != nil {
 		title = q.Title
 	}
+	quizID := ""
+	if q != nil {
+		quizID = q.QuizID
+	}
+
+	totalAttempts := 0
+	allAttempts, err := s.store.ListAttempts(r.Context())
+	if err == nil {
+		for _, a := range allAttempts {
+			if a.Status == domain.StatusSubmitted {
+				totalAttempts++
+			}
+		}
+	}
+
+	feedbackCount := 0
+	if q != nil && len(q.Questions) > 0 {
+		lastQ := q.Questions[len(q.Questions)-1]
+		items, err := s.listAttemptsByQuizID(r.Context(), q.QuizID)
+		if err == nil {
+			for _, item := range items {
+				if item.Status != domain.StatusSubmitted {
+					continue
+				}
+				answers, aErr := s.store.GetAnswers(r.Context(), item.ID)
+				if aErr != nil {
+					continue
+				}
+				ans := answers[lastQ.ID]
+				if strings.TrimSpace(ans) != "" {
+					feedbackCount++
+				}
+			}
+		}
+	}
+
 	writeJSON(w, map[string]any{
-		"entry_open": open,
-		"started":    started,
-		"submitted":  submitted,
-		"quiz_title": title,
+		"entry_open":     open,
+		"started":        started,
+		"submitted":      submitted,
+		"quiz_title":     title,
+		"quiz_id":        quizID,
+		"total_attempts": totalAttempts,
+		"feedback_count": feedbackCount,
 	})
 }
 
@@ -1123,6 +1162,8 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 	_ = topKeys(knowledgeBad, 3)
 	return map[string]any{
 		"quiz_title": current.Title,
+		"quiz_id":    current.QuizID,
+		"course":     s.currentCourse(),
 		"student": map[string]any{
 			"name":       attempt.Name,
 			"student_no": attempt.StudentNo,

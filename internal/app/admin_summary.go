@@ -27,15 +27,15 @@ func (s *Server) apiAdminSummaryGet(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := s.store.GetAdminSummary(r.Context(), current.QuizID)
 	if err != nil || strings.TrimSpace(saved) == "" {
-		writeJSON(w, map[string]any{"summary": nil, "has_pdf": s.matchedPDFPath() != ""})
+		writeJSON(w, map[string]any{"summary": nil, "has_pdf": s.matchedPDFPath() != "", "quiz_id": current.QuizID, "course": s.currentCourse()})
 		return
 	}
 	var summary ai.AdminSummary
 	if json.Unmarshal([]byte(saved), &summary) != nil {
-		writeJSON(w, map[string]any{"summary": nil, "has_pdf": s.matchedPDFPath() != ""})
+		writeJSON(w, map[string]any{"summary": nil, "has_pdf": s.matchedPDFPath() != "", "quiz_id": current.QuizID, "course": s.currentCourse()})
 		return
 	}
-	writeJSON(w, map[string]any{"summary": summary, "has_pdf": s.matchedPDFPath() != ""})
+	writeJSON(w, map[string]any{"summary": summary, "has_pdf": s.matchedPDFPath() != "", "quiz_id": current.QuizID, "course": s.currentCourse()})
 }
 
 func (s *Server) apiAdminSummaryGenerate(w http.ResponseWriter, r *http.Request) {
@@ -71,13 +71,13 @@ func (s *Server) apiAdminSummaryGenerate(w http.ResponseWriter, r *http.Request)
 
 	summary, aiErr := s.aiClient.AdminSummarize(r.Context(), input)
 	if aiErr != nil {
-		writeJSON(w, map[string]any{"error": aiErr.Error(), "has_pdf": pdfPath != ""})
+		writeJSON(w, map[string]any{"error": aiErr.Error(), "has_pdf": pdfPath != "", "quiz_id": current.QuizID, "course": s.currentCourse()})
 		return
 	}
 
 	summaryJSON, _ := json.Marshal(summary)
 	_ = s.store.UpsertAdminSummary(r.Context(), current.QuizID, string(summaryJSON))
-	writeJSON(w, map[string]any{"summary": summary, "has_pdf": pdfPath != ""})
+	writeJSON(w, map[string]any{"summary": summary, "has_pdf": pdfPath != "", "quiz_id": current.QuizID, "course": s.currentCourse()})
 }
 
 func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz) (ai.AdminSummarizeInput, error) {
@@ -238,6 +238,15 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz) (ai
 		QuestionStats: questionStats,
 		FeedbackItems: feedbackItems,
 	}, nil
+}
+
+func (s *Server) currentCourse() string {
+	sourcePath, err := s.store.GetSetting(context.Background(), "quiz_source_path")
+	if err != nil || strings.TrimSpace(sourcePath) == "" {
+		return ""
+	}
+	dir := filepath.Dir(sourcePath)
+	return filepath.Base(dir)
 }
 
 func (s *Server) matchedPDFPath() string {

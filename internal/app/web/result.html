@@ -543,7 +543,8 @@
             alert('图片导出失败，请重试');
             return;
           }
-          downloadBlob(png, `${resultData.student.student_no}.png`);
+          const fname = [resultData.course, resultData.quiz_id, resultData.student.student_no].filter(Boolean).join('_');
+          downloadBlob(png, `${fname}.png`);
         }, 'image/png');
       } catch (e) {
         alert('图片导出失败，请刷新页面后重试');
@@ -555,7 +556,8 @@
         const canvas = await renderReportCanvas();
         const jpeg = toUint8(canvas.toDataURL('image/jpeg', 0.92));
         const pdf = buildPDFWithJPEG(jpeg, canvas.width, canvas.height);
-        downloadBlob(pdf, `${resultData.student.student_no}.pdf`);
+        const fname = [resultData.course, resultData.quiz_id, resultData.student.student_no].filter(Boolean).join('_');
+        downloadBlob(pdf, `${fname}.pdf`);
       } catch (e) {
         alert('PDF导出失败，请刷新页面后重试');
       }

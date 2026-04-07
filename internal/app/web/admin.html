@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
   <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -243,9 +244,55 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 0;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+      padding: 12px 0;
     }
     .header-bar h2 { font-size: 20px; }
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      margin: 0 0 16px;
+      border-bottom: 2px solid var(--border);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      position: sticky;
+      top: 56px;
+      background: var(--bg);
+      z-index: 9;
+    }
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      width: auto;
+      flex: 1;
+      min-width: 0;
+      padding: 10px 6px;
+      margin: 0;
+      border: none;
+      border-radius: 10px 10px 0 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      text-align: center;
+      transition: color .2s, border-color .2s;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+    .tab-btn:hover { color: var(--primary); background: transparent; }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: transparent;
+    }
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
     pre.code-block {
       background: #f6f8fa;
       border: 1px solid var(--border);
@@ -296,12 +343,65 @@
       max-height: 90vh;
       border-radius: 8px;
     }
+    .stats-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .stat-item {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+    }
+    .stat-item.blue { border-left: 3px solid var(--primary); }
+    .stat-item.green { border-left: 3px solid var(--success); }
+    .stat-item-icon { font-size: 22px; }
+    .stat-item-info { display: flex; flex-direction: column; }
+    .stat-item-value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-item.blue .stat-item-value { color: var(--primary); }
+    .stat-item.green .stat-item-value { color: var(--success); }
+    .stat-item-label { font-size: 12px; color: var(--text-secondary); }
+    @keyframes statPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+    .stat-item.pulse { animation: statPulse 0.4s ease-out;
+    }
+    .bottom-stats-bar {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      margin-bottom: 24px;
+      padding-top: 24px;
+      border-top: 1px dashed var(--border);
+      justify-content: center;
+    }
+    .bottom-stats-bar .stat-item {
+      flex: 1;
+      max-width: 360px;
+      margin: 0;
+      background: var(--card-bg);
+      opacity: 0.9;
+    }
+    .bottom-stats-bar .stat-item:hover {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
   <div class="header-bar">
     <h2>管理员页面</h2>
-    <button id="shutdownBtn" class="small btn-danger-dark">安全退出服务</button>
   </div>
   <div class="card" id="loginCard">
     <p>请输入管理员密码</p>
@@ -309,81 +409,136 @@
     <button id="loginBtn">登录</button>
   </div>
   <div id="panel" style="display:none;">
-    <div class="card">
-      <p>入口状态：<strong id="entry">-</strong></p>
-      <p>已进入：<strong id="started">0</strong>，已提交：<strong id="submitted">0</strong></p>
-      <button id="openBtn">开启入口</button>
-      <button id="closeBtn" class="btn-danger" style="margin-top:8px;">关闭入口</button>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="tab-home">🏠 主页</button>
+      <button class="tab-btn" data-tab="tab-students">📋 答题管理</button>
+      <button class="tab-btn" data-tab="tab-summary">📊 班级总结</button>
+      <button class="tab-btn" data-tab="tab-pdf">📄 课件管理</button>
+      <button class="tab-btn" data-tab="tab-ai">⚙️ AI 配置</button>
     </div>
-    <div class="card">
-      <p>选择题库</p>
-      <div class="row" style="margin-bottom:8px;">
-        <select id="courseSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
-          <option value="">-- 选择课程 --</option>
-        </select>
-        <select id="quizSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
-          <option value="">-- 选择题库 --</option>
-        </select>
+    <!-- Tab 1: 主页 -->
+    <div class="tab-page active" id="tab-home">
+      <div class="card">
+        <p><strong>选择题库</strong></p>
+        <div class="row" style="margin-bottom:8px;">
+          <select id="courseSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
+            <option value="">-- 选择课程 --</option>
+          </select>
+          <select id="quizSelect" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);">
+            <option value="">-- 选择题库 --</option>
+          </select>
+        </div>
+        <button id="loadServerQuiz">加载所选题库</button>
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">或手动上传/粘贴 YAML</summary>
+          <textarea id="yaml" style="margin-top:8px;"></textarea>
+          <input id="quizFile" type="file" accept=".yaml,.yml,text/yaml" style="display:none;" />
+          <div class="row">
+            <button id="pickQuiz">选择本地文件</button>
+            <button id="loadQuiz">加载YAML文本</button>
+          </div>
+        </details>
       </div>
-      <button id="loadServerQuiz">加载所选题库</button>
-      <details style="margin-top:12px;">
-        <summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">或手动上传/粘贴 YAML</summary>
-        <textarea id="yaml" style="margin-top:8px;"></textarea>
-        <input id="quizFile" type="file" accept=".yaml,.yml,text/yaml" style="display:none;" />
+      <div class="card">
+        <p><strong>答题入口</strong></p>
+        <p>入口状态：<strong id="entry">-</strong></p>
+        <p>已进入：<strong id="started">0</strong>，已提交：<strong id="submitted">0</strong></p>
         <div class="row">
-          <button id="pickQuiz">选择本地文件</button>
-          <button id="loadQuiz">加载YAML文本</button>
-        </div>
-      </details>
-    </div>
-    <div class="card">
-      <p>课后整理</p>
-      <button id="exportBtn">导出全班 CSV</button>
-      <button id="clearAttemptsBtn" class="btn-danger" style="margin-top:8px;">清空本次答题数据</button>
-      <div id="attempts"></div>
-    </div>
-    <div class="card">
-      <p><strong>📊 班级 AI 总结</strong></p>
-      <div class="row">
-        <button id="genAdminSummaryBtn">生成班级 AI 总结</button>
-        <button id="refreshAdminSummaryBtn" class="small" style="margin-top:8px;">刷新</button>
-      </div>
-      <div id="adminSummaryStatus" style="margin-top:6px;font-size:12px;color:var(--text-secondary);"></div>
-      <div id="adminSummaryContent" style="margin-top:10px;display:none;">
-        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
-          <p style="font-weight:600;margin-bottom:6px;">📝 答题情况与错题总结</p>
-          <div id="adminAnswerAnalysis" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
-        </div>
-        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
-          <p style="font-weight:600;margin-bottom:6px;">💬 学生反馈总结</p>
-          <div id="adminFeedbackSummary" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
-        </div>
-        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg);">
-          <p style="font-weight:600;margin-bottom:6px;">💡 教学建议</p>
-          <div id="adminTeachingSuggestions" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+          <button id="openBtn">开启入口</button>
+          <button id="closeBtn" class="btn-danger">关闭入口</button>
         </div>
       </div>
     </div>
-    <div class="card">
-      <p><strong>📄 课件 PDF 管理</strong></p>
-      <div style="margin-bottom:8px;">
-        <input id="pdfFolder" placeholder="课程文件夹 (如 最优化方法)" style="margin-bottom:4px;" />
-        <input id="pdfFile" type="file" accept=".pdf" style="margin-top:4px;" />
-        <button id="uploadPdfBtn" style="margin-top:8px;">上传 PDF</button>
+    <!-- Tab 2: 答题管理 -->
+    <div class="tab-page" id="tab-students">
+      <div class="card">
+        <p><strong>课后整理</strong></p>
+        <div class="row">
+          <button id="exportBtn">导出全班 CSV</button>
+          <button id="clearAttemptsBtn" class="btn-danger">清空本次答题数据</button>
+        </div>
+        <div id="attempts"></div>
       </div>
-      <div id="pdfList"></div>
     </div>
-    <div class="card">
-      <p>AI 总结状态</p>
-      <button id="aiHealthBtn">刷新 AI 状态</button>
-      <div id="aiHealth" style="margin-top:8px;font-size:14px;color:var(--text-secondary);"></div>
+    <!-- Tab 3: 班级总结 -->
+    <div class="tab-page" id="tab-summary">
+      <div class="card">
+        <p><strong>📊 班级 AI 总结</strong></p>
+        <div class="row">
+          <button id="genAdminSummaryBtn">生成班级 AI 总结</button>
+          <button id="refreshAdminSummaryBtn" class="small" style="margin-top:8px;">刷新</button>
+        </div>
+        <div id="adminSummaryStatus" style="margin-top:6px;font-size:12px;color:var(--text-secondary);"></div>
+        <div id="adminSummaryContent" style="margin-top:10px;display:none;">
+          <div class="row" style="margin-bottom:10px;">
+            <button id="copySummaryBtn" class="small" style="margin-top:0;">📋 复制总结</button>
+            <button id="downloadSummaryMdBtn" class="small" style="margin-top:0;">⬇️ 下载 .md</button>
+            <button id="downloadSummaryPdfBtn" class="small" style="margin-top:0;">📄 下载 PDF</button>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+            <p style="font-weight:600;margin-bottom:6px;">📝 答题情况与错题总结</p>
+            <div id="adminAnswerAnalysis" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+            <p style="font-weight:600;margin-bottom:6px;">💬 学生反馈总结</p>
+            <div id="adminFeedbackSummary" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg);">
+            <p style="font-weight:600;margin-bottom:6px;">💡 教学建议</p>
+            <div id="adminTeachingSuggestions" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="card">
-      <p>AI 总结配置</p>
-      <input id="aiEndpoint" placeholder="API Endpoint (如 https://api.openai.com/v1)" />
-      <input id="aiKey" type="password" placeholder="API Key" />
-      <input id="aiModel" placeholder="Model (如 gpt-4o-mini)" />
-      <button id="saveAIConfigBtn" style="margin-top:8px;">保存 AI 配置</button>
+    <!-- Tab 4: 课件管理 -->
+    <div class="tab-page" id="tab-pdf">
+      <div class="card">
+        <p><strong>📄 上传课件</strong></p>
+        <div style="margin-bottom:8px;">
+          <select id="pdfFolderSelect" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:8px;">
+            <option value="">-- 选择课程文件夹 --</option>
+          </select>
+          <input id="pdfFile" type="file" accept=".pdf" style="margin-top:4px;" />
+          <button id="uploadPdfBtn" style="margin-top:8px;">上传 PDF</button>
+        </div>
+      </div>
+      <div class="card">
+        <p><strong>已上传课件</strong></p>
+        <div id="pdfList"></div>
+      </div>
+    </div>
+    <!-- Tab 5: AI 配置 -->
+    <div class="tab-page" id="tab-ai">
+      <div class="card">
+        <p><strong>AI 服务状态</strong></p>
+        <button id="aiHealthBtn">刷新 AI 状态</button>
+        <div id="aiHealth" style="margin-top:8px;font-size:14px;color:var(--text-secondary);"></div>
+      </div>
+      <div class="card">
+        <p><strong>AI 配置</strong></p>
+        <input id="aiEndpoint" placeholder="API Endpoint (如 https://api.openai.com/v1)" />
+        <input id="aiKey" type="password" placeholder="API Key" />
+        <input id="aiModel" placeholder="Model (如 gpt-4o-mini)" />
+        <button id="saveAIConfigBtn" style="margin-top:8px;">保存 AI 配置</button>
+      </div>
+    </div>
+
+    <!-- 页面底部的统计栏 (类似 footnote) -->
+    <div class="bottom-stats-bar" id="bottomStatsBar" style="display:none;">
+      <div class="stat-item blue" id="statAttemptsCard">
+        <div class="stat-item-icon">📝</div>
+        <div class="stat-item-info">
+          <div class="stat-item-value" id="statTotalAttempts">0</div>
+          <div class="stat-item-label">历史总答题</div>
+        </div>
+      </div>
+      <div class="stat-item green" id="statFeedbackCard">
+        <div class="stat-item-icon">💬</div>
+        <div class="stat-item-info">
+          <div class="stat-item-value" id="statFeedbackCount">0</div>
+          <div class="stat-item-label">学生反馈数</div>
+        </div>
+      </div>
     </div>
   </div>
   <div id="detailModal" class="modal">
@@ -478,6 +633,7 @@
       }
       document.getElementById('loginCard').style.display = 'none';
       document.getElementById('panel').style.display = 'block';
+      document.getElementById('bottomStatsBar').style.display = 'flex';
       refresh();
       loadAttempts();
       loadAIHealth();
@@ -591,6 +747,7 @@
       alert('题库加载成功');
       refresh();
       loadAttempts();
+      loadAdminSummary();
     }
     async function refresh() {
       const r = await fetch('/api/admin/state', { credentials:'include' });
@@ -599,6 +756,26 @@
       document.getElementById('entry').textContent = data.entry_open ? '开放' : '关闭';
       document.getElementById('started').textContent = data.started;
       document.getElementById('submitted').textContent = data.submitted;
+      const newAttempts = data.total_attempts ?? 0;
+      const newFeedback = data.feedback_count ?? 0;
+      const attemptsEl = document.getElementById('statTotalAttempts');
+      const feedbackEl = document.getElementById('statFeedbackCount');
+      const prevAttempts = Number(attemptsEl.textContent) || 0;
+      const prevFeedback = Number(feedbackEl.textContent) || 0;
+      attemptsEl.textContent = newAttempts;
+      feedbackEl.textContent = newFeedback;
+      if (newAttempts !== prevAttempts) {
+        const card = document.getElementById('statAttemptsCard');
+        card.classList.remove('pulse');
+        void card.offsetWidth;
+        card.classList.add('pulse');
+      }
+      if (newFeedback !== prevFeedback) {
+        const card = document.getElementById('statFeedbackCard');
+        card.classList.remove('pulse');
+        void card.offsetWidth;
+        card.classList.add('pulse');
+      }
     }
     async function loadAttempts() {
       const r = await fetch('/api/admin/attempts', { credentials:'include' });
@@ -691,16 +868,7 @@
       loadAttempts();
       refresh();
     }
-    async function shutdownService() {
-      const ok = confirm('确认安全退出服务？退出后页面将不可访问。');
-      if (!ok) return;
-      const r = await fetch('/api/admin/shutdown', { method: 'POST', credentials: 'include' });
-      if (!r.ok) {
-        alert(await r.text());
-        return;
-      }
-      alert('服务正在安全退出');
-    }
+
     function listen() {
       const sse = new EventSource('/api/admin/live', { withCredentials: true });
       sse.onmessage = (evt) => {
@@ -708,6 +876,7 @@
         document.getElementById('entry').textContent = d.entry_open ? '开放' : '关闭';
         document.getElementById('started').textContent = d.started;
         document.getElementById('submitted').textContent = d.submitted;
+        refresh();
         loadAttempts();
       };
     }
@@ -724,6 +893,7 @@
         for (const c of courseSet) {
           cs.innerHTML += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
         }
+        populatePdfFolderSelect();
       } catch(e) {}
     }
     function updateQuizSelect() {
@@ -756,6 +926,7 @@
         alert('题库加载成功');
         refresh();
         loadAttempts();
+        loadAdminSummary();
       } catch(e) {
         alert('加载失败');
       }
@@ -788,12 +959,14 @@
       s = s.replace(/\n/g, '<br/>');
       return s;
     }
+    let adminSummaryData = null;
     async function loadAdminSummary() {
       const r = await fetch('/api/admin/admin-summary', { credentials:'include' });
       if (!r.ok) return;
       const data = await r.json();
       const status = document.getElementById('adminSummaryStatus');
       const content = document.getElementById('adminSummaryContent');
+      adminSummaryData = data;
       status.textContent = data.has_pdf ? '📎 已关联课件 PDF' : '未关联课件 PDF（可上传到 ppt/ 目录自动匹配）';
       if (data.summary) {
         document.getElementById('adminAnswerAnalysis').innerHTML = renderMd(data.summary.answer_analysis);
@@ -870,11 +1043,19 @@
       }
       root.innerHTML = html;
     }
+    function populatePdfFolderSelect() {
+      const sel = document.getElementById('pdfFolderSelect');
+      const courseSet = new Set(quizFilesCache.map(i => i.course));
+      sel.innerHTML = '<option value="">-- 选择课程文件夹 --</option>';
+      for (const c of courseSet) {
+        sel.innerHTML += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
+      }
+    }
     async function uploadPDF() {
-      const folder = document.getElementById('pdfFolder').value.trim();
+      const folder = document.getElementById('pdfFolderSelect').value;
       const fileInput = document.getElementById('pdfFile');
       const file = fileInput.files && fileInput.files[0];
-      if (!folder) { alert('请输入课程文件夹名称'); return; }
+      if (!folder) { alert('请选择课程文件夹'); return; }
       if (!file) { alert('请选择 PDF 文件'); return; }
       const fd = new FormData();
       fd.append('folder', folder);
@@ -912,6 +1093,105 @@
       if (!r.ok) { alert(await r.text()); return; }
       loadPDFList();
     }
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      };
+    });
+    // Summary copy/download
+    function buildSummaryMd() {
+      if (!adminSummaryData || !adminSummaryData.summary) return '';
+      const s = adminSummaryData.summary;
+      return `# 班级 AI 总结\n\n## 📝 答题情况与错题总结\n\n${s.answer_analysis || '暂无'}\n\n## 💬 学生反馈总结\n\n${s.feedback_summary || '暂无'}\n\n## 💡 教学建议\n\n${s.teaching_suggestions || '暂无'}\n`;
+    }
+    function summaryFileName(ext) {
+      const parts = [adminSummaryData?.course, adminSummaryData?.quiz_id].filter(Boolean);
+      return (parts.length ? parts.join('_') : 'summary') + ext;
+    }
+    document.getElementById('copySummaryBtn').onclick = async () => {
+      const md = buildSummaryMd();
+      if (!md) return;
+      await navigator.clipboard.writeText(md);
+      alert('已复制到剪贴板');
+    };
+    document.getElementById('downloadSummaryMdBtn').onclick = () => {
+      const md = buildSummaryMd();
+      if (!md) return;
+      const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = summaryFileName('.md');
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    function downloadBlob(blob, fileName) {
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+    function toUint8(dataURL) {
+      const b64 = dataURL.split(',')[1];
+      const raw = atob(b64);
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+    function buildPDFWithJPEG(jpegBytes, imgW, imgH) {
+      const encoder = new TextEncoder();
+      const parts = [];
+      const offsets = [0];
+      let pos = 0;
+      const pushText = (s) => { const d = encoder.encode(s); parts.push(d); pos += d.length; };
+      const pushBytes = (b) => { parts.push(b); pos += b.length; };
+      const pageW = 595.28, pageH = 841.89;
+      let drawW = pageW - 40;
+      let drawH = drawW * imgH / imgW;
+      if (drawH > pageH - 40) { drawH = pageH - 40; drawW = drawH * imgW / imgH; }
+      const x = (pageW - drawW) / 2, y = pageH - 20 - drawH;
+      const content = `q\n${drawW.toFixed(2)} 0 0 ${drawH.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/Im0 Do\nQ\n`;
+      pushText('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+      offsets.push(pos); pushText('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+      offsets.push(pos); pushText('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+      offsets.push(pos); pushText(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources 6 0 R /Contents 5 0 R >>\nendobj\n`);
+      offsets.push(pos); pushText(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgW} /Height ${imgH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`); pushBytes(jpegBytes); pushText('\nendstream\nendobj\n');
+      const contentBytes = encoder.encode(content);
+      offsets.push(pos); pushText(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n${content}endstream\nendobj\n`);
+      offsets.push(pos); pushText('6 0 obj\n<< /XObject << /Im0 4 0 R >> >>\nendobj\n');
+      const xrefPos = pos;
+      pushText('xref\n0 7\n');
+      pushText('0000000000 65535 f \n');
+      for (let i = 1; i <= 6; i++) pushText(String(offsets[i]).padStart(10, '0') + ' 00000 n \n');
+      pushText(`trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+      return new Blob(parts, { type: 'application/pdf' });
+    }
+    document.getElementById('downloadSummaryPdfBtn').onclick = async () => {
+      if (!adminSummaryData || !adminSummaryData.summary) return;
+      const btn = document.getElementById('downloadSummaryPdfBtn');
+      btn.disabled = true;
+      btn.textContent = '生成中...';
+      try {
+        if (!window.html2canvas) { alert('PDF 组件加载中，请稍后重试'); return; }
+        const el = document.getElementById('adminSummaryContent');
+        const canvas = await window.html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+        const jpeg = toUint8(canvas.toDataURL('image/jpeg', 0.92));
+        const pdf = buildPDFWithJPEG(jpeg, canvas.width, canvas.height);
+        downloadBlob(pdf, summaryFileName('.pdf'));
+      } catch (e) {
+        alert('PDF 导出失败，请重试');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📄 下载 PDF';
+      }
+    };
     document.getElementById('loginBtn').onclick = login;
     document.getElementById('openBtn').onclick = () => toggle(true);
     document.getElementById('closeBtn').onclick = () => toggle(false);
@@ -919,7 +1199,6 @@
     document.getElementById('loadQuiz').onclick = loadQuiz;
     document.getElementById('exportBtn').onclick = exportCSV;
     document.getElementById('clearAttemptsBtn').onclick = clearAttempts;
-    document.getElementById('shutdownBtn').onclick = shutdownService;
     document.getElementById('aiHealthBtn').onclick = loadAIHealth;
     document.getElementById('courseSelect').onchange = updateQuizSelect;
     document.getElementById('loadServerQuiz').onclick = loadServerQuiz;
