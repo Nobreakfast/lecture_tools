@@ -7,14 +7,14 @@
   <style>
     :root {
       --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --text: #1e293b;
-      --text-secondary: #64748b;
-      --border: #e2e8f0;
-      --radius: 12px;
-      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+      --card-bg: rgba(255, 255, 255, 0.7);
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --border: rgba(226, 232, 240, 0.8);
+      --radius: 16px;
+      --shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 0 3px rgba(0, 0, 0, 0.02);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -22,18 +22,26 @@
       max-width: 760px;
       margin: 24px auto;
       padding: 0 12px;
-      background: var(--bg);
+      background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%);
+      min-height: 100vh;
       color: var(--text);
       line-height: 1.6;
     }
     h2 { font-size: 20px; margin-bottom: 16px; }
     .card {
       background: var(--card-bg);
-      border: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
       border-radius: var(--radius);
       padding: 16px;
       margin-bottom: 12px;
       box-shadow: var(--shadow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
     }
     .folder-title {
       font-weight: 600;
@@ -69,10 +77,14 @@
       border-radius: 8px;
       text-decoration: none;
       color: #fff;
-      background: var(--primary);
-      transition: background .2s;
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+      transition: all 0.2s ease;
     }
-    .pdf-actions a:hover { background: var(--primary-hover); }
+    .pdf-actions a:hover { 
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+    }
     .empty { color: var(--text-secondary); font-size: 14px; padding: 20px 0; text-align: center; }
   </style>
 </head>
