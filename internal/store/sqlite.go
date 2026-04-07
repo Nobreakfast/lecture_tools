@@ -62,6 +62,12 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			attempt_id TEXT PRIMARY KEY,
 			summary_json TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS admin_summaries (
+			quiz_id TEXT PRIMARY KEY,
+			summary_json TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -265,6 +271,26 @@ func (s *SQLiteStore) UpdateAttemptSession(ctx context.Context, attemptID, token
 	return err
 }
 
+func (s *SQLiteStore) UpsertAdminSummary(ctx context.Context, quizID string, summaryJSON string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO admin_summaries(quiz_id, summary_json, created_at, updated_at) VALUES(?, ?, ?, ?) ON CONFLICT(quiz_id) DO UPDATE SET summary_json=excluded.summary_json, updated_at=excluded.updated_at`, quizID, summaryJSON, now, now)
+	return err
+}
+
+func (s *SQLiteStore) GetAdminSummary(ctx context.Context, quizID string) (string, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT summary_json FROM admin_summaries WHERE quiz_id = ?`, quizID).Scan(&value)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *SQLiteStore) DeleteAdminSummary(ctx context.Context, quizID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM admin_summaries WHERE quiz_id = ?`, quizID)
+	return err
+}
+
 func (s *SQLiteStore) ClearAttempts(ctx context.Context, quizID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -275,6 +301,10 @@ func (s *SQLiteStore) ClearAttempts(ctx context.Context, quizID string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries WHERE attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ?)`, quizID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM admin_summaries WHERE quiz_id = ?`, quizID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

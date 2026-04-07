@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>课件下载</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      max-width: 760px;
+      margin: 24px auto;
+      padding: 0 12px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    h2 { font-size: 20px; margin-bottom: 16px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .folder-title {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 8px;
+      color: var(--text-secondary);
+    }
+    .pdf-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .pdf-item:last-child { border-bottom: none; }
+    .pdf-name {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .pdf-size {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-left: 8px;
+    }
+    .pdf-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .pdf-actions a {
+      display: inline-block;
+      padding: 5px 12px;
+      font-size: 13px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: #fff;
+      background: var(--primary);
+      transition: background .2s;
+    }
+    .pdf-actions a:hover { background: var(--primary-hover); }
+    .empty { color: var(--text-secondary); font-size: 14px; padding: 20px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <h2>📚 课件下载</h2>
+  <div id="content"><div class="empty">加载中...</div></div>
+  <script>
+    function escapeHTML(s) {
+      return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+    }
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+      return (bytes/(1024*1024)).toFixed(1) + ' MB';
+    }
+    async function load() {
+      const r = await fetch('/api/pdfs');
+      if (!r.ok) {
+        document.getElementById('content').innerHTML = '<div class="empty">加载失败</div>';
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        document.getElementById('content').innerHTML = '<div class="empty">暂无课件</div>';
+        return;
+      }
+      const grouped = {};
+      for (const item of items) {
+        if (!grouped[item.folder]) grouped[item.folder] = [];
+        grouped[item.folder].push(item);
+      }
+      let html = '';
+      for (const [folder, files] of Object.entries(grouped)) {
+        html += `<div class="card"><div class="folder-title">📂 ${escapeHTML(folder)}</div>`;
+        for (const f of files) {
+          html += `<div class="pdf-item">
+            <div>
+              <span class="pdf-name">${escapeHTML(f.file)}</span>
+              <span class="pdf-size">${formatSize(f.size)}</span>
+            </div>
+            <div class="pdf-actions">
+              <a href="${escapeHTML(f.url)}" target="_blank">查看</a>
+              <a href="${escapeHTML(f.url)}" download>下载</a>
+            </div>
+          </div>`;
+        }
+        html += '</div>';
+      }
+      document.getElementById('content').innerHTML = html;
+    }
+    load();
+  </script>
+</body>
+</html>

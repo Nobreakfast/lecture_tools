@@ -109,6 +109,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/ai-summary", s.apiAISummary)
 	mux.HandleFunc("/api/admin/ai-config", s.apiAdminAIConfig)
 	mux.HandleFunc("/api/admin/quiz-files", s.apiAdminQuizFiles)
+	mux.HandleFunc("/api/admin/admin-summary", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.apiAdminSummaryGenerate(w, r)
+		} else {
+			s.apiAdminSummaryGet(w, r)
+		}
+	})
+	mux.HandleFunc("/api/admin/pdfs/upload", s.apiAdminPDFUpload)
+	mux.HandleFunc("/api/admin/pdfs/delete", s.apiAdminPDFDelete)
+	mux.HandleFunc("/api/admin/pdfs/rename", s.apiAdminPDFRename)
+	mux.HandleFunc("/api/pdfs", s.apiPDFs)
+	mux.HandleFunc("/pdf", s.pagePDF)
+	mux.HandleFunc("/ppt/", s.servePPT)
 	mux.HandleFunc("/api/answer-image", s.apiUploadAnswerImage)
 	mux.HandleFunc("/uploads/", s.serveUpload)
 	return withCORS(mux)
@@ -790,6 +803,7 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var raw []byte
+	var quizSourcePath string
 	contentType := r.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		if err := r.ParseMultipartForm(5 << 20); err != nil {
@@ -819,6 +833,7 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			raw = data
+			quizSourcePath = req.FilePath
 		} else {
 			raw = []byte(req.YAML)
 		}
@@ -838,6 +853,7 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.SetSetting(r.Context(), "entry_open", "false")
+	_ = s.store.SetSetting(r.Context(), "quiz_source_path", quizSourcePath)
 	s.mu.Lock()
 	s.currentQuiz = parsed
 	s.mu.Unlock()

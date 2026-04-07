@@ -343,6 +343,37 @@
       <div id="attempts"></div>
     </div>
     <div class="card">
+      <p><strong>📊 班级 AI 总结</strong></p>
+      <div class="row">
+        <button id="genAdminSummaryBtn">生成班级 AI 总结</button>
+        <button id="refreshAdminSummaryBtn" class="small" style="margin-top:8px;">刷新</button>
+      </div>
+      <div id="adminSummaryStatus" style="margin-top:6px;font-size:12px;color:var(--text-secondary);"></div>
+      <div id="adminSummaryContent" style="margin-top:10px;display:none;">
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <p style="font-weight:600;margin-bottom:6px;">📝 答题情况与错题总结</p>
+          <div id="adminAnswerAnalysis" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <p style="font-weight:600;margin-bottom:6px;">💬 学生反馈总结</p>
+          <div id="adminFeedbackSummary" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg);">
+          <p style="font-weight:600;margin-bottom:6px;">💡 教学建议</p>
+          <div id="adminTeachingSuggestions" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <p><strong>📄 课件 PDF 管理</strong></p>
+      <div style="margin-bottom:8px;">
+        <input id="pdfFolder" placeholder="课程文件夹 (如 最优化方法)" style="margin-bottom:4px;" />
+        <input id="pdfFile" type="file" accept=".pdf" style="margin-top:4px;" />
+        <button id="uploadPdfBtn" style="margin-top:8px;">上传 PDF</button>
+      </div>
+      <div id="pdfList"></div>
+    </div>
+    <div class="card">
       <p>AI 总结状态</p>
       <button id="aiHealthBtn">刷新 AI 状态</button>
       <div id="aiHealth" style="margin-top:8px;font-size:14px;color:var(--text-secondary);"></div>
@@ -451,6 +482,8 @@
       loadAttempts();
       loadAIHealth();
       loadQuizFiles();
+      loadAdminSummary();
+      loadPDFList();
       listen();
     }
     async function toggle(open) {
@@ -744,6 +777,141 @@
       alert('AI 配置已保存');
       loadAIHealth();
     }
+    function renderMd(text) {
+      if (!text) return '暂无';
+      let s = escapeHTML(text);
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      s = s.replace(/`(.+?)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:4px;font-size:13px;">$1</code>');
+      s = s.replace(/^(\d+)\.\s/gm, '<strong>$1.</strong> ');
+      s = s.replace(/^[-•]\s/gm, '• ');
+      s = s.replace(/\n/g, '<br/>');
+      return s;
+    }
+    async function loadAdminSummary() {
+      const r = await fetch('/api/admin/admin-summary', { credentials:'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const status = document.getElementById('adminSummaryStatus');
+      const content = document.getElementById('adminSummaryContent');
+      status.textContent = data.has_pdf ? '📎 已关联课件 PDF' : '未关联课件 PDF（可上传到 ppt/ 目录自动匹配）';
+      if (data.summary) {
+        document.getElementById('adminAnswerAnalysis').innerHTML = renderMd(data.summary.answer_analysis);
+        document.getElementById('adminFeedbackSummary').innerHTML = renderMd(data.summary.feedback_summary);
+        document.getElementById('adminTeachingSuggestions').innerHTML = renderMd(data.summary.teaching_suggestions);
+        content.style.display = 'block';
+        await waitMathJax();
+        if (window.MathJax && window.MathJax.typesetPromise) {
+          await window.MathJax.typesetPromise([content]);
+        }
+      } else {
+        content.style.display = 'none';
+      }
+    }
+    async function genAdminSummary() {
+      const btn = document.getElementById('genAdminSummaryBtn');
+      btn.disabled = true;
+      btn.textContent = '正在生成...';
+      try {
+        const r = await fetch('/api/admin/admin-summary', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        if (!r.ok) {
+          alert(await r.text());
+          return;
+        }
+        const data = await r.json();
+        if (data.error) {
+          alert('AI 总结失败: ' + data.error);
+          return;
+        }
+        loadAdminSummary();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '生成班级 AI 总结';
+      }
+    }
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+      return (bytes/(1024*1024)).toFixed(1) + ' MB';
+    }
+    async function loadPDFList() {
+      const r = await fetch('/api/pdfs');
+      if (!r.ok) return;
+      const data = await r.json();
+      const items = data.items || [];
+      const root = document.getElementById('pdfList');
+      if (items.length === 0) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无 PDF 课件</p>';
+        return;
+      }
+      const grouped = {};
+      for (const item of items) {
+        if (!grouped[item.folder]) grouped[item.folder] = [];
+        grouped[item.folder].push(item);
+      }
+      let html = '';
+      for (const [folder, files] of Object.entries(grouped)) {
+        html += `<div style="margin-top:8px;"><p style="font-weight:600;font-size:13px;color:var(--text-secondary);">📂 ${escapeHTML(folder)}</p>`;
+        for (const f of files) {
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:13px;">${escapeHTML(f.file)} <span style="color:var(--text-secondary);font-size:12px;">(${formatSize(f.size)})</span></span>
+            <span>
+              <a href="${escapeHTML(f.url)}" target="_blank" style="font-size:12px;color:var(--primary);margin-right:8px;">查看</a>
+              <a href="${escapeHTML(f.url)}" download style="font-size:12px;color:var(--primary);margin-right:8px;">下载</a>
+              <button class="small" style="font-size:12px;padding:3px 8px;background:var(--warning);" onclick="renamePDF('${escapeHTML(f.folder)}','${escapeHTML(f.file)}')">重命名</button>
+              <button class="small btn-danger" style="font-size:12px;padding:3px 8px;" onclick="deletePDF('${escapeHTML(f.folder)}','${escapeHTML(f.file)}')">删除</button>
+            </span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+      root.innerHTML = html;
+    }
+    async function uploadPDF() {
+      const folder = document.getElementById('pdfFolder').value.trim();
+      const fileInput = document.getElementById('pdfFile');
+      const file = fileInput.files && fileInput.files[0];
+      if (!folder) { alert('请输入课程文件夹名称'); return; }
+      if (!file) { alert('请选择 PDF 文件'); return; }
+      const fd = new FormData();
+      fd.append('folder', folder);
+      fd.append('file', file);
+      const r = await fetch('/api/admin/pdfs/upload', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      alert('上传成功');
+      fileInput.value = '';
+      loadPDFList();
+    }
+    async function renamePDF(folder, oldName) {
+      const newName = prompt(`重命名 "${oldName}" 为：`, oldName);
+      if (!newName || newName === oldName) return;
+      const r = await fetch('/api/admin/pdfs/rename', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ folder, old_name: oldName, new_name: newName })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadPDFList();
+    }
+    async function deletePDF(folder, file) {
+      if (!confirm(`确认删除 ${folder}/${file}？`)) return;
+      const r = await fetch('/api/admin/pdfs/delete', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ folder, file })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadPDFList();
+    }
     document.getElementById('loginBtn').onclick = login;
     document.getElementById('openBtn').onclick = () => toggle(true);
     document.getElementById('closeBtn').onclick = () => toggle(false);
@@ -756,6 +924,9 @@
     document.getElementById('courseSelect').onchange = updateQuizSelect;
     document.getElementById('loadServerQuiz').onclick = loadServerQuiz;
     document.getElementById('saveAIConfigBtn').onclick = saveAIConfig;
+    document.getElementById('genAdminSummaryBtn').onclick = genAdminSummary;
+    document.getElementById('refreshAdminSummaryBtn').onclick = loadAdminSummary;
+    document.getElementById('uploadPdfBtn').onclick = uploadPDF;
     document.getElementById('closeDetailBtn').onclick = closeDetail;
     document.getElementById('detailModal').onclick = (evt) => {
       if (evt.target.id === 'detailModal') closeDetail();
