@@ -1,10 +1,64 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"course-assistant/internal/domain"
 )
+
+type memStore struct {
+	attempts []domain.Attempt
+	answers  map[string]map[string]string
+}
+
+func (m *memStore) Init(context.Context) error { return nil }
+func (m *memStore) GetSetting(context.Context, string) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (m *memStore) SetSetting(context.Context, string, string) error { return nil }
+func (m *memStore) CreateAttempt(context.Context, *domain.Attempt) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) ListAttempts(context.Context) ([]domain.Attempt, error) { return m.attempts, nil }
+func (m *memStore) GetAttemptByID(context.Context, string) (*domain.Attempt, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) GetAttemptByToken(context.Context, string) (*domain.Attempt, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) UpdateAttemptStatus(context.Context, string, domain.AttemptStatus) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) SubmitAttempt(context.Context, string) (int, error) { return 0, errors.New("not implemented") }
+func (m *memStore) SaveAnswer(context.Context, domain.Answer) error      { return errors.New("not implemented") }
+func (m *memStore) GetAnswers(ctx context.Context, attemptID string) (map[string]string, error) {
+	if m.answers == nil {
+		return map[string]string{}, nil
+	}
+	if got, ok := m.answers[attemptID]; ok {
+		return got, nil
+	}
+	return map[string]string{}, nil
+}
+func (m *memStore) UpsertSummary(context.Context, string, string) error { return errors.New("not implemented") }
+func (m *memStore) GetSummary(context.Context, string) (string, error)  { return "", errors.New("not implemented") }
+func (m *memStore) GetLiveStats(context.Context) (int, int, error)      { return 0, 0, errors.New("not implemented") }
+func (m *memStore) GetInProgressAttempt(context.Context, string, string) (*domain.Attempt, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) UpdateAttemptSession(context.Context, string, string, string, string) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) UpsertAdminSummary(context.Context, string, string) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) GetAdminSummary(context.Context, string) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (m *memStore) DeleteAdminSummary(context.Context, string) error { return errors.New("not implemented") }
+func (m *memStore) ClearAttempts(context.Context, string) error      { return errors.New("not implemented") }
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{
@@ -208,5 +262,47 @@ func TestFormatQuestionCorrectForCSV(t *testing.T) {
 	}
 	if got := formatQuestionCorrectForCSV(survey); got != "" {
 		t.Fatalf("survey should have empty correct answer: %s", got)
+	}
+}
+
+func TestBuildAdminSummaryInputAvgTotalExcludesSurveyAndShortAnswer(t *testing.T) {
+	quiz := &domain.Quiz{
+		QuizID: "quiz-1",
+		Title:  "t",
+		Questions: []domain.Question{
+			{ID: "q1", Type: domain.QuestionSingleChoice, Stem: "q1", CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
+			{ID: "q2", Type: domain.QuestionShortAnswer, Stem: "q2"},
+			{ID: "q3", Type: domain.QuestionSurvey, Stem: "q3", Options: []domain.Option{{Key: "A", Text: "好"}, {Key: "B", Text: "一般"}}},
+			{ID: "q4", Type: domain.QuestionSingleChoice, Stem: "q4", CorrectAnswer: "B", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
+		},
+	}
+
+	st := &memStore{
+		attempts: []domain.Attempt{
+			{ID: "a1", QuizID: quiz.QuizID, StudentNo: "s1", Status: domain.StatusSubmitted, AttemptNo: 1},
+			{ID: "a2", QuizID: quiz.QuizID, StudentNo: "s2", Status: domain.StatusSubmitted, AttemptNo: 1},
+		},
+		answers: map[string]map[string]string{
+			"a1": {"q1": "A", "q2": "反馈1", "q3": "A", "q4": "A"},
+			"a2": {"q1": "B", "q2": "反馈2", "q3": "B", "q4": "B"},
+		},
+	}
+	s := &Server{store: st}
+
+	in, err := s.buildAdminSummaryInput(context.Background(), quiz)
+	if err != nil {
+		t.Fatalf("buildAdminSummaryInput failed: %v", err)
+	}
+	if in.StudentCount != 2 {
+		t.Fatalf("unexpected StudentCount: %d", in.StudentCount)
+	}
+	if in.AvgScore != 1.0 {
+		t.Fatalf("unexpected AvgScore: %v", in.AvgScore)
+	}
+	if in.AvgTotal != 2.0 {
+		t.Fatalf("unexpected AvgTotal: %v", in.AvgTotal)
+	}
+	if len(in.QuestionStats) != 2 {
+		t.Fatalf("unexpected QuestionStats count: %d", len(in.QuestionStats))
 	}
 }

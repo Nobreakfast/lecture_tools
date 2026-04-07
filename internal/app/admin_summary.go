@@ -226,8 +226,10 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz) (ai
 	}
 
 	avgScore := 0.0
-	if totalPossible > 0 {
+	avgTotal := 0.0
+	if len(latest) > 0 {
 		avgScore = float64(totalScore) / float64(len(latest))
+		avgTotal = float64(totalPossible) / float64(len(latest))
 	}
 
 	return ai.AdminSummarizeInput{
@@ -235,6 +237,7 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz) (ai
 		QuizTitle:     q.Title,
 		StudentCount:  len(latest),
 		AvgScore:      avgScore,
+		AvgTotal:      avgTotal,
 		QuestionStats: questionStats,
 		FeedbackItems: feedbackItems,
 	}, nil
