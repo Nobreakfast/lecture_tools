@@ -13,6 +13,7 @@ import (
 	"io"
 	mrand "math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +58,25 @@ func New(cfg Config, st store.Store) *Server {
 		aiClient:    ai.NewClient(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel),
 		adminTokens: map[string]time.Time{},
 	}
+}
+
+func (s *Server) pathPrefix() string {
+	if s.cfg.BaseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(s.cfg.BaseURL)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return ""
+	}
+	return strings.TrimRight(u.Path, "/")
+}
+
+func (s *Server) cookiePath() string {
+	pfx := s.pathPrefix()
+	if pfx != "" {
+		return pfx + "/"
+	}
+	return "/"
 }
 
 func (s *Server) SetShutdownFunc(fn func()) {
@@ -124,7 +144,24 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/ppt/", s.servePPT)
 	mux.HandleFunc("/api/answer-image", s.apiUploadAnswerImage)
 	mux.HandleFunc("/uploads/", s.serveUpload)
-	return withCORS(mux)
+
+	var handler http.Handler = withCORS(mux)
+	pfx := s.pathPrefix()
+	if pfx != "" {
+		inner := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == pfx {
+				http.Redirect(w, r, pfx+"/", http.StatusMovedPermanently)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, pfx+"/") {
+				http.StripPrefix(pfx, inner).ServeHTTP(w, r)
+				return
+			}
+			http.NotFound(w, r)
+		})
+	}
+	return handler
 }
 
 func (s *Server) pageJoin(w http.ResponseWriter, _ *http.Request) {
@@ -149,9 +186,19 @@ func (s *Server) servePage(w http.ResponseWriter, path string) {
 		http.Error(w, "page not found", http.StatusNotFound)
 		return
 	}
+	content := string(f)
+	pfx := s.pathPrefix()
+	if pfx != "" {
+		injection := `<script>var __PREFIX='` + pfx + `';</script>`
+		content = strings.Replace(content, "<head>", "<head>"+injection, 1)
+		content = strings.ReplaceAll(content, "fetch('/", "fetch(__PREFIX+'/")
+		content = strings.ReplaceAll(content, "location.href = '/", "location.href = __PREFIX+'/")
+		content = strings.ReplaceAll(content, `src="/assets/${`, `src="${__PREFIX}/assets/${`)
+		content = strings.ReplaceAll(content, "window.open('/", "window.open(__PREFIX+'/")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(f)
+	_, _ = io.WriteString(w, content)
 }
 
 func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +256,7 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "student_token",
 			Value:    token,
-			Path:     "/",
+			Path:     s.cookiePath(),
 			MaxAge:   7 * 24 * 3600,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
@@ -237,7 +284,7 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "student_token",
 		Value:    token,
-		Path:     "/",
+		Path:     s.cookiePath(),
 		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -494,7 +541,7 @@ func (s *Server) apiRetry(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "student_token",
 		Value:    token,
-		Path:     "/",
+		Path:     s.cookiePath(),
 		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -676,7 +723,7 @@ func (s *Server) apiAdminLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "admin_token",
 		Value:    token,
-		Path:     "/",
+		Path:     s.cookiePath(),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -1293,7 +1340,7 @@ func (s *Server) apiUploadAnswerImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "写入文件失败", http.StatusInternalServerError)
 		return
 	}
-	urlPath := "/uploads/" +
+	urlPath := s.pathPrefix() + "/uploads/" +
 		safePathPart(attempt.ClassName) + "/" +
 		safePathPart(current.QuizID) + "/" +
 		safePathPart(attempt.Name+"_"+attempt.StudentNo) + "/" +

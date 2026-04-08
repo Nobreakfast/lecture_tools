@@ -56,7 +56,7 @@ func (s *Server) apiPDFs(w http.ResponseWriter, _ *http.Request) {
 			items = append(items, pdfItem{
 				Folder: folder,
 				File:   name,
-				URL:    "/ppt/" + folder + "/" + name,
+				URL:    s.pathPrefix() + "/ppt/" + folder + "/" + name,
 				Size:   size,
 			})
 		}
@@ -128,7 +128,7 @@ func (s *Server) apiAdminPDFUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "写入文件失败", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "url": "/ppt/" + folder + "/" + header.Filename})
+	writeJSON(w, map[string]any{"ok": true, "url": s.pathPrefix() + "/ppt/" + folder + "/" + header.Filename})
 }
 
 func (s *Server) apiAdminPDFDelete(w http.ResponseWriter, r *http.Request) {
