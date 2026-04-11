@@ -104,11 +104,20 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.pageJoin)
 	mux.HandleFunc("/join", s.pageJoin)
+	mux.HandleFunc("/submit", s.pageSubmit)
 	mux.HandleFunc("/quiz", s.pageQuiz)
 	mux.HandleFunc("/result", s.pageResult)
 	mux.HandleFunc("/admin", s.pageAdmin)
+	mux.HandleFunc("/materials", s.pageMaterials)
 	mux.HandleFunc("/assets/", s.serveAsset)
 	mux.HandleFunc("/api/join", s.apiJoin)
+	mux.HandleFunc("/api/homework/courses", s.apiHomeworkCourses)
+	mux.HandleFunc("/api/homework/assignments", s.apiHomeworkAssignments)
+	mux.HandleFunc("/api/homework/assignment-file", s.apiHomeworkAssignmentFile)
+	mux.HandleFunc("/api/homework/session", s.apiHomeworkSession)
+	mux.HandleFunc("/api/homework/submission", s.apiHomeworkSubmission)
+	mux.HandleFunc("/api/homework/upload", s.apiHomeworkUpload)
+	mux.HandleFunc("/api/homework/delete", s.apiHomeworkDelete)
 	mux.HandleFunc("/api/entry-status", s.apiEntryStatus)
 	mux.HandleFunc("/api/me", s.apiMe)
 	mux.HandleFunc("/api/answer", s.apiSaveAnswer)
@@ -124,6 +133,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/ai-health", s.apiAdminAIHealth)
 	mux.HandleFunc("/api/admin/attempts", s.apiAdminAttempts)
 	mux.HandleFunc("/api/admin/attempt-detail", s.apiAdminAttemptDetail)
+	mux.HandleFunc("/api/admin/homework/assignments", s.apiAdminHomeworkAssignments)
+	mux.HandleFunc("/api/admin/homework/assignments/upload", s.apiAdminHomeworkAssignmentUpload)
+	mux.HandleFunc("/api/admin/homework/assignments/delete-file", s.apiAdminHomeworkAssignmentDeleteFile)
+	mux.HandleFunc("/api/admin/homework/assignments/delete", s.apiAdminHomeworkAssignmentDelete)
+	mux.HandleFunc("/api/admin/homework/submissions", s.apiAdminHomeworkSubmissions)
+	mux.HandleFunc("/api/admin/homework/submission", s.apiAdminHomeworkSubmission)
+	mux.HandleFunc("/api/admin/homework/report", s.apiAdminHomeworkReport)
+	mux.HandleFunc("/api/admin/homework/code", s.apiAdminHomeworkCode)
+	mux.HandleFunc("/api/admin/homework/archive", s.apiAdminHomeworkArchive)
+	mux.HandleFunc("/api/admin/homework/archive-all", s.apiAdminHomeworkArchiveAll)
 	mux.HandleFunc("/api/admin/export-csv", s.apiAdminExportCSV)
 	mux.HandleFunc("/api/retry", s.apiRetry)
 	mux.HandleFunc("/api/ai-summary", s.apiAISummary)
@@ -139,9 +158,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/pdfs/upload", s.apiAdminPDFUpload)
 	mux.HandleFunc("/api/admin/pdfs/delete", s.apiAdminPDFDelete)
 	mux.HandleFunc("/api/admin/pdfs/rename", s.apiAdminPDFRename)
+	mux.HandleFunc("/api/admin/pdfs/visibility", s.apiAdminPDFVisibility)
+	mux.HandleFunc("/api/admin/materials", s.apiAdminMaterials)
+	mux.HandleFunc("/api/materials", s.apiMaterials)
 	mux.HandleFunc("/api/pdfs", s.apiPDFs)
 	mux.HandleFunc("/pdf", s.pagePDF)
 	mux.HandleFunc("/ppt/", s.servePPT)
+	mux.HandleFunc("/materials-files/", s.serveMaterialDownload)
 	mux.HandleFunc("/api/answer-image", s.apiUploadAnswerImage)
 	mux.HandleFunc("/uploads/", s.serveUpload)
 
@@ -166,6 +189,10 @@ func (s *Server) Routes() http.Handler {
 
 func (s *Server) pageJoin(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/join.html")
+}
+
+func (s *Server) pageSubmit(w http.ResponseWriter, _ *http.Request) {
+	s.servePage(w, "web/submit.html")
 }
 
 func (s *Server) pageQuiz(w http.ResponseWriter, _ *http.Request) {

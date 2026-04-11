@@ -169,3 +169,127 @@ func TestClearAttemptsOnlyClearsTargetQuiz(t *testing.T) {
 		t.Fatalf("quiz-b summaries should be kept, got %d", summaryCountB)
 	}
 }
+
+func TestHomeworkSubmissionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-homework-submission?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	submission := &domain.HomeworkSubmission{
+		ID:           "hw-1",
+		SessionToken: "token-1",
+		Course:       "course-a",
+		AssignmentID: "task-1",
+		Name:         "张三",
+		StudentNo:    "2026001",
+		ClassName:    "1班",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := st.CreateHomeworkSubmission(ctx, submission); err != nil {
+		t.Fatalf("CreateHomeworkSubmission failed: %v", err)
+	}
+	if err := st.SaveHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotReport, "原始报告名.pdf"); err != nil {
+		t.Fatalf("SaveHomeworkFileMetadata report failed: %v", err)
+	}
+	if err := st.SaveHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotCode, "代码包.zip"); err != nil {
+		t.Fatalf("SaveHomeworkFileMetadata code failed: %v", err)
+	}
+	if err := st.DeleteHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotCode); err != nil {
+		t.Fatalf("DeleteHomeworkFileMetadata failed: %v", err)
+	}
+	if err := st.SaveHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotCode, "最终代码包.zip"); err != nil {
+		t.Fatalf("SaveHomeworkFileMetadata code replace failed: %v", err)
+	}
+	if err := st.UpdateHomeworkSubmissionSession(ctx, submission.ID, "token-2", "张三同学", "1班"); err != nil {
+		t.Fatalf("UpdateHomeworkSubmissionSession failed: %v", err)
+	}
+
+	got, err := st.GetHomeworkSubmissionByScope(ctx, "course-a", "task-1", "2026001")
+	if err != nil {
+		t.Fatalf("GetHomeworkSubmissionByScope failed: %v", err)
+	}
+	if got.SessionToken != "token-2" || got.Name != "张三同学" {
+		t.Fatalf("unexpected resumed session data: %+v", got)
+	}
+	if got.ReportOriginalName != "原始报告名.pdf" || got.CodeOriginalName != "最终代码包.zip" {
+		t.Fatalf("unexpected original names: %+v", got)
+	}
+	if got.ReportUploadedAt == nil || got.CodeUploadedAt == nil {
+		t.Fatalf("expected uploaded timestamps: %+v", got)
+	}
+
+	items, err := st.ListHomeworkSubmissions(ctx, "course-a", "task-1")
+	if err != nil {
+		t.Fatalf("ListHomeworkSubmissions failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 homework submission, got %d", len(items))
+	}
+	if err := st.DeleteHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotCode); err != nil {
+		t.Fatalf("DeleteHomeworkFileMetadata after upload failed: %v", err)
+	}
+}
+
+func TestHomeworkSubmissionSchemaCutoverDropsLegacyColumns(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-homework-schema-cutover?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if _, err := st.db.ExecContext(ctx, `CREATE TABLE homework_submissions (
+		id TEXT PRIMARY KEY,
+		session_token TEXT UNIQUE NOT NULL,
+		quiz_id TEXT NOT NULL,
+		course TEXT NOT NULL,
+		task_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		student_no TEXT NOT NULL,
+		class_name TEXT NOT NULL,
+		status TEXT NOT NULL,
+		report_original_name TEXT NOT NULL DEFAULT '',
+		report_uploaded_at TEXT,
+		code_original_name TEXT NOT NULL DEFAULT '',
+		code_uploaded_at TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		finalized_at TEXT
+	)`); err != nil {
+		t.Fatalf("create legacy table failed: %v", err)
+	}
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	rows, err := st.db.QueryContext(ctx, `PRAGMA table_info(homework_submissions)`)
+	if err != nil {
+		t.Fatalf("table info query failed: %v", err)
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notnull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("scan table info failed: %v", err)
+		}
+		columns[name] = true
+	}
+	if columns["quiz_id"] || columns["task_id"] || columns["status"] || columns["finalized_at"] {
+		t.Fatalf("legacy homework columns should be removed, got %+v", columns)
+	}
+	if !columns["course"] || !columns["assignment_id"] || !columns["updated_at"] {
+		t.Fatalf("new homework columns missing: %+v", columns)
+	}
+}

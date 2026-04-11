@@ -26,17 +26,17 @@ type Option struct {
 }
 
 type Question struct {
-	ID            string       `json:"id" yaml:"id"`
-	Type          QuestionType `json:"type" yaml:"type"`
-	Stem          string       `json:"stem" yaml:"stem"`
-	Options       []Option     `json:"options" yaml:"options"`
-	AllowMultiple bool         `json:"allow_multiple,omitempty" yaml:"allow_multiple,omitempty"`
-	CorrectAnswer string       `json:"correct_answer,omitempty" yaml:"correct_answer,omitempty"`
-	ReferenceAnswer string     `json:"reference_answer,omitempty" yaml:"reference_answer,omitempty"`
-	Explanation   string       `json:"explanation,omitempty" yaml:"explanation,omitempty"`
-	KnowledgeTag  string       `json:"knowledge_tag,omitempty" yaml:"knowledge_tag,omitempty"`
-	PoolTag       string       `json:"pool_tag,omitempty" yaml:"pool_tag,omitempty"`
-	Image         string       `json:"image,omitempty" yaml:"image,omitempty"`
+	ID              string       `json:"id" yaml:"id"`
+	Type            QuestionType `json:"type" yaml:"type"`
+	Stem            string       `json:"stem" yaml:"stem"`
+	Options         []Option     `json:"options" yaml:"options"`
+	AllowMultiple   bool         `json:"allow_multiple,omitempty" yaml:"allow_multiple,omitempty"`
+	CorrectAnswer   string       `json:"correct_answer,omitempty" yaml:"correct_answer,omitempty"`
+	ReferenceAnswer string       `json:"reference_answer,omitempty" yaml:"reference_answer,omitempty"`
+	Explanation     string       `json:"explanation,omitempty" yaml:"explanation,omitempty"`
+	KnowledgeTag    string       `json:"knowledge_tag,omitempty" yaml:"knowledge_tag,omitempty"`
+	PoolTag         string       `json:"pool_tag,omitempty" yaml:"pool_tag,omitempty"`
+	Image           string       `json:"image,omitempty" yaml:"image,omitempty"`
 }
 
 type SamplingGroup struct {
@@ -56,17 +56,17 @@ type Quiz struct {
 }
 
 type Attempt struct {
-	ID          string
+	ID           string
 	SessionToken string
-	QuizID      string
-	Name        string
-	StudentNo   string
-	ClassName   string
-	AttemptNo   int
-	Status      AttemptStatus
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	SubmittedAt *time.Time
+	QuizID       string
+	Name         string
+	StudentNo    string
+	ClassName    string
+	AttemptNo    int
+	Status       AttemptStatus
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	SubmittedAt  *time.Time
 }
 
 type Answer struct {
@@ -83,9 +83,47 @@ type ShortAnswerValue struct {
 }
 
 type ResultSummary struct {
-	Strengths    []string `json:"strengths"`
-	Weaknesses   []string `json:"weaknesses"`
-	NextActions  []string `json:"next_actions"`
-	Priority     string   `json:"priority_level"`
-	Encouragement string  `json:"encouragement"`
+	Strengths     []string `json:"strengths"`
+	Weaknesses    []string `json:"weaknesses"`
+	NextActions   []string `json:"next_actions"`
+	Priority      string   `json:"priority_level"`
+	Encouragement string   `json:"encouragement"`
+}
+
+type HomeworkFileSlot string
+
+const (
+	HomeworkSlotReport HomeworkFileSlot = "report"
+	HomeworkSlotCode   HomeworkFileSlot = "code"
+)
+
+type HomeworkSubmission struct {
+	ID                 string
+	SessionToken       string
+	Course             string
+	AssignmentID       string
+	Name               string
+	StudentNo          string
+	ClassName          string
+	ReportOriginalName string
+	ReportUploadedAt   *time.Time
+	CodeOriginalName   string
+	CodeUploadedAt     *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+func (h HomeworkSubmission) HasUploadedFiles() bool {
+	return h.ReportOriginalName != "" || h.CodeOriginalName != ""
+}
+
+func (h HomeworkSubmission) HasSlot(slot HomeworkFileSlot) bool {
+	switch slot {
+	case HomeworkSlotReport:
+		return h.ReportOriginalName != ""
+	case HomeworkSlotCode:
+		return h.CodeOriginalName != ""
+	default:
+		return false
+	}
 }

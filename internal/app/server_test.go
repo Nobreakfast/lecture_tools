@@ -2,22 +2,38 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"course-assistant/internal/domain"
 )
 
 type memStore struct {
-	attempts []domain.Attempt
-	answers  map[string]map[string]string
+	attempts            []domain.Attempt
+	answers             map[string]map[string]string
+	settings            map[string]string
+	homeworkSubmissions []domain.HomeworkSubmission
 }
 
 func (m *memStore) Init(context.Context) error { return nil }
-func (m *memStore) GetSetting(context.Context, string) (string, error) {
+func (m *memStore) GetSetting(_ context.Context, key string) (string, error) {
+	if m.settings == nil {
+		return "", errors.New("not implemented")
+	}
+	if v, ok := m.settings[key]; ok {
+		return v, nil
+	}
 	return "", errors.New("not implemented")
 }
-func (m *memStore) SetSetting(context.Context, string, string) error { return nil }
+func (m *memStore) SetSetting(_ context.Context, key, value string) error {
+	if m.settings == nil {
+		m.settings = map[string]string{}
+	}
+	m.settings[key] = value
+	return nil
+}
 func (m *memStore) CreateAttempt(context.Context, *domain.Attempt) error {
 	return errors.New("not implemented")
 }
@@ -31,8 +47,12 @@ func (m *memStore) GetAttemptByToken(context.Context, string) (*domain.Attempt, 
 func (m *memStore) UpdateAttemptStatus(context.Context, string, domain.AttemptStatus) error {
 	return errors.New("not implemented")
 }
-func (m *memStore) SubmitAttempt(context.Context, string) (int, error) { return 0, errors.New("not implemented") }
-func (m *memStore) SaveAnswer(context.Context, domain.Answer) error      { return errors.New("not implemented") }
+func (m *memStore) SubmitAttempt(context.Context, string) (int, error) {
+	return 0, errors.New("not implemented")
+}
+func (m *memStore) SaveAnswer(context.Context, domain.Answer) error {
+	return errors.New("not implemented")
+}
 func (m *memStore) GetAnswers(ctx context.Context, attemptID string) (map[string]string, error) {
 	if m.answers == nil {
 		return map[string]string{}, nil
@@ -42,9 +62,15 @@ func (m *memStore) GetAnswers(ctx context.Context, attemptID string) (map[string
 	}
 	return map[string]string{}, nil
 }
-func (m *memStore) UpsertSummary(context.Context, string, string) error { return errors.New("not implemented") }
-func (m *memStore) GetSummary(context.Context, string) (string, error)  { return "", errors.New("not implemented") }
-func (m *memStore) GetLiveStats(context.Context) (int, int, error)      { return 0, 0, errors.New("not implemented") }
+func (m *memStore) UpsertSummary(context.Context, string, string) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) GetSummary(context.Context, string) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (m *memStore) GetLiveStats(context.Context) (int, int, error) {
+	return 0, 0, errors.New("not implemented")
+}
 func (m *memStore) GetInProgressAttempt(context.Context, string, string) (*domain.Attempt, error) {
 	return nil, errors.New("not implemented")
 }
@@ -57,8 +83,107 @@ func (m *memStore) UpsertAdminSummary(context.Context, string, string) error {
 func (m *memStore) GetAdminSummary(context.Context, string) (string, error) {
 	return "", errors.New("not implemented")
 }
-func (m *memStore) DeleteAdminSummary(context.Context, string) error { return errors.New("not implemented") }
-func (m *memStore) ClearAttempts(context.Context, string) error      { return errors.New("not implemented") }
+func (m *memStore) DeleteAdminSummary(context.Context, string) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) ClearAttempts(context.Context, string) error { return errors.New("not implemented") }
+func (m *memStore) CreateHomeworkSubmission(_ context.Context, submission *domain.HomeworkSubmission) error {
+	m.homeworkSubmissions = append(m.homeworkSubmissions, *submission)
+	return nil
+}
+func (m *memStore) GetHomeworkSubmissionByID(_ context.Context, submissionID string) (*domain.HomeworkSubmission, error) {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID == submissionID {
+			item := m.homeworkSubmissions[i]
+			return &item, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+func (m *memStore) GetHomeworkSubmissionByToken(_ context.Context, token string) (*domain.HomeworkSubmission, error) {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].SessionToken == token {
+			item := m.homeworkSubmissions[i]
+			return &item, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+func (m *memStore) GetHomeworkSubmissionByScope(_ context.Context, course, assignmentID, studentNo string) (*domain.HomeworkSubmission, error) {
+	for i := range m.homeworkSubmissions {
+		item := m.homeworkSubmissions[i]
+		if item.Course == course && item.AssignmentID == assignmentID && item.StudentNo == studentNo {
+			return &item, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+func (m *memStore) UpdateHomeworkSubmissionSession(_ context.Context, submissionID, token, name, className string) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID == submissionID {
+			m.homeworkSubmissions[i].SessionToken = token
+			m.homeworkSubmissions[i].Name = name
+			m.homeworkSubmissions[i].ClassName = className
+			m.homeworkSubmissions[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return errors.New("not implemented")
+}
+func (m *memStore) ListHomeworkSubmissions(_ context.Context, course, assignmentID string) ([]domain.HomeworkSubmission, error) {
+	items := make([]domain.HomeworkSubmission, 0)
+	for _, item := range m.homeworkSubmissions {
+		if course != "" && item.Course != course {
+			continue
+		}
+		if assignmentID != "" && item.AssignmentID != assignmentID {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+func (m *memStore) SaveHomeworkFileMetadata(_ context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID != submissionID {
+			continue
+		}
+		now := time.Now()
+		m.homeworkSubmissions[i].UpdatedAt = now
+		switch slot {
+		case domain.HomeworkSlotReport:
+			m.homeworkSubmissions[i].ReportOriginalName = originalName
+			m.homeworkSubmissions[i].ReportUploadedAt = &now
+		case domain.HomeworkSlotCode:
+			m.homeworkSubmissions[i].CodeOriginalName = originalName
+			m.homeworkSubmissions[i].CodeUploadedAt = &now
+		default:
+			return errors.New("not implemented")
+		}
+		return nil
+	}
+	return errors.New("not implemented")
+}
+func (m *memStore) DeleteHomeworkFileMetadata(_ context.Context, submissionID string, slot domain.HomeworkFileSlot) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID != submissionID {
+			continue
+		}
+		m.homeworkSubmissions[i].UpdatedAt = time.Now()
+		switch slot {
+		case domain.HomeworkSlotReport:
+			m.homeworkSubmissions[i].ReportOriginalName = ""
+			m.homeworkSubmissions[i].ReportUploadedAt = nil
+		case domain.HomeworkSlotCode:
+			m.homeworkSubmissions[i].CodeOriginalName = ""
+			m.homeworkSubmissions[i].CodeUploadedAt = nil
+		default:
+			return errors.New("not implemented")
+		}
+		return nil
+	}
+	return errors.New("not implemented")
+}
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{

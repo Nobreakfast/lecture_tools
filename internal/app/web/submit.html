@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>作业提交</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: rgba(255, 255, 255, 0.7);
+      --primary: #4f46e5;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --border: rgba(226, 232, 240, 0.8);
+      --radius: 16px;
+      --shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 0 3px rgba(0, 0, 0, 0.02);
+      --danger: #dc2626;
+      --danger-bg: rgba(254, 242, 242, 0.85);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+      background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%);
+      color: var(--text);
+      min-height: 100dvh;
+      padding: 24px 16px 48px;
+    }
+    .page { max-width: 860px; margin: 0 auto; }
+    .hero { margin-bottom: 18px; }
+    .hero h1 { font-size: 26px; font-weight: 800; letter-spacing: .4px; margin-bottom: 6px; }
+    .hero p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px 20px;
+      margin-bottom: 14px;
+    }
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+    .section-hint { color: var(--text-secondary); font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+    .field input, .field select {
+      width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 15px;
+      color: var(--text); background: rgba(255, 255, 255, 0.92); transition: all 0.2s ease;
+    }
+    .field input:focus, .field select:focus { outline: none; background: #ffffff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15); }
+    .actions, .slot-actions, .download-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button, .link-btn {
+      border: 0; border-radius: 12px; padding: 11px 16px; background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22);
+      transition: all 0.2s ease; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
+    }
+    button:hover, .link-btn:hover { transform: translateY(-1px); }
+    button.secondary, .link-btn.secondary { background: #e2e8f0; color: #0f172a; box-shadow: none; }
+    button.danger { background: var(--danger); box-shadow: none; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .meta-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.65); font-size: 13px; }
+    .meta-item strong { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+    .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .slot-card { border: 1px solid var(--border); border-radius: 14px; padding: 16px; background: rgba(255,255,255,0.78); }
+    .slot-card h3 { font-size: 15px; margin-bottom: 6px; }
+    .slot-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .slot-file, .download-list { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8fafc; border: 1px dashed var(--border); font-size: 13px; color: var(--text); line-height: 1.6; min-height: 72px; }
+    .slot-file.empty, .download-empty { color: var(--text-secondary); }
+    .download-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .download-item:last-child { border-bottom:0; }
+    .download-meta { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+    .message { margin-top: 12px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.7; display: none; }
+    .message.show { display: block; }
+    .message.info { background: rgba(239, 246, 255, 0.95); color: #1d4ed8; }
+    .message.error { background: var(--danger-bg); color: var(--danger); }
+    @media (max-width: 720px) { .grid, .slot-grid, .meta-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <h1>作业提交</h1>
+      <p>先选择课程和作业，再填写姓名、学号、班级。先下载本次作业资源，再上传你的报告 PDF 和实验 Notebook（.ipynb）；上传后会立即保存为当前作业的最新提交。</p>
+    </div>
+
+    <div class="card">
+      <div class="section-title">1. 选择课程与作业</div>
+      <div class="section-hint">老师会为每次作业上传一个文件包。你需要先选择课程和作业编号，再下载本次作业所需的 PDF、数据文件或代码模板。</div>
+      <div class="grid">
+        <div class="field">
+          <label for="course">课程</label>
+          <select id="course"><option value="">-- 请选择课程 --</option></select>
+        </div>
+        <div class="field">
+          <label for="assignment_id">作业编号</label>
+          <select id="assignment_id"><option value="">-- 请先选择课程 --</option></select>
+        </div>
+        <div class="field">
+          <label for="name">姓名</label>
+          <input id="name" placeholder="请输入姓名" />
+        </div>
+        <div class="field">
+          <label for="student_no">学号</label>
+          <input id="student_no" placeholder="请输入学号" />
+        </div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label for="class_name">班级</label>
+          <input id="class_name" placeholder="请输入班级" />
+        </div>
+      </div>
+      <div class="actions">
+        <button id="enterBtn">进入 / 恢复当前作业</button>
+        <button id="refreshBtn" class="secondary">刷新当前状态</button>
+      </div>
+      <div id="sessionMessage" class="message info"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">2. 下载本次作业文件</div>
+      <div class="section-hint">这里会列出老师为当前作业准备的所有文件，包括实验 PDF、数据文件、模板代码等。所有文件都通过下载方式获取，不再内嵌预览。</div>
+      <div id="assignmentFiles" class="download-list"><div class="download-empty">请先选择课程和作业编号。</div></div>
+    </div>
+
+    <div class="card" id="submissionCard" style="display:none;">
+      <div class="section-title">3. 当前上传状态</div>
+      <div class="section-hint">上传 PDF 会覆盖当前报告文件，上传 .ipynb 会覆盖当前实验 Notebook。系统始终保留你最后一次上传的版本。</div>
+      <div class="meta-grid" id="submissionMeta"></div>
+      <div class="slot-grid">
+        <div class="slot-card">
+          <h3>📄 报告文件（PDF）</h3>
+          <p>系统内部统一保存为 <code>report.pdf</code>，页面展示你上传时的原始文件名。</p>
+          <div class="slot-file empty" id="reportInfo">暂未上传报告 PDF</div>
+          <div class="slot-actions">
+            <input id="reportInput" type="file" accept=".pdf,application/pdf" hidden />
+            <button id="reportUploadBtn">上传 / 替换 PDF</button>
+            <button id="reportDeleteBtn" class="danger">删除 PDF</button>
+          </div>
+        </div>
+        <div class="slot-card">
+          <h3>🧩 实验 Notebook（.ipynb）</h3>
+          <p>系统内部统一保存为 <code>notebook.ipynb</code>，页面展示你上传时的原始文件名。</p>
+          <div class="slot-file empty" id="codeInfo">暂未上传 Notebook</div>
+          <div class="slot-actions">
+            <input id="codeInput" type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden />
+            <button id="codeUploadBtn">上传 / 替换 Notebook</button>
+            <button id="codeDeleteBtn" class="danger">删除 Notebook</button>
+          </div>
+        </div>
+      </div>
+      <div id="submissionMessage" class="message info"></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'homework_submit_info_v3';
+    let assignmentItems = [];
+
+    function escapeHTML(s) {
+      return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    }
+    function formatTime(value) {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('zh-CN', { hour12: false });
+    }
+    function formatSize(size) {
+      const n = Number(size || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0 B';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    }
+    function fillFromStorage() {
+      try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        document.getElementById('course').value = data.course || '';
+        document.getElementById('name').value = data.name || '';
+        document.getElementById('student_no').value = data.student_no || '';
+        document.getElementById('class_name').value = data.class_name || '';
+      } catch (_) {}
+    }
+    function saveToStorage() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        course: document.getElementById('course').value,
+        assignment_id: document.getElementById('assignment_id').value,
+        name: document.getElementById('name').value.trim(),
+        student_no: document.getElementById('student_no').value.trim(),
+        class_name: document.getElementById('class_name').value.trim(),
+      }));
+    }
+    function setMessage(id, type, text) {
+      const el = document.getElementById(id);
+      if (!text) { el.className = 'message'; el.textContent = ''; return; }
+      el.className = `message show ${type}`;
+      el.textContent = text;
+    }
+    function fileInfoHTML(file, emptyText) {
+      if (!file || !file.uploaded) return `<div class="slot-file empty">${escapeHTML(emptyText)}</div>`;
+      return `<div class="slot-file"><strong>${escapeHTML(file.original_name || '未命名文件')}</strong><br/>上传时间：${escapeHTML(formatTime(file.uploaded_at))}</div>`;
+    }
+    function selectedAssignment() {
+      const assignmentID = document.getElementById('assignment_id').value;
+      return assignmentItems.find(item => item.assignment_id === assignmentID) || null;
+    }
+    function renderAssignmentFiles() {
+      const root = document.getElementById('assignmentFiles');
+      const item = selectedAssignment();
+      if (!item) {
+        root.innerHTML = '<div class="download-empty">请先选择课程和作业编号。</div>';
+        return;
+      }
+      const files = item.files || [];
+      if (!files.length) {
+        root.innerHTML = '<div class="download-empty">当前作业还没有可下载的文件。</div>';
+        return;
+      }
+      root.innerHTML = files.map(file => `
+        <div class="download-item">
+          <div>
+            <div><strong>${escapeHTML(file.name)}</strong></div>
+            <div class="download-meta">${escapeHTML(file.extension || '') || '文件'} · ${escapeHTML(formatSize(file.size))}</div>
+          </div>
+          <div class="download-actions">
+            <a class="link-btn secondary" href="${escapeHTML(file.download_url)}">下载</a>
+          </div>
+        </div>
+      `).join('');
+    }
+    function renderSubmission(submission) {
+      const card = document.getElementById('submissionCard');
+      if (!submission) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      document.getElementById('submissionMeta').innerHTML = `
+        <div class="meta-item"><strong>课程</strong>${escapeHTML(submission.course)}</div>
+        <div class="meta-item"><strong>作业编号</strong>${escapeHTML(submission.assignment_id)}</div>
+        <div class="meta-item"><strong>最后更新</strong>${escapeHTML(formatTime(submission.updated_at))}</div>
+      `;
+      document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
+      document.getElementById('codeInfo').outerHTML = fileInfoHTML(submission.files && submission.files.code, '暂未上传 Notebook');
+      const slotFiles = document.querySelectorAll('.slot-card .slot-file');
+      if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
+      if (slotFiles[1]) slotFiles[1].id = 'codeInfo';
+      document.getElementById('reportDeleteBtn').disabled = !(submission.files && submission.files.report && submission.files.report.uploaded);
+      document.getElementById('codeDeleteBtn').disabled = !(submission.files && submission.files.code && submission.files.code.uploaded);
+      document.getElementById('course').value = submission.course || document.getElementById('course').value;
+      document.getElementById('assignment_id').value = submission.assignment_id || document.getElementById('assignment_id').value;
+      renderAssignmentFiles();
+      saveToStorage();
+    }
+    async function loadCourses(preferredCourse = '') {
+      const r = await fetch('/api/homework/courses');
+      if (!r.ok) return;
+      const data = await r.json();
+      const sel = document.getElementById('course');
+      const previous = preferredCourse || sel.value;
+      sel.innerHTML = '<option value="">-- 请选择课程 --</option>';
+      for (const item of (data.items || [])) sel.innerHTML += `<option value="${escapeHTML(item.course)}">${escapeHTML(item.course)}</option>`;
+      if (previous) sel.value = previous;
+    }
+    async function loadAssignments(course, preferredAssignment = '') {
+      const sel = document.getElementById('assignment_id');
+      assignmentItems = [];
+      if (!course) {
+        sel.innerHTML = '<option value="">-- 请先选择课程 --</option>';
+        renderAssignmentFiles();
+        return;
+      }
+      const r = await fetch('/api/homework/assignments?course=' + encodeURIComponent(course));
+      if (!r.ok) {
+        sel.innerHTML = '<option value="">-- 暂无可用作业 --</option>';
+        renderAssignmentFiles();
+        return;
+      }
+      const data = await r.json();
+      assignmentItems = data.items || [];
+      sel.innerHTML = assignmentItems.length ? '<option value="">-- 请选择作业 --</option>' : '<option value="">-- 暂无可用作业 --</option>';
+      for (const item of assignmentItems) sel.innerHTML += `<option value="${escapeHTML(item.assignment_id)}">${escapeHTML(item.assignment_id)}</option>`;
+      if (preferredAssignment) sel.value = preferredAssignment;
+      renderAssignmentFiles();
+    }
+    async function fetchCurrentSubmission(showError = false) {
+      try {
+        const r = await fetch('/api/homework/submission', { credentials: 'include' });
+        if (r.status === 401) { renderSubmission(null); return; }
+        if (!r.ok) { if (showError) setMessage('sessionMessage', 'error', await r.text()); return; }
+        const data = await r.json();
+        const submission = data.submission || null;
+        if (submission) {
+          await loadCourses(submission.course || document.getElementById('course').value);
+          await loadAssignments(submission.course, submission.assignment_id);
+          document.getElementById('name').value = submission.name || document.getElementById('name').value;
+          document.getElementById('student_no').value = submission.student_no || document.getElementById('student_no').value;
+          document.getElementById('class_name').value = submission.class_name || document.getElementById('class_name').value;
+          renderSubmission(submission);
+        } else {
+          renderSubmission(null);
+        }
+      } catch (_) {
+        if (showError) setMessage('sessionMessage', 'error', '读取当前作业状态失败，请稍后重试。');
+      }
+    }
+    async function startOrResumeSubmission() {
+      saveToStorage();
+      setMessage('sessionMessage', 'info', '正在进入作业...');
+      const payload = {
+        course: document.getElementById('course').value,
+        assignment_id: document.getElementById('assignment_id').value,
+        name: document.getElementById('name').value.trim(),
+        student_no: document.getElementById('student_no').value.trim(),
+        class_name: document.getElementById('class_name').value.trim(),
+      };
+      const r = await fetch('/api/homework/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) });
+      if (!r.ok) { setMessage('sessionMessage', 'error', await r.text()); return; }
+      const data = await r.json();
+      renderSubmission(data.submission || null);
+      setMessage('sessionMessage', 'info', '已进入当前作业提交区，可以直接上传或替换文件。');
+      setMessage('submissionMessage', '', '');
+    }
+    async function uploadSlot(slot, inputId) {
+      const input = document.getElementById(inputId);
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('slot', slot);
+      fd.append('file', file);
+      setMessage('submissionMessage', 'info', `正在上传 ${slot === 'report' ? 'PDF' : 'Notebook'}...`);
+      const r = await fetch('/api/homework/upload', { method: 'POST', credentials: 'include', body: fd });
+      input.value = '';
+      if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+      const data = await r.json();
+      renderSubmission(data.submission || null);
+      setMessage('submissionMessage', 'info', `${slot === 'report' ? 'PDF' : 'Notebook'} 已保存。`);
+    }
+    async function deleteSlot(slot) {
+      if (!confirm(`确认删除当前${slot === 'report' ? '报告 PDF' : '实验 Notebook'}吗？`)) return;
+      const r = await fetch('/api/homework/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ slot }) });
+      if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+      const data = await r.json();
+      renderSubmission(data.submission || null);
+      setMessage('submissionMessage', 'info', '文件已删除。');
+    }
+    document.getElementById('course').onchange = async () => { await loadAssignments(document.getElementById('course').value); saveToStorage(); };
+    document.getElementById('assignment_id').onchange = () => { renderAssignmentFiles(); saveToStorage(); };
+    document.getElementById('enterBtn').onclick = startOrResumeSubmission;
+    document.getElementById('refreshBtn').onclick = () => fetchCurrentSubmission(true);
+    document.getElementById('reportUploadBtn').onclick = () => document.getElementById('reportInput').click();
+    document.getElementById('codeUploadBtn').onclick = () => document.getElementById('codeInput').click();
+    document.getElementById('reportDeleteBtn').onclick = () => deleteSlot('report');
+    document.getElementById('codeDeleteBtn').onclick = () => deleteSlot('code');
+    document.getElementById('reportInput').onchange = () => uploadSlot('report', 'reportInput');
+    document.getElementById('codeInput').onchange = () => uploadSlot('code', 'codeInput');
+    (async function init() {
+      fillFromStorage();
+      await loadCourses(document.getElementById('course').value);
+      await loadAssignments(document.getElementById('course').value, (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').assignment_id || ''; } catch (_) { return ''; } })());
+      await fetchCurrentSubmission(false);
+      renderAssignmentFiles();
+    })();
+  </script>
+</body>
+</html>

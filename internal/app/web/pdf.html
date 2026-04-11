@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>课件下载</title>
+  <title>课程材料</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -89,7 +89,7 @@
   </style>
 </head>
 <body>
-  <h2>📚 课件下载</h2>
+  <h2>📚 课程材料</h2>
   <div id="content"><div class="empty">加载中...</div></div>
   <script>
     function escapeHTML(s) {
@@ -101,7 +101,7 @@
       return (bytes/(1024*1024)).toFixed(1) + ' MB';
     }
     async function load() {
-      const r = await fetch('/api/pdfs');
+      const r = await fetch('/api/materials');
       if (!r.ok) {
         document.getElementById('content').innerHTML = '<div class="empty">加载失败</div>';
         return;
@@ -109,28 +109,47 @@
       const data = await r.json();
       const items = data.items || [];
       if (items.length === 0) {
-        document.getElementById('content').innerHTML = '<div class="empty">暂无课件</div>';
+        document.getElementById('content').innerHTML = '<div class="empty">暂无课程材料</div>';
         return;
       }
       const grouped = {};
-      for (const item of items) {
-        if (!grouped[item.folder]) grouped[item.folder] = [];
-        grouped[item.folder].push(item);
+      for (const group of items) {
+        if (!grouped[group.folder]) grouped[group.folder] = [];
+        grouped[group.folder].push(group);
       }
       let html = '';
-      for (const [folder, files] of Object.entries(grouped)) {
+      for (const [folder, groups] of Object.entries(grouped)) {
         html += `<div class="card"><div class="folder-title">📂 ${escapeHTML(folder)}</div>`;
-        for (const f of files) {
-          html += `<div class="pdf-item">
-            <div>
-              <span class="pdf-name">${escapeHTML(f.file)}</span>
-              <span class="pdf-size">${formatSize(f.size)}</span>
-            </div>
-            <div class="pdf-actions">
-              <a href="${escapeHTML(f.url)}" target="_blank">查看</a>
-              <a href="${escapeHTML(f.url)}" download>下载</a>
-            </div>
-          </div>`;
+        for (const group of groups) {
+          html += `<div class="pdf-item" style="display:block;">
+            <div style="margin-bottom:8px;">
+              <span class="pdf-name">${escapeHTML(group.stem || '未命名材料')}</span>
+            </div>`;
+          if (group.pdf) {
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 8px;">
+              <div>
+                <span class="pdf-name">📄 ${escapeHTML(group.pdf.file)}</span>
+                <span class="pdf-size">${formatSize(group.pdf.size)}</span>
+              </div>
+              <div class="pdf-actions">
+                <a href="${escapeHTML(group.pdf.preview_url)}" target="_blank">预览</a>
+                <a href="${escapeHTML(group.pdf.download_url)}">下载</a>
+              </div>
+            </div>`;
+          }
+          for (const f of (group.downloads || [])) {
+            if (group.pdf && f.file === group.pdf.file) continue;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 0 12px;">
+              <div>
+                <span class="pdf-name">📎 ${escapeHTML(f.file)}</span>
+                <span class="pdf-size">${formatSize(f.size)}</span>
+              </div>
+              <div class="pdf-actions">
+                <a href="${escapeHTML(f.url)}">下载</a>
+              </div>
+            </div>`;
+          }
+          html += `</div>`;
         }
         html += '</div>';
       }

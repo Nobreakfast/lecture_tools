@@ -431,7 +431,8 @@
       <button class="tab-btn active" data-tab="tab-home">🏠 主页</button>
       <button class="tab-btn" data-tab="tab-students">📋 答题管理</button>
       <button class="tab-btn" data-tab="tab-summary">📊 班级总结</button>
-      <button class="tab-btn" data-tab="tab-pdf">📄 课件管理</button>
+      <button class="tab-btn" data-tab="tab-homework">🧾 作业提交</button>
+    <button class="tab-btn" data-tab="tab-pdf">📦 材料管理</button>
       <button class="tab-btn" data-tab="tab-ai">⚙️ AI 配置</button>
     </div>
     <!-- Tab 1: 主页 -->
@@ -508,24 +509,73 @@
         </div>
       </div>
     </div>
-    <!-- Tab 4: 课件管理 -->
+    <!-- Tab 4: 作业提交 -->
+    <div class="tab-page" id="tab-homework">
+      <div class="card">
+        <p><strong>🧾 作业文件包管理</strong></p>
+        <div class="row" style="margin-top:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">课程</div>
+            <select id="homeworkCourseSelect" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:0;">
+              <option value="">-- 选择课程 --</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">作业编号</div>
+            <input id="homeworkAssignmentIdInput" placeholder="例如 task_1" style="margin-top:0;" />
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">上传作业文件（PDF / .npy / .py / .zip / .ipynb 等）</div>
+            <input id="homeworkAssignmentFiles" type="file" multiple style="margin-top:0;" />
+          </div>
+          <button id="uploadHomeworkAssignmentBtn" class="small" style="margin-top:0;">上传作业文件</button>
+        </div>
+        <div id="homeworkAssignmentResults" style="margin-top:8px;font-size:13px;color:var(--text-secondary);"></div>
+      </div>
+      <div class="card">
+        <p><strong>已启用作业</strong></p>
+        <div id="homeworkAssignmentsList"></div>
+      </div>
+      <div class="card">
+        <p><strong>学生提交列表</strong></p>
+        <div class="row" style="margin-top:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">课程筛选</div>
+            <select id="homeworkSubmissionCourseSelect" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:0;">
+              <option value="">-- 全部课程 --</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">作业编号筛选</div>
+            <select id="homeworkAssignmentFilter" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:0;">
+              <option value="">-- 全部作业 --</option>
+            </select>
+          </div>
+          <button id="downloadHomeworkBulkBtn" class="small" style="margin-top:0;background:#0f766e;">下载本次全部作业</button>
+          <button id="refreshHomeworkBtn" class="small" style="margin-top:0;">刷新提交列表</button>
+        </div>
+        <div id="homeworkList" style="margin-top:12px;"></div>
+      </div>
+    </div>
+    <!-- Tab 5: 材料管理 -->
     <div class="tab-page" id="tab-pdf">
       <div class="card">
-        <p><strong>📄 上传课件</strong></p>
+        <p><strong>📄 上传材料</strong></p>
         <div style="margin-bottom:8px;">
           <select id="pdfFolderSelect" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:8px;">
             <option value="">-- 选择课程文件夹 --</option>
           </select>
-          <input id="pdfFile" type="file" accept=".pdf" style="margin-top:4px;" />
-          <button id="uploadPdfBtn" style="margin-top:8px;">上传 PDF</button>
+          <input id="pdfFile" type="file" accept=".pdf,.ipynb,.zip,.npy" multiple style="margin-top:4px;" />
+          <button id="uploadPdfBtn" style="margin-top:8px;">批量上传材料</button>
+          <div id="uploadResults" style="margin-top:8px;font-size:13px;color:var(--text-secondary);"></div>
         </div>
       </div>
       <div class="card">
-        <p><strong>已上传课件</strong></p>
+        <p><strong>已上传材料</strong></p>
         <div id="pdfList"></div>
       </div>
     </div>
-    <!-- Tab 5: AI 配置 -->
+    <!-- Tab 6: AI 配置 -->
     <div class="tab-page" id="tab-ai">
       <div class="card">
         <p><strong>AI 服务状态</strong></p>
@@ -562,7 +612,7 @@
   <div id="detailModal" class="modal">
     <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h3>学生答题详情</h3>
+        <h3 id="detailTitle">学生答题详情</h3>
         <button id="closeDetailBtn" class="small" style="margin-top:0;">关闭</button>
       </div>
       <div id="detail"></div>
@@ -658,6 +708,8 @@
       loadQuizFiles();
       loadAdminSummary();
       loadPDFList();
+      loadHomeworkAssignments();
+      loadHomeworkSubmissions();
       listen();
     }
     async function toggle(open) {
@@ -672,6 +724,8 @@
     }
     let pickedYAML = '';
     let attemptsCache = [];
+    let homeworkCache = [];
+    let homeworkAssignmentsCache = [];
     let sortMode = 0;
     function scoreValue(item) {
       const total = Number(item.total || 0);
@@ -802,6 +856,234 @@
       attemptsCache = data.items || [];
       renderAttempts();
     }
+    function syncHomeworkCourseOptions(extraCourses = []) {
+      const courseSet = new Set([...(quizFilesCache || []).map(i => i.course), ...extraCourses]);
+      const courseSelect = document.getElementById('homeworkCourseSelect');
+      const submissionCourseSelect = document.getElementById('homeworkSubmissionCourseSelect');
+      const currentUploadCourse = courseSelect ? courseSelect.value : '';
+      const currentSubmissionCourse = submissionCourseSelect ? submissionCourseSelect.value : '';
+      if (courseSelect) {
+        courseSelect.innerHTML = '<option value="">-- 选择课程 --</option>';
+        Array.from(courseSet).sort().forEach(course => {
+          courseSelect.innerHTML += `<option value="${escapeHTML(course)}">${escapeHTML(course)}</option>`;
+        });
+        if (currentUploadCourse) courseSelect.value = currentUploadCourse;
+      }
+      if (submissionCourseSelect) {
+        submissionCourseSelect.innerHTML = '<option value="">-- 全部课程 --</option>';
+        Array.from(courseSet).sort().forEach(course => {
+          submissionCourseSelect.innerHTML += `<option value="${escapeHTML(course)}">${escapeHTML(course)}</option>`;
+        });
+        if (currentSubmissionCourse) submissionCourseSelect.value = currentSubmissionCourse;
+      }
+    }
+    function populateHomeworkAssignmentFilter() {
+      const sel = document.getElementById('homeworkAssignmentFilter');
+      const course = document.getElementById('homeworkSubmissionCourseSelect').value;
+      const previous = sel.value;
+      const items = (homeworkAssignmentsCache || []).filter(item => !course || item.course === course);
+      sel.innerHTML = '<option value="">-- 全部作业 --</option>';
+      for (const item of items) {
+        sel.innerHTML += `<option value="${escapeHTML(item.assignment_id)}">${escapeHTML(item.assignment_id)}</option>`;
+      }
+      if (previous && items.some(item => item.assignment_id === previous)) sel.value = previous;
+    }
+    function renderHomeworkAssignments() {
+      const root = document.getElementById('homeworkAssignmentsList');
+      const course = document.getElementById('homeworkCourseSelect').value;
+      const items = (homeworkAssignmentsCache || []).filter(item => !course || item.course === course);
+      if (!items.length) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">当前课程暂无已启用作业</p>';
+        return;
+      }
+      root.innerHTML = items.map(item => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+          <div>
+            <div style="font-size:14px;font-weight:600;">${escapeHTML(item.course)} / ${escapeHTML(item.assignment_id)}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${item.file_count || 0} 个文件${item.size ? ` · ${formatSize(item.size)}` : ''}</div>
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+              ${(item.files || []).map(file => `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;">
+                  <span style="font-size:12px;color:var(--text-secondary);">${escapeHTML(file.name)}${file.size ? ` · ${formatSize(file.size)}` : ''}</span>
+                  <span class="row" style="gap:8px;flex-wrap:wrap;">
+                    <a class="small" href="${escapeHTML(file.download_url)}" style="text-decoration:none;display:inline-flex;align-items:center;">下载</a>
+                    <button class="small btn-danger" style="margin-top:0;" onclick="deleteHomeworkAssignmentFile(decodeURIComponent('${jsArg(item.course)}'), decodeURIComponent('${jsArg(item.assignment_id)}'), decodeURIComponent('${jsArg(file.name)}'))">删除文件</button>
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap;">
+            <button class="small btn-danger" style="margin-top:0;" onclick="deleteHomeworkAssignment(decodeURIComponent('${jsArg(item.course)}'), decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    function renderHomeworkList() {
+      const root = document.getElementById('homeworkList');
+      const course = document.getElementById('homeworkSubmissionCourseSelect').value;
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      const items = (homeworkCache || []).filter(item => (!course || item.course === course) && (!assignmentID || item.assignment_id === assignmentID));
+      if (!items.length) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无匹配的作业提交记录</p>';
+        return;
+      }
+      const rows = items.map(item => {
+        const report = item.files && item.files.report;
+        const code = item.files && item.files.code;
+        const reportText = report && report.uploaded ? `📄 ${escapeHTML(report.original_name)}` : '—';
+        const codeText = code && code.uploaded ? `🧩 ${escapeHTML(code.original_name)}` : '—';
+        return `
+          <tr>
+            <td>${escapeHTML(item.course)}</td>
+            <td>${escapeHTML(item.assignment_id)}</td>
+            <td>${escapeHTML(item.name)}</td>
+            <td>${escapeHTML(item.student_no)}</td>
+            <td>${escapeHTML(item.class_name)}</td>
+            <td>${reportText}</td>
+            <td>${codeText}</td>
+            <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '—')}</td>
+            <td><button class="small" onclick="showHomeworkDetail('${escapeHTML(item.id)}')">查看</button></td>
+          </tr>
+        `;
+      }).join('');
+      root.innerHTML = `<table><thead><tr><th>课程</th><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>PDF</th><th>Notebook</th><th>更新时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    async function loadHomeworkAssignments() {
+      const selectedCourse = document.getElementById('homeworkCourseSelect')?.value || '';
+      const url = selectedCourse ? '/api/admin/homework/assignments?course=' + encodeURIComponent(selectedCourse) : '/api/admin/homework/assignments';
+      const r = await fetch(url, { credentials:'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      homeworkAssignmentsCache = data.items || [];
+      syncHomeworkCourseOptions(data.courses || []);
+      renderHomeworkAssignments();
+      populateHomeworkAssignmentFilter();
+    }
+    async function loadHomeworkSubmissions() {
+      const course = document.getElementById('homeworkSubmissionCourseSelect')?.value || '';
+      const assignmentID = document.getElementById('homeworkAssignmentFilter')?.value || '';
+      const params = new URLSearchParams();
+      if (course) params.set('course', course);
+      if (assignmentID) params.set('assignment_id', assignmentID);
+      const url = params.size ? '/api/admin/homework/submissions?' + params.toString() : '/api/admin/homework/submissions';
+      const r = await fetch(url, { credentials:'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      homeworkCache = data.items || [];
+      renderHomeworkList();
+    }
+    function downloadHomeworkBulkArchive() {
+      const course = document.getElementById('homeworkSubmissionCourseSelect')?.value || '';
+      const assignmentID = document.getElementById('homeworkAssignmentFilter')?.value || '';
+      if (!course || !assignmentID) {
+        alert('请先选择课程和作业编号');
+        return;
+      }
+      const params = new URLSearchParams({ course, assignment_id: assignmentID });
+      window.open('/api/admin/homework/archive-all?' + params.toString(), '_blank');
+    }
+    async function uploadHomeworkAssignments() {
+      const course = document.getElementById('homeworkCourseSelect').value;
+      const assignmentID = (document.getElementById('homeworkAssignmentIdInput').value || '').trim();
+      const files = Array.from(document.getElementById('homeworkAssignmentFiles').files || []);
+      const resultBox = document.getElementById('homeworkAssignmentResults');
+      if (!course) { alert('请先选择课程'); return; }
+      if (!assignmentID) { alert('请输入作业编号'); return; }
+      if (!files.length) { alert('请选择要上传的作业文件'); return; }
+      const fd = new FormData();
+      fd.append('course', course);
+      fd.append('assignment_id', assignmentID);
+      for (const file of files) fd.append('files', file);
+      const r = await fetch('/api/admin/homework/assignments/upload', { method:'POST', credentials:'include', body: fd });
+      const text = await r.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) {}
+      if (!r.ok && !data) { alert(text); return; }
+      if (!data) { alert('上传响应异常'); return; }
+      const uploaded = data.uploaded || [];
+      const failed = data.failed || [];
+      const lines = [];
+      if (uploaded.length) lines.push(`成功保存 ${uploaded.length} 个文件到 ${assignmentID}`);
+      if (failed.length) lines.push(`失败 ${failed.length} 个：${failed.map(i => `${i.file}（${i.error}）`).join('；')}`);
+      resultBox.textContent = lines.join(' | ') || '未返回上传结果';
+      document.getElementById('homeworkAssignmentFiles').value = '';
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
+    }
+    async function deleteHomeworkAssignmentFile(course, assignmentID, file) {
+      if (!confirm(`确认删除 ${course}/${assignmentID}/${file} 吗？`)) return;
+      const r = await fetch('/api/admin/homework/assignments/delete-file', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ course, assignment_id: assignmentID, file })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
+    }
+    async function deleteHomeworkAssignment(course, assignmentID) {
+      if (!confirm(`确认删除 ${course}/${assignmentID} 的全部作业文件吗？`)) return;
+      const r = await fetch('/api/admin/homework/assignments/delete', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ course, assignment_id: assignmentID })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
+    }
+    async function showHomeworkDetail(id) {
+      const r = await fetch('/api/admin/homework/submission?id=' + encodeURIComponent(id), { credentials:'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      const data = await r.json();
+      const item = data.submission || {};
+      const report = item.files && item.files.report;
+      const code = item.files && item.files.code;
+      document.getElementById('detailTitle').textContent = '作业提交详情';
+      document.getElementById('detail').innerHTML = `
+        <div class="meta">
+          <p><strong>课程：</strong>${escapeHTML(item.course)}</p>
+          <p><strong>作业编号：</strong>${escapeHTML(item.assignment_id)}</p>
+          <p><strong>姓名：</strong>${escapeHTML(item.name)}</p>
+          <p><strong>学号：</strong>${escapeHTML(item.student_no)}</p>
+          <p><strong>班级：</strong>${escapeHTML(item.class_name)}</p>
+          <p><strong>最后更新：</strong>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '—')}</p>
+        </div>
+        <div class="qitem">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+            <div>
+              <strong>📄 报告 PDF</strong>
+              <div style="margin-top:6px;color:var(--text-secondary);font-size:13px;">${report && report.uploaded ? escapeHTML(report.original_name) : '未上传'}</div>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap;">
+              ${report && report.uploaded ? `<a class="small" href="${escapeHTML(item.report_preview_url)}" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;">预览</a><a class="small" href="${escapeHTML(item.report_download_url)}" style="text-decoration:none;display:inline-flex;align-items:center;">下载 PDF</a>` : '<span style="font-size:12px;color:var(--text-secondary);">暂无 PDF</span>'}
+            </div>
+          </div>
+        </div>
+        <div class="qitem">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+            <div>
+              <strong>🧩 实验 Notebook</strong>
+              <div style="margin-top:6px;color:var(--text-secondary);font-size:13px;">${code && code.uploaded ? escapeHTML(code.original_name) : '未上传'}</div>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap;">
+              ${code && code.uploaded ? `<a class="small" href="${escapeHTML(item.code_download_url)}" style="text-decoration:none;display:inline-flex;align-items:center;">下载 Notebook</a>` : '<span style="font-size:12px;color:var(--text-secondary);">暂无 Notebook</span>'}
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap;">
+          <a class="small" href="${escapeHTML(item.archive_download_url || '#')}" style="text-decoration:none;display:inline-flex;align-items:center;${item.archive_download_url ? '' : 'pointer-events:none;opacity:0.5;'}">下载该同学全部文件</a>
+        </div>
+      `;
+      document.getElementById('detailModal').classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
     async function showDetail(id) {
       const r = await fetch('/api/admin/attempt-detail?id=' + encodeURIComponent(id), { credentials:'include' });
       if (!r.ok) {
@@ -835,6 +1117,7 @@
         ${html}
       `;
       document.getElementById('detailModal').classList.add('show');
+      document.getElementById('detailTitle').textContent = '学生答题详情';
       document.body.style.overflow = 'hidden';
       await waitMathJax();
       if (window.MathJax && window.MathJax.typesetPromise) {
@@ -912,6 +1195,7 @@
           cs.innerHTML += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
         }
         populatePdfFolderSelect();
+        syncHomeworkCourseOptions();
       } catch(e) {}
     }
     function updateQuizSelect() {
@@ -945,6 +1229,8 @@
         refresh();
         loadAttempts();
         loadAdminSummary();
+        loadHomeworkAssignments();
+        loadHomeworkSubmissions();
       } catch(e) {
         alert('加载失败');
       }
@@ -1028,34 +1314,62 @@
       if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
       return (bytes/(1024*1024)).toFixed(1) + ' MB';
     }
+    function jsArg(s) {
+      return encodeURIComponent(String(s || ''));
+    }
+    function visibilityBadge(visible) {
+      const bg = visible ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.12)';
+      const color = visible ? '#15803d' : '#b91c1c';
+      return `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${bg};color:${color};margin-right:8px;">${visible ? '学生可见' : '学生隐藏'}</span>`;
+    }
     async function loadPDFList() {
-      const r = await fetch('/api/pdfs');
+      const r = await fetch('/api/admin/materials', { credentials: 'include' });
       if (!r.ok) return;
       const data = await r.json();
       const items = data.items || [];
       const root = document.getElementById('pdfList');
       if (items.length === 0) {
-        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无 PDF 课件</p>';
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无课程材料</p>';
         return;
       }
       const grouped = {};
-      for (const item of items) {
-        if (!grouped[item.folder]) grouped[item.folder] = [];
-        grouped[item.folder].push(item);
+      for (const group of items) {
+        if (!grouped[group.folder]) grouped[group.folder] = [];
+        grouped[group.folder].push(group);
       }
       let html = '';
-      for (const [folder, files] of Object.entries(grouped)) {
+      for (const [folder, groups] of Object.entries(grouped)) {
         html += `<div style="margin-top:8px;"><p style="font-weight:600;font-size:13px;color:var(--text-secondary);">📂 ${escapeHTML(folder)}</p>`;
-        for (const f of files) {
-          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
-            <span style="font-size:13px;">${escapeHTML(f.file)} <span style="color:var(--text-secondary);font-size:12px;">(${formatSize(f.size)})</span></span>
-            <span>
-              <a href="${escapeHTML(f.url)}" target="_blank" style="font-size:12px;color:var(--primary);margin-right:8px;">查看</a>
-              <a href="${escapeHTML(f.url)}" download style="font-size:12px;color:var(--primary);margin-right:8px;">下载</a>
-              <button class="small" style="font-size:12px;padding:3px 8px;background:var(--warning);" onclick="renamePDF('${escapeHTML(f.folder)}','${escapeHTML(f.file)}')">重命名</button>
-              <button class="small btn-danger" style="font-size:12px;padding:3px 8px;" onclick="deletePDF('${escapeHTML(f.folder)}','${escapeHTML(f.file)}')">删除</button>
-            </span>
-          </div>`;
+        for (const group of groups) {
+          html += `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">材料组：${escapeHTML(group.stem || '未命名')}</div>`;
+          if (group.pdf) {
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;gap:8px;">
+              <span style="font-size:13px;">📄 ${escapeHTML(group.pdf.file)} <span style="color:var(--text-secondary);font-size:12px;">(${formatSize(group.pdf.size)})</span></span>
+              <span>
+                ${visibilityBadge(group.pdf.visible !== false)}
+                <a href="${escapeHTML(group.pdf.preview_url)}" target="_blank" style="font-size:12px;color:var(--primary);margin-right:8px;">预览</a>
+                <a href="${escapeHTML(group.pdf.download_url)}" style="font-size:12px;color:var(--primary);margin-right:8px;">下载</a>
+                <button class="small" style="font-size:12px;padding:3px 8px;background:${group.pdf.visible === false ? 'var(--primary)' : '#6b7280'};" onclick="toggleMaterialVisibility(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(group.pdf.file)}'),${group.pdf.visible === false ? 'true' : 'false'})">${group.pdf.visible === false ? '显示给学生' : '对学生隐藏'}</button>
+                <button class="small" style="font-size:12px;padding:3px 8px;background:var(--warning);" onclick="renamePDF(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(group.pdf.file)}'))">重命名</button>
+                <button class="small btn-danger" style="font-size:12px;padding:3px 8px;" onclick="deletePDF(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(group.pdf.file)}'))">删除</button>
+              </span>
+            </div>`;
+          }
+          for (const f of (group.downloads || [])) {
+            if (group.pdf && f.file === group.pdf.file) continue;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 6px 12px;gap:8px;">
+              <span style="font-size:13px;">📎 ${escapeHTML(f.file)} <span style="color:var(--text-secondary);font-size:12px;">(${formatSize(f.size)})</span></span>
+              <span>
+                ${visibilityBadge(f.visible !== false)}
+                <a href="${escapeHTML(f.url)}" style="font-size:12px;color:var(--primary);margin-right:8px;">下载</a>
+                <button class="small" style="font-size:12px;padding:3px 8px;background:${f.visible === false ? 'var(--primary)' : '#6b7280'};" onclick="toggleMaterialVisibility(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(f.file)}'),${f.visible === false ? 'true' : 'false'})">${f.visible === false ? '显示给学生' : '对学生隐藏'}</button>
+                <button class="small" style="font-size:12px;padding:3px 8px;background:var(--warning);" onclick="renamePDF(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(f.file)}'))">重命名</button>
+                <button class="small btn-danger" style="font-size:12px;padding:3px 8px;" onclick="deletePDF(decodeURIComponent('${jsArg(group.folder)}'),decodeURIComponent('${jsArg(f.file)}'))">删除</button>
+              </span>
+            </div>`;
+          }
+          html += `</div>`;
         }
         html += '</div>';
       }
@@ -1072,21 +1386,31 @@
     async function uploadPDF() {
       const folder = document.getElementById('pdfFolderSelect').value;
       const fileInput = document.getElementById('pdfFile');
-      const file = fileInput.files && fileInput.files[0];
+      const files = Array.from(fileInput.files || []);
+      const resultBox = document.getElementById('uploadResults');
       if (!folder) { alert('请选择课程文件夹'); return; }
-      if (!file) { alert('请选择 PDF 文件'); return; }
+      if (!files.length) { alert('请选择要上传的材料文件'); return; }
       const fd = new FormData();
       fd.append('folder', folder);
-      fd.append('file', file);
+      for (const file of files) fd.append('files', file);
       const r = await fetch('/api/admin/pdfs/upload', {
         method: 'POST',
         credentials: 'include',
         body: fd
       });
-      if (!r.ok) { alert(await r.text()); return; }
-      alert('上传成功');
+      const text = await r.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) {}
+      if (!r.ok && !data) { alert(text); return; }
+      if (!data) { alert('上传响应异常'); return; }
+      const uploaded = data.uploaded || [];
+      const failed = data.failed || [];
+      const lines = [];
+      if (uploaded.length) lines.push(`成功 ${uploaded.length} 个：${uploaded.map(i => i.file).join('、')}`);
+      if (failed.length) lines.push(`失败 ${failed.length} 个：${failed.map(i => `${i.file}（${i.error}）`).join('；')}`);
+      resultBox.textContent = lines.join(' | ') || '未返回上传结果';
       fileInput.value = '';
-      loadPDFList();
+      if (uploaded.length) loadPDFList();
     }
     async function renamePDF(folder, oldName) {
       const newName = prompt(`重命名 "${oldName}" 为：`, oldName);
@@ -1107,6 +1431,16 @@
         headers: {'Content-Type':'application/json'},
         credentials: 'include',
         body: JSON.stringify({ folder, file })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadPDFList();
+    }
+    async function toggleMaterialVisibility(folder, file, visible) {
+      const r = await fetch('/api/admin/pdfs/visibility', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ folder, file, visible })
       });
       if (!r.ok) { alert(await r.text()); return; }
       loadPDFList();
@@ -1223,6 +1557,12 @@
     document.getElementById('saveAIConfigBtn').onclick = saveAIConfig;
     document.getElementById('genAdminSummaryBtn').onclick = genAdminSummary;
     document.getElementById('refreshAdminSummaryBtn').onclick = loadAdminSummary;
+    document.getElementById('uploadHomeworkAssignmentBtn').onclick = uploadHomeworkAssignments;
+    document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulkArchive;
+    document.getElementById('refreshHomeworkBtn').onclick = loadHomeworkSubmissions;
+    document.getElementById('homeworkCourseSelect').onchange = async () => { await loadHomeworkAssignments(); };
+    document.getElementById('homeworkSubmissionCourseSelect').onchange = () => { populateHomeworkAssignmentFilter(); loadHomeworkSubmissions(); };
+    document.getElementById('homeworkAssignmentFilter').onchange = loadHomeworkSubmissions;
     document.getElementById('uploadPdfBtn').onclick = uploadPDF;
     document.getElementById('closeDetailBtn').onclick = closeDetail;
     document.getElementById('detailModal').onclick = (evt) => {
