@@ -88,26 +88,29 @@ func TestScanMaterialGroups(t *testing.T) {
 	createMaterialFile(t, s, "course-a", "quiz1.pdf", []byte("%PDF-1.4\nhello"))
 	createMaterialFile(t, s, "course-a", "quiz1.ipynb", []byte("{}"))
 	createMaterialFile(t, s, "course-a", "quiz2.zip", []byte("zip"))
-	createMaterialFile(t, s, "course-a", "ignore.txt", []byte("nope"))
+	createMaterialFile(t, s, "course-a", "notes.txt", []byte("nope"))
 
 	items, err := s.scanMaterialGroups()
 	if err != nil {
 		t.Fatalf("scanMaterialGroups: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 groups, got %d", len(items))
+	if len(items) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(items))
 	}
-	if items[0].Stem != "quiz1" {
-		t.Fatalf("expected first stem quiz1, got %s", items[0].Stem)
+	var quiz1Group *materialGroupItem
+	for i := range items {
+		if items[i].Stem == "quiz1" {
+			quiz1Group = &items[i]
+		}
 	}
-	if items[0].PDF == nil || !strings.Contains(items[0].PDF.PreviewURL, "/ppt/course-a/quiz1.pdf") {
-		t.Fatalf("expected pdf preview url in first group: %+v", items[0].PDF)
+	if quiz1Group == nil {
+		t.Fatalf("expected quiz1 group")
 	}
-	if len(items[0].Downloads) != 2 {
-		t.Fatalf("expected 2 downloads in first group, got %d", len(items[0].Downloads))
+	if quiz1Group.PDF == nil || !strings.Contains(quiz1Group.PDF.PreviewURL, "/ppt/course-a/quiz1.pdf") {
+		t.Fatalf("expected pdf preview url in quiz1 group: %+v", quiz1Group.PDF)
 	}
-	if items[1].PDF != nil {
-		t.Fatalf("expected non-pdf group without preview pdf")
+	if len(quiz1Group.Downloads) != 2 {
+		t.Fatalf("expected 2 downloads in quiz1 group, got %d", len(quiz1Group.Downloads))
 	}
 }
 
@@ -404,7 +407,7 @@ func TestAPIAdminPDFUploadPartialSuccess(t *testing.T) {
 	}{
 		{Name: "quiz1.pdf", Data: []byte("%PDF-1.4\nhello")},
 		{Name: "lab.ipynb", Data: []byte("{}")},
-		{Name: "bad.txt", Data: []byte("bad")},
+		{Name: ".hidden", Data: []byte("bad")},
 	}
 	for _, file := range files {
 		part, err := writer.CreateFormFile("files", file.Name)
@@ -446,9 +449,6 @@ func TestAPIAdminPDFUploadPartialSuccess(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.pptDir(), "course-a", "lab.ipynb")); err != nil {
 		t.Fatalf("expected lab.ipynb to be saved: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(s.pptDir(), "course-a", "bad.txt")); !os.IsNotExist(err) {
-		t.Fatalf("expected bad.txt not to be saved, got err=%v", err)
 	}
 }
 

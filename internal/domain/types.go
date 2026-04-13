@@ -95,6 +95,7 @@ type HomeworkFileSlot string
 const (
 	HomeworkSlotReport HomeworkFileSlot = "report"
 	HomeworkSlotCode   HomeworkFileSlot = "code"
+	HomeworkSlotExtra  HomeworkFileSlot = "extra"
 )
 
 type HomeworkSubmission struct {
@@ -110,12 +111,14 @@ type HomeworkSubmission struct {
 	ReportUploadedAt   *time.Time
 	CodeOriginalName   string
 	CodeUploadedAt     *time.Time
+	ExtraOriginalName  string
+	ExtraUploadedAt    *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
 
 func (h HomeworkSubmission) HasUploadedFiles() bool {
-	return h.ReportOriginalName != "" || h.CodeOriginalName != ""
+	return h.ReportOriginalName != "" || h.CodeOriginalName != "" || h.ExtraOriginalName != ""
 }
 
 func (h HomeworkSubmission) HasSlot(slot HomeworkFileSlot) bool {
@@ -124,6 +127,8 @@ func (h HomeworkSubmission) HasSlot(slot HomeworkFileSlot) bool {
 		return h.ReportOriginalName != ""
 	case HomeworkSlotCode:
 		return h.CodeOriginalName != ""
+	case HomeworkSlotExtra:
+		return h.ExtraOriginalName != ""
 	default:
 		return false
 	}

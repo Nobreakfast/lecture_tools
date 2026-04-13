@@ -14,12 +14,6 @@ import (
 	"strings"
 )
 
-var allowedMaterialExts = map[string]bool{
-	".pdf":   true,
-	".ipynb": true,
-	".zip":   true,
-	".npy":   true,
-}
 
 type pdfItem struct {
 	Folder string `json:"folder"`
@@ -774,10 +768,10 @@ func contextOrBackground(ctx context.Context) context.Context {
 
 func allowedMaterialExt(name string) string {
 	ext := strings.ToLower(filepath.Ext(name))
-	if allowedMaterialExts[ext] {
-		return ext
+	if ext == "" || strings.HasPrefix(filepath.Base(name), ".") {
+		return ""
 	}
-	return ""
+	return ext
 }
 
 func validateMaterialFolder(raw string) (string, error) {
@@ -794,9 +788,6 @@ func normalizeMaterialFilename(raw, defaultExt string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid filename")
 	}
 	defaultExt = strings.ToLower(strings.TrimSpace(defaultExt))
-	if defaultExt != "" && !allowedMaterialExts[defaultExt] {
-		return "", "", fmt.Errorf("unsupported file type")
-	}
 	ext := allowedMaterialExt(name)
 	if ext == "" {
 		if defaultExt == "" {

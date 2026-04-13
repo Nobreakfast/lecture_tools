@@ -565,7 +565,7 @@
           <select id="pdfFolderSelect" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card-bg);color:var(--text);margin-top:8px;">
             <option value="">-- 选择课程文件夹 --</option>
           </select>
-          <input id="pdfFile" type="file" accept=".pdf,.ipynb,.zip,.npy" multiple style="margin-top:4px;" />
+          <input id="pdfFile" type="file" multiple style="margin-top:4px;" />
           <button id="uploadPdfBtn" style="margin-top:8px;">批量上传材料</button>
           <div id="uploadResults" style="margin-top:8px;font-size:13px;color:var(--text-secondary);"></div>
         </div>
@@ -896,10 +896,12 @@
         root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">当前课程暂无已启用作业</p>';
         return;
       }
-      root.innerHTML = items.map(item => `
+      root.innerHTML = items.map(item => {
+        const hiddenBadge = item.hidden ? '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:8px;">已隐藏</span>' : '';
+        return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
           <div>
-            <div style="font-size:14px;font-weight:600;">${escapeHTML(item.course)} / ${escapeHTML(item.assignment_id)}</div>
+            <div style="font-size:14px;font-weight:600;">${escapeHTML(item.course)} / ${escapeHTML(item.assignment_id)}${hiddenBadge}</div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${item.file_count || 0} 个文件${item.size ? ` · ${formatSize(item.size)}` : ''}</div>
             <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
               ${(item.files || []).map(file => `
@@ -914,10 +916,12 @@
             </div>
           </div>
           <div class="row" style="gap:8px;flex-wrap:wrap;">
+            <button class="small" style="margin-top:0;background:${item.hidden ? 'var(--primary)' : '#6b7280'};" onclick="toggleHomeworkAssignmentVisibility(decodeURIComponent('${jsArg(item.course)}'), decodeURIComponent('${jsArg(item.assignment_id)}'), ${item.hidden ? 'false' : 'true'})">${item.hidden ? '显示给学生' : '对学生隐藏'}</button>
+            <button class="small" style="margin-top:0;background:var(--warning);" onclick="renameHomeworkAssignment(decodeURIComponent('${jsArg(item.course)}'), decodeURIComponent('${jsArg(item.assignment_id)}'))">重命名</button>
             <button class="small btn-danger" style="margin-top:0;" onclick="deleteHomeworkAssignment(decodeURIComponent('${jsArg(item.course)}'), decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
           </div>
         </div>
-      `).join('');
+      `}).join('');
     }
     function renderHomeworkList() {
       const root = document.getElementById('homeworkList');
@@ -931,8 +935,10 @@
       const rows = items.map(item => {
         const report = item.files && item.files.report;
         const code = item.files && item.files.code;
+        const extra = item.files && item.files.extra;
         const reportText = report && report.uploaded ? `📄 ${escapeHTML(report.original_name)}` : '—';
         const codeText = code && code.uploaded ? `🧩 ${escapeHTML(code.original_name)}` : '—';
+        const extraText = extra && extra.uploaded ? `📦 ${escapeHTML(extra.original_name)}` : '—';
         return `
           <tr>
             <td>${escapeHTML(item.course)}</td>
@@ -943,12 +949,13 @@
             <td>${escapeHTML(item.secret_key || '—')}</td>
             <td>${reportText}</td>
             <td>${codeText}</td>
+            <td>${extraText}</td>
             <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '—')}</td>
             <td><button class="small" onclick="showHomeworkDetail('${escapeHTML(item.id)}')">查看</button></td>
           </tr>
         `;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>课程</th><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>PDF</th><th>Notebook</th><th>更新时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>课程</th><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>PDF</th><th>Notebook</th><th>附件</th><th>更新时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     async function loadHomeworkAssignments() {
       const selectedCourse = document.getElementById('homeworkCourseSelect')?.value || '';
@@ -1024,6 +1031,29 @@
       await loadHomeworkAssignments();
       await loadHomeworkSubmissions();
     }
+    async function toggleHomeworkAssignmentVisibility(course, assignmentID, hidden) {
+      const r = await fetch('/api/admin/homework/assignments/visibility', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ course, assignment_id: assignmentID, hidden })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+    }
+    async function renameHomeworkAssignment(course, assignmentID) {
+      const newID = prompt(`重命名作业 "${assignmentID}" 为：`, assignmentID);
+      if (!newID || newID === assignmentID) return;
+      const r = await fetch('/api/admin/homework/assignments/rename', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body: JSON.stringify({ course, old_id: assignmentID, new_id: newID })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
+    }
     async function deleteHomeworkAssignment(course, assignmentID) {
       if (!confirm(`确认删除 ${course}/${assignmentID} 的全部作业文件吗？`)) return;
       const r = await fetch('/api/admin/homework/assignments/delete', {
@@ -1046,6 +1076,7 @@
       const item = data.submission || {};
       const report = item.files && item.files.report;
       const code = item.files && item.files.code;
+      const extra = item.files && item.files.extra;
       document.getElementById('detailTitle').textContent = '作业提交详情';
       document.getElementById('detail').innerHTML = `
         <div class="meta">
@@ -1075,6 +1106,17 @@
             </div>
             <div class="row" style="gap:8px;flex-wrap:wrap;">
               ${code && code.uploaded ? `<a class="small" href="${escapeHTML(item.code_download_url)}" style="text-decoration:none;display:inline-flex;align-items:center;">下载 Notebook</a>` : '<span style="font-size:12px;color:var(--text-secondary);">暂无 Notebook</span>'}
+            </div>
+          </div>
+        </div>
+        <div class="qitem">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+            <div>
+              <strong>📦 其它附件</strong>
+              <div style="margin-top:6px;color:var(--text-secondary);font-size:13px;">${extra && extra.uploaded ? escapeHTML(extra.original_name) : '未上传'}</div>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap;">
+              ${extra && extra.uploaded ? `<a class="small" href="${escapeHTML(item.extra_download_url)}" style="text-decoration:none;display:inline-flex;align-items:center;">下载附件</a>` : '<span style="font-size:12px;color:var(--text-secondary);">暂无附件</span>'}
             </div>
           </div>
         </div>

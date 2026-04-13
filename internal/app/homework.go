@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	stdjson "encoding/json"
 	"errors"
@@ -23,9 +24,10 @@ import (
 )
 
 const (
-	homeworkCookieName           = "homework_token"
-	homeworkAssignmentsFolder    = "_homework"
-	homeworkAssignmentPDFMaxSize = 500 << 20
+	homeworkCookieName              = "homework_token"
+	homeworkAssignmentsFolder       = "_homework"
+	homeworkAssignmentPDFMaxSize    = 500 << 20
+	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
 )
 
 var errHomeworkIdentityMismatch = errors.New("已存在同学号的作业记录，请使用原姓名和班级继续")
@@ -62,7 +64,14 @@ func (s *Server) apiHomeworkAssignmentIDs(w http.ResponseWriter, r *http.Request
 		writeJSON(w, map[string]any{"items": []string{}})
 		return
 	}
-	writeJSON(w, map[string]any{"items": assignments})
+	visibility := s.loadHomeworkAssignmentVisibility()
+	visible := make([]string, 0, len(assignments))
+	for _, id := range assignments {
+		if !homeworkAssignmentHidden(visibility, course, id) {
+			visible = append(visible, id)
+		}
+	}
+	writeJSON(w, map[string]any{"items": visible})
 }
 
 func (s *Server) apiHomeworkAssignmentPreview(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +90,11 @@ func (s *Server) apiHomeworkAssignmentPreview(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if !s.homeworkAssignmentExists(course, assignmentID) {
+		writeJSON(w, map[string]any{"items": []map[string]any{}})
+		return
+	}
+	visibility := s.loadHomeworkAssignmentVisibility()
+	if homeworkAssignmentHidden(visibility, course, assignmentID) {
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
@@ -335,6 +349,9 @@ func (s *Server) apiHomeworkDownload(w http.ResponseWriter, r *http.Request) {
 	case domain.HomeworkSlotCode:
 		originalName = submission.CodeOriginalName
 		contentType = "application/x-ipynb+json"
+	case domain.HomeworkSlotExtra:
+		originalName = submission.ExtraOriginalName
+		contentType = "application/zip"
 	}
 	if strings.TrimSpace(originalName) == "" {
 		http.Error(w, "file not found", http.StatusNotFound)
@@ -672,6 +689,118 @@ func (s *Server) apiAdminHomeworkCode(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, fp)
 }
 
+func (s *Server) apiAdminHomeworkExtra(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	submission, err := s.adminHomeworkSubmission(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if strings.TrimSpace(submission.ExtraOriginalName) == "" {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	fp := filepath.Join(s.homeworkSubmissionDir(submission), "extra.zip")
+	if _, err := os.Stat(fp); err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip")))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, fp)
+}
+
+func (s *Server) apiAdminHomeworkAssignmentVisibility(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Course       string `json:"course"`
+		AssignmentID string `json:"assignment_id"`
+		Hidden       bool   `json:"hidden"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	course, err := validateHomeworkCourse(req.Course)
+	if err != nil {
+		http.Error(w, "课程无效", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	s.setHomeworkAssignmentVisibility(course, assignmentID, req.Hidden)
+	writeJSON(w, map[string]any{"ok": true, "hidden": req.Hidden})
+}
+
+func (s *Server) apiAdminHomeworkAssignmentRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Course string `json:"course"`
+		OldID  string `json:"old_id"`
+		NewID  string `json:"new_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	course, err := validateHomeworkCourse(req.Course)
+	if err != nil {
+		http.Error(w, "课程无效", http.StatusBadRequest)
+		return
+	}
+	oldID, err := validateHomeworkAssignmentID(req.OldID)
+	if err != nil {
+		http.Error(w, "旧作业编号无效", http.StatusBadRequest)
+		return
+	}
+	newID, err := validateHomeworkAssignmentID(req.NewID)
+	if err != nil {
+		http.Error(w, "新作业编号无效", http.StatusBadRequest)
+		return
+	}
+	if oldID == newID {
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
+	oldDir := s.homeworkAssignmentDir(course, oldID)
+	newDir := s.homeworkAssignmentDir(course, newID)
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		http.Error(w, "作业不存在", http.StatusNotFound)
+		return
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		http.Error(w, "目标作业编号已存在", http.StatusConflict)
+		return
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		http.Error(w, "重命名失败", http.StatusInternalServerError)
+		return
+	}
+	s.renameHomeworkAssignmentVisibility(course, oldID, newID)
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 func (s *Server) apiAdminHomeworkArchive(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -758,6 +887,58 @@ func (s *Server) requireEditableHomeworkStudent(r *http.Request) (*domain.Homewo
 	return s.requireHomeworkStudent(r)
 }
 
+func (s *Server) loadHomeworkAssignmentVisibility() map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	raw, err := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return map[string]bool{}
+	}
+	result := map[string]bool{}
+	_ = json.Unmarshal([]byte(raw), &result)
+	return result
+}
+
+func (s *Server) setHomeworkAssignmentVisibility(course, assignmentID string, hidden bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, _ := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+	visibility := map[string]bool{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &visibility)
+	}
+	key := course + "/" + assignmentID
+	if hidden {
+		visibility[key] = true
+	} else {
+		delete(visibility, key)
+	}
+	payload, _ := json.Marshal(visibility)
+	_ = s.store.SetSetting(context.Background(), homeworkAssignmentVisibilityKey, string(payload))
+}
+
+func (s *Server) renameHomeworkAssignmentVisibility(course, oldID, newID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, _ := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+	visibility := map[string]bool{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &visibility)
+	}
+	oldKey := course + "/" + oldID
+	newKey := course + "/" + newID
+	if val, ok := visibility[oldKey]; ok {
+		visibility[newKey] = val
+		delete(visibility, oldKey)
+		payload, _ := json.Marshal(visibility)
+		_ = s.store.SetSetting(context.Background(), homeworkAssignmentVisibilityKey, string(payload))
+	}
+}
+
+func homeworkAssignmentHidden(visibility map[string]bool, course, assignmentID string) bool {
+	return visibility[course+"/"+assignmentID]
+}
+
 func (s *Server) setHomeworkCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     homeworkCookieName,
@@ -813,6 +994,8 @@ func (s *Server) homeworkAssignmentPayload(course, assignmentID string, admin bo
 	}
 	if admin {
 		payload["bundle_delete_url"] = s.pathPrefix() + "/api/admin/homework/assignments/delete"
+		visibility := s.loadHomeworkAssignmentVisibility()
+		payload["hidden"] = homeworkAssignmentHidden(visibility, course, assignmentID)
 	}
 	return payload
 }
@@ -1080,10 +1263,12 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		"files": map[string]any{
 			"report": homeworkFilePayload(submission, domain.HomeworkSlotReport),
 			"code":   homeworkFilePayload(submission, domain.HomeworkSlotCode),
+			"extra":  homeworkFilePayload(submission, domain.HomeworkSlotExtra),
 		},
 	}
 	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
+	payload["extra_download_url"] = s.pathPrefix() + "/api/homework/download?slot=extra"
 	if admin {
 		bulkParams := url.Values{}
 		bulkParams.Set("course", submission.Course)
@@ -1092,6 +1277,7 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		payload["report_preview_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID
 		payload["report_download_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID + "&download=1"
 		payload["code_download_url"] = s.pathPrefix() + "/api/admin/homework/code?id=" + submission.ID
+		payload["extra_download_url"] = s.pathPrefix() + "/api/admin/homework/extra?id=" + submission.ID
 		payload["archive_download_url"] = s.pathPrefix() + "/api/admin/homework/archive?id=" + submission.ID
 		payload["bulk_archive_download_url"] = s.pathPrefix() + "/api/admin/homework/archive-all?" + bulkParams.Encode()
 	}
@@ -1112,6 +1298,12 @@ func homeworkFilePayload(submission *domain.HomeworkSubmission, slot domain.Home
 			"original_name": submission.CodeOriginalName,
 			"uploaded_at":   submission.CodeUploadedAt,
 		}
+	case domain.HomeworkSlotExtra:
+		return map[string]any{
+			"uploaded":      submission.ExtraOriginalName != "",
+			"original_name": submission.ExtraOriginalName,
+			"uploaded_at":   submission.ExtraUploadedAt,
+		}
 	default:
 		return map[string]any{"uploaded": false}
 	}
@@ -1123,6 +1315,8 @@ func parseHomeworkSlot(raw string) (domain.HomeworkFileSlot, error) {
 		return domain.HomeworkSlotReport, nil
 	case string(domain.HomeworkSlotCode):
 		return domain.HomeworkSlotCode, nil
+	case string(domain.HomeworkSlotExtra):
+		return domain.HomeworkSlotExtra, nil
 	default:
 		return "", fmt.Errorf("无效文件槽位")
 	}
@@ -1141,6 +1335,8 @@ func validateHomeworkFile(slot domain.HomeworkFileSlot, data []byte) error {
 		if !looksLikeNotebook(data) {
 			return fmt.Errorf("ipynb 文件内容无效")
 		}
+	case domain.HomeworkSlotExtra:
+		// no content validation for zip
 	default:
 		return fmt.Errorf("无效文件槽位")
 	}
@@ -1148,10 +1344,14 @@ func validateHomeworkFile(slot domain.HomeworkFileSlot, data []byte) error {
 }
 
 func homeworkDiskFilename(slot domain.HomeworkFileSlot) string {
-	if slot == domain.HomeworkSlotCode {
+	switch slot {
+	case domain.HomeworkSlotCode:
 		return "notebook.ipynb"
+	case domain.HomeworkSlotExtra:
+		return "extra.zip"
+	default:
+		return "report.pdf"
 	}
-	return "report.pdf"
 }
 
 func sanitizeHomeworkMetadataFilename(name, fallback string) string {
@@ -1215,6 +1415,15 @@ func (s *Server) buildHomeworkArchive(submission *domain.HomeworkSubmission) ([]
 			Path: s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode),
 		})
 	}
+	if submission.ExtraOriginalName != "" {
+		entries = append(entries, struct {
+			Name string
+			Path string
+		}{
+			Name: sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip"),
+			Path: filepath.Join(s.homeworkSubmissionDir(submission), "extra.zip"),
+		})
+	}
 	if len(entries) == 0 {
 		return nil, nil
 	}
@@ -1275,6 +1484,13 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 				Name: sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb"),
 				Path: s.homeworkStoredFilePath(&submission, domain.HomeworkSlotCode),
 				Slot: domain.HomeworkSlotCode,
+			})
+		}
+		if submission.ExtraOriginalName != "" {
+			entries = append(entries, archiveEntry{
+				Name: sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip"),
+				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "extra.zip"),
+				Slot: domain.HomeworkSlotExtra,
 			})
 		}
 		if len(entries) == 0 {

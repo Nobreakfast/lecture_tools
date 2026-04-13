@@ -240,6 +240,16 @@
               <button id="codeDeleteBtn" class="danger">删除 Notebook</button>
             </div>
           </div>
+          <div class="slot-card">
+            <h3>📦 其它附件（.zip）</h3>
+            <p>系统保存为 <code>extra.zip</code>，可用于上传代码、数据等压缩包。</p>
+            <div class="slot-file empty" id="extraInfo">暂未上传附件</div>
+            <div class="slot-actions">
+              <input id="extraInput" type="file" accept=".zip,application/zip" hidden />
+              <button id="extraUploadBtn">上传 / 替换 ZIP</button>
+              <button id="extraDeleteBtn" class="danger">删除 ZIP</button>
+            </div>
+          </div>
         </div>
         <div id="submissionMessage" class="message info"></div>
       </div>
@@ -407,11 +417,14 @@
         '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>';
       document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
       document.getElementById('codeInfo').outerHTML = fileInfoHTML(submission.files && submission.files.code, '暂未上传 Notebook');
+      document.getElementById('extraInfo').outerHTML = fileInfoHTML(submission.files && submission.files.extra, '暂未上传附件');
       var slotFiles = document.querySelectorAll('.slot-card .slot-file');
       if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
       if (slotFiles[1]) slotFiles[1].id = 'codeInfo';
+      if (slotFiles[2]) slotFiles[2].id = 'extraInfo';
       document.getElementById('reportDeleteBtn').disabled = !(submission.files && submission.files.report && submission.files.report.uploaded);
       document.getElementById('codeDeleteBtn').disabled = !(submission.files && submission.files.code && submission.files.code.uploaded);
+      document.getElementById('extraDeleteBtn').disabled = !(submission.files && submission.files.extra && submission.files.extra.uploaded);
       if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
       renderAssignmentFiles();
       saveToStorage();
@@ -471,16 +484,18 @@
       var fd = new FormData();
       fd.append('slot', slot);
       fd.append('file', file);
-      setMessage('submissionMessage', 'info', '正在上传 ' + (slot === 'report' ? 'PDF' : 'Notebook') + '...');
+      var slotLabel = slot === 'report' ? 'PDF' : slot === 'code' ? 'Notebook' : 'ZIP';
+      setMessage('submissionMessage', 'info', '正在上传 ' + slotLabel + '...');
       var r = await fetch('/api/homework/upload', { method: 'POST', credentials: 'include', body: fd });
       input.value = '';
       if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
       var data = await r.json();
       renderSubmission(data.submission || null);
-      setMessage('submissionMessage', 'info', (slot === 'report' ? 'PDF' : 'Notebook') + ' 已保存。');
+      setMessage('submissionMessage', 'info', slotLabel + ' 已保存。');
     }
     async function deleteSlot(slot) {
-      if (!confirm('确认删除当前' + (slot === 'report' ? '报告 PDF' : '实验 Notebook') + '吗？')) return;
+      var label = slot === 'report' ? '报告 PDF' : slot === 'code' ? '实验 Notebook' : 'ZIP 附件';
+      if (!confirm('确认删除当前' + label + '吗？')) return;
       var r = await fetch('/api/homework/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ slot: slot }) });
       if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
       var data = await r.json();
@@ -501,8 +516,11 @@
     document.getElementById('codeUploadBtn').onclick = function() { document.getElementById('codeInput').click(); };
     document.getElementById('reportDeleteBtn').onclick = function() { deleteSlot('report'); };
     document.getElementById('codeDeleteBtn').onclick = function() { deleteSlot('code'); };
+    document.getElementById('extraUploadBtn').onclick = function() { document.getElementById('extraInput').click(); };
+    document.getElementById('extraDeleteBtn').onclick = function() { deleteSlot('extra'); };
     document.getElementById('reportInput').onchange = function() { uploadSlot('report', 'reportInput'); };
     document.getElementById('codeInput').onchange = function() { uploadSlot('code', 'codeInput'); };
+    document.getElementById('extraInput').onchange = function() { uploadSlot('extra', 'extraInput'); };
 
     // ── Init ──
     (function init() {
