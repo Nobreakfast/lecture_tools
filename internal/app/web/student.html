@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>实验课程</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: rgba(255, 255, 255, 0.7);
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --border: rgba(226, 232, 240, 0.8);
+      --radius: 16px;
+      --shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 0 3px rgba(0, 0, 0, 0.02);
+      --danger: #dc2626;
+      --danger-bg: rgba(254, 242, 242, 0.85);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+      max-width: 860px;
+      margin: 24px auto;
+      padding: 0 12px;
+      background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%);
+      min-height: 100vh;
+      color: var(--text);
+      line-height: 1.6;
+    }
+    h2 { font-size: 22px; font-weight: 800; margin-bottom: 16px; }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+    }
+    /* Course entry */
+    .course-entry { text-align: center; padding: 60px 16px; }
+    .course-entry p { font-size: 15px; color: var(--text-secondary); margin-bottom: 20px; }
+    .course-input {
+      display: block; width: 100%; padding: 12px 16px; margin-bottom: 12px;
+      font-size: 15px; border: 1px solid var(--border); border-radius: 12px;
+      outline: none; background: #fff; color: var(--text); transition: border-color 0.2s ease;
+    }
+    .course-input:focus { border-color: var(--primary); }
+    .course-btn {
+      display: block; width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 500;
+      border: none; border-radius: 12px; color: #fff;
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2); cursor: pointer; transition: all 0.2s ease;
+    }
+    .course-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(79, 70, 229, 0.3); }
+    /* Course header */
+    .course-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+      font-size: 14px; color: var(--text-secondary);
+    }
+    .course-header strong { color: var(--text); font-size: 16px; }
+    .course-header a { color: var(--primary); cursor: pointer; text-decoration: none; font-size: 13px; }
+    .course-header a:hover { text-decoration: underline; }
+    /* Tab bar */
+    .tab-bar {
+      display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 14px;
+      overflow-x: auto; scrollbar-width: none; position: sticky; top: 0;
+      background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%); z-index: 9;
+    }
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      flex: 1; padding: 12px 6px; border: none; border-radius: 10px 10px 0 0;
+      background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 500;
+      cursor: pointer; white-space: nowrap; text-align: center;
+      transition: color .2s, border-color .2s; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    }
+    .tab-btn:hover { color: var(--primary); background: transparent; }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: transparent; }
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
+    /* Materials */
+    .folder-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; color: var(--text-secondary); }
+    .pdf-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .pdf-item:last-child { border-bottom: none; }
+    .pdf-name { font-size: 14px; font-weight: 500; }
+    .pdf-size { font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+    .pdf-actions { display: flex; gap: 8px; }
+    .pdf-actions a {
+      display: inline-block; padding: 5px 12px; font-size: 13px; border-radius: 8px;
+      text-decoration: none; color: #fff;
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2); transition: all 0.2s ease;
+    }
+    .pdf-actions a:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); }
+    .empty { color: var(--text-secondary); font-size: 14px; padding: 20px 0; text-align: center; }
+    /* Submit */
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+    .section-hint { color: var(--text-secondary); font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+    .field input, .field select {
+      width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 15px;
+      color: var(--text); background: rgba(255, 255, 255, 0.92); transition: all 0.2s ease;
+    }
+    .field input:focus, .field select:focus { outline: none; background: #ffffff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15); }
+    .actions, .slot-actions, .download-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button, .link-btn {
+      border: 0; border-radius: 12px; padding: 11px 16px; background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22);
+      transition: all 0.2s ease; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
+    }
+    button:hover, .link-btn:hover { transform: translateY(-1px); }
+    button.secondary, .link-btn.secondary { background: #e2e8f0; color: #0f172a; box-shadow: none; }
+    button.danger { background: var(--danger); box-shadow: none; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .meta-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.65); font-size: 13px; }
+    .meta-item strong { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+    .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .slot-card { border: 1px solid var(--border); border-radius: 14px; padding: 16px; background: rgba(255,255,255,0.78); }
+    .slot-card h3 { font-size: 15px; margin-bottom: 6px; }
+    .slot-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .slot-file, .download-list { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8fafc; border: 1px dashed var(--border); font-size: 13px; color: var(--text); line-height: 1.6; min-height: 72px; }
+    .slot-file.empty, .download-empty { color: var(--text-secondary); }
+    .download-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .download-item:last-child { border-bottom:0; }
+    .download-meta { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+    .message { margin-top: 12px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.7; display: none; }
+    .message.show { display: block; }
+    .message.info { background: rgba(239, 246, 255, 0.95); color: #1d4ed8; }
+    .message.error { background: var(--danger-bg); color: var(--danger); }
+    @media (max-width: 720px) { .grid, .slot-grid, .meta-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h2>🧪 实验课程</h2>
+
+  <!-- Course entry screen -->
+  <div id="courseEntry">
+    <div class="card">
+      <div class="course-entry">
+        <p>请输入课程名称以进入：</p>
+        <form onsubmit="enterCourse(event)">
+          <input class="course-input" type="text" id="courseInput" placeholder="例如：最优化方法" autocomplete="off" />
+          <button class="course-btn" type="submit">进入课程</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main panel (hidden until course entered) -->
+  <div id="panel" style="display:none;">
+    <div class="course-header">
+      <span>当前课程：<strong id="courseName"></strong></span>
+      <a onclick="switchCourse()">切换课程</a>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="tab-materials">📚 课程材料</button>
+      <button class="tab-btn" data-tab="tab-submit">📝 作业提交</button>
+    </div>
+
+    <!-- Tab: 课程材料 -->
+    <div class="tab-page active" id="tab-materials">
+      <div id="materialsContent"><div class="empty">加载中...</div></div>
+    </div>
+
+    <!-- Tab: 作业提交 -->
+    <div class="tab-page" id="tab-submit">
+      <div class="card">
+        <div class="section-title">1. 选择作业并填写信息</div>
+        <div class="section-hint">选择作业编号，填写个人信息后点击"进入"。密钥用于保护你的作业，请牢记。</div>
+        <div class="grid">
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="assignment_id">作业编号</label>
+            <select id="assignment_id"><option value="">-- 请选择作业 --</option></select>
+          </div>
+          <div class="field">
+            <label for="hw_name">姓名</label>
+            <input id="hw_name" placeholder="请输入姓名" />
+          </div>
+          <div class="field">
+            <label for="hw_class_name">班级</label>
+            <input id="hw_class_name" placeholder="请输入班级" />
+          </div>
+          <div class="field">
+            <label for="hw_student_no">学号</label>
+            <input id="hw_student_no" placeholder="请输入学号" />
+          </div>
+          <div class="field">
+            <label for="hw_secret_key">密钥</label>
+            <div style="position:relative;">
+              <input id="hw_secret_key" type="password" placeholder="请设置密钥" autocomplete="off" style="padding-right:40px;" />
+              <span id="toggleKey" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁</span>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="enterBtn">进入 / 恢复当前作业</button>
+          <button id="refreshBtn" class="secondary">刷新当前状态</button>
+        </div>
+        <div id="sessionMessage" class="message info"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">2. 下载本次作业文件</div>
+        <div class="section-hint">这里列出老师为当前作业准备的所有文件。</div>
+        <div id="assignmentFiles" class="download-list"><div class="download-empty">请先选择作业编号并点击"进入"。</div></div>
+      </div>
+
+      <div class="card" id="submissionCard" style="display:none;">
+        <div class="section-title">3. 当前上传状态</div>
+        <div class="section-hint">上传 PDF 会覆盖当前报告文件，上传 .ipynb 会覆盖当前实验 Notebook。</div>
+        <div class="meta-grid" id="submissionMeta"></div>
+        <div class="slot-grid">
+          <div class="slot-card">
+            <h3>📄 报告文件（PDF）</h3>
+            <p>系统保存为 <code>report.pdf</code>，页面展示原始文件名。</p>
+            <div class="slot-file empty" id="reportInfo">暂未上传报告 PDF</div>
+            <div class="slot-actions">
+              <input id="reportInput" type="file" accept=".pdf,application/pdf" hidden />
+              <button id="reportUploadBtn">上传 / 替换 PDF</button>
+              <button id="reportDeleteBtn" class="danger">删除 PDF</button>
+            </div>
+          </div>
+          <div class="slot-card">
+            <h3>🧩 实验 Notebook（.ipynb）</h3>
+            <p>系统保存为 <code>notebook.ipynb</code>，页面展示原始文件名。</p>
+            <div class="slot-file empty" id="codeInfo">暂未上传 Notebook</div>
+            <div class="slot-actions">
+              <input id="codeInput" type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden />
+              <button id="codeUploadBtn">上传 / 替换 Notebook</button>
+              <button id="codeDeleteBtn" class="danger">删除 Notebook</button>
+            </div>
+          </div>
+        </div>
+        <div id="submissionMessage" class="message info"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const COURSE_KEY = 'experiment_course';
+    const HW_KEY = 'homework_submit_info_v3';
+    let currentCourse = '';
+    let assignmentItems = [];
+
+    function escapeHTML(s) {
+      return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+    function formatTime(v) {
+      if (!v) return '—';
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN', { hour12: false });
+    }
+    function formatSize(s) {
+      const n = Number(s || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0 B';
+      if (n < 1024) return n + ' B';
+      if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+      return (n/(1024*1024)).toFixed(1) + ' MB';
+    }
+    function setMessage(id, type, text) {
+      const el = document.getElementById(id);
+      if (!text) { el.className = 'message'; el.textContent = ''; return; }
+      el.className = 'message show ' + type;
+      el.textContent = text;
+    }
+
+    // ── Course entry ──
+    function enterCourse(e) {
+      if (e) e.preventDefault();
+      var name = document.getElementById('courseInput').value.trim();
+      if (!name) return;
+      currentCourse = name;
+      localStorage.setItem(COURSE_KEY, name);
+      showPanel();
+    }
+    function switchCourse() {
+      document.getElementById('panel').style.display = 'none';
+      document.getElementById('courseEntry').style.display = '';
+      document.getElementById('courseInput').value = currentCourse;
+      document.getElementById('courseInput').focus();
+    }
+    function showPanel() {
+      document.getElementById('courseEntry').style.display = 'none';
+      document.getElementById('courseName').textContent = currentCourse;
+      document.getElementById('panel').style.display = '';
+      loadMaterials();
+      loadAssignmentList();
+      fillFromStorage();
+      fetchCurrentSubmission(false);
+    }
+
+    // ── Tab switching ──
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-page').forEach(function(p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      };
+    });
+
+    // ── Materials tab ──
+    async function loadMaterials() {
+      var root = document.getElementById('materialsContent');
+      root.innerHTML = '<div class="empty">加载中...</div>';
+      var r = await fetch('/api/materials?course=' + encodeURIComponent(currentCourse));
+      if (!r.ok) { root.innerHTML = '<div class="empty">加载失败</div>'; return; }
+      var data = await r.json();
+      var items = data.items || [];
+      if (items.length === 0) { root.innerHTML = '<div class="empty">暂无课程材料</div>'; return; }
+      var grouped = {};
+      for (var g of items) { if (!grouped[g.folder]) grouped[g.folder] = []; grouped[g.folder].push(g); }
+      var html = '';
+      for (var folder in grouped) {
+        html += '<div class="card"><div class="folder-title">📂 ' + escapeHTML(folder) + '</div>';
+        for (var group of grouped[folder]) {
+          if (group.pdf) {
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);"><div><span class="pdf-name">📄 ' + escapeHTML(group.pdf.file) + '</span><span class="pdf-size">' + formatSize(group.pdf.size) + '</span></div><div class="pdf-actions"><a href="' + escapeHTML(group.pdf.preview_url) + '" target="_blank">预览</a><a href="' + escapeHTML(group.pdf.download_url) + '">下载</a></div></div>';
+          }
+          for (var f of (group.downloads || [])) {
+            if (group.pdf && f.file === group.pdf.file) continue;
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);"><div><span class="pdf-name">📎 ' + escapeHTML(f.file) + '</span><span class="pdf-size">' + formatSize(f.size) + '</span></div><div class="pdf-actions"><a href="' + escapeHTML(f.url) + '">下载</a></div></div>';
+          }
+        }
+        html += '</div>';
+      }
+      root.innerHTML = html;
+    }
+
+    // ── Submit tab ──
+    function fillFromStorage() {
+      try {
+        var data = JSON.parse(localStorage.getItem(HW_KEY) || '{}');
+        if (data.assignment_id) document.getElementById('assignment_id').value = data.assignment_id;
+        document.getElementById('hw_name').value = data.name || '';
+        document.getElementById('hw_student_no').value = data.student_no || '';
+        document.getElementById('hw_class_name').value = data.class_name || '';
+        document.getElementById('hw_secret_key').value = data.secret_key || '';
+      } catch (_) {}
+    }
+    function saveToStorage() {
+      localStorage.setItem(HW_KEY, JSON.stringify({
+        course: currentCourse,
+        assignment_id: document.getElementById('assignment_id').value,
+        name: document.getElementById('hw_name').value.trim(),
+        student_no: document.getElementById('hw_student_no').value.trim(),
+        class_name: document.getElementById('hw_class_name').value.trim(),
+        secret_key: document.getElementById('hw_secret_key').value.trim(),
+      }));
+    }
+    async function loadAssignmentList() {
+      var sel = document.getElementById('assignment_id');
+      sel.innerHTML = '<option value="">-- 加载中 --</option>';
+      var r = await fetch('/api/homework/assignment-ids?course=' + encodeURIComponent(currentCourse));
+      if (!r.ok) { sel.innerHTML = '<option value="">-- 暂无作业 --</option>'; return; }
+      var data = await r.json();
+      var items = data.items || [];
+      sel.innerHTML = items.length ? '<option value="">-- 请选择作业 --</option>' : '<option value="">-- 暂无作业 --</option>';
+      for (var id of items) sel.innerHTML += '<option value="' + escapeHTML(id) + '">' + escapeHTML(id) + '</option>';
+      try {
+        var saved = JSON.parse(localStorage.getItem(HW_KEY) || '{}');
+        if (saved.assignment_id) sel.value = saved.assignment_id;
+      } catch (_) {}
+    }
+    function fileInfoHTML(file, emptyText) {
+      if (!file || !file.uploaded) return '<div class="slot-file empty">' + escapeHTML(emptyText) + '</div>';
+      return '<div class="slot-file"><strong>' + escapeHTML(file.original_name || '未命名文件') + '</strong><br/>上传时间：' + escapeHTML(formatTime(file.uploaded_at)) + '</div>';
+    }
+    async function previewAssignmentFiles() {
+      var aid = document.getElementById('assignment_id').value.trim();
+      if (!currentCourse || !aid) { assignmentItems = []; renderAssignmentFiles(); return; }
+      try {
+        var r = await fetch('/api/homework/assignment-preview?course=' + encodeURIComponent(currentCourse) + '&assignment_id=' + encodeURIComponent(aid), { credentials: 'include' });
+        if (!r.ok) { assignmentItems = []; renderAssignmentFiles(); return; }
+        var data = await r.json();
+        assignmentItems = data.items || [];
+        renderAssignmentFiles();
+      } catch (_) { assignmentItems = []; renderAssignmentFiles(); }
+    }
+    function renderAssignmentFiles() {
+      var root = document.getElementById('assignmentFiles');
+      var item = assignmentItems.length > 0 ? assignmentItems[0] : null;
+      if (!item) { root.innerHTML = '<div class="download-empty">请先选择作业编号。</div>'; return; }
+      var files = item.files || [];
+      if (!files.length) { root.innerHTML = '<div class="download-empty">当前作业没有可下载的文件。</div>'; return; }
+      root.innerHTML = files.map(function(file) {
+        return '<div class="download-item"><span>' + escapeHTML(file.name) + ' <span class="download-meta" style="margin-top:0;">' + escapeHTML(formatSize(file.size)) + '</span></span><div class="download-actions"><a class="link-btn secondary" href="' + escapeHTML(file.download_url) + '">下载</a></div></div>';
+      }).join('');
+    }
+    function renderSubmission(submission) {
+      var card = document.getElementById('submissionCard');
+      if (!submission) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      document.getElementById('submissionMeta').innerHTML =
+        '<div class="meta-item"><strong>课程</strong>' + escapeHTML(submission.course) + '</div>' +
+        '<div class="meta-item"><strong>作业编号</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
+        '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>';
+      document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
+      document.getElementById('codeInfo').outerHTML = fileInfoHTML(submission.files && submission.files.code, '暂未上传 Notebook');
+      var slotFiles = document.querySelectorAll('.slot-card .slot-file');
+      if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
+      if (slotFiles[1]) slotFiles[1].id = 'codeInfo';
+      document.getElementById('reportDeleteBtn').disabled = !(submission.files && submission.files.report && submission.files.report.uploaded);
+      document.getElementById('codeDeleteBtn').disabled = !(submission.files && submission.files.code && submission.files.code.uploaded);
+      if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
+      renderAssignmentFiles();
+      saveToStorage();
+    }
+    async function loadAssignmentFiles() {
+      assignmentItems = [];
+      var r = await fetch('/api/homework/assignments', { credentials: 'include' });
+      if (!r.ok) { renderAssignmentFiles(); return; }
+      var data = await r.json();
+      assignmentItems = data.items || [];
+      renderAssignmentFiles();
+    }
+    async function fetchCurrentSubmission(showError) {
+      try {
+        var r = await fetch('/api/homework/submission', { credentials: 'include' });
+        if (r.status === 401) { renderSubmission(null); return; }
+        if (!r.ok) { if (showError) setMessage('sessionMessage', 'error', await r.text()); return; }
+        var data = await r.json();
+        var submission = data.submission || null;
+        if (submission) {
+          document.getElementById('hw_name').value = submission.name || document.getElementById('hw_name').value;
+          document.getElementById('hw_student_no').value = submission.student_no || document.getElementById('hw_student_no').value;
+          document.getElementById('hw_class_name').value = submission.class_name || document.getElementById('hw_class_name').value;
+          if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
+          await loadAssignmentFiles();
+          renderSubmission(submission);
+        } else {
+          renderSubmission(null);
+        }
+      } catch (_) {
+        if (showError) setMessage('sessionMessage', 'error', '读取当前作业状态失败。');
+      }
+    }
+    async function startOrResumeSubmission() {
+      saveToStorage();
+      setMessage('sessionMessage', 'info', '正在进入作业...');
+      var payload = {
+        course: currentCourse,
+        assignment_id: document.getElementById('assignment_id').value.trim(),
+        name: document.getElementById('hw_name').value.trim(),
+        student_no: document.getElementById('hw_student_no').value.trim(),
+        class_name: document.getElementById('hw_class_name').value.trim(),
+        secret_key: document.getElementById('hw_secret_key').value.trim(),
+      };
+      var r = await fetch('/api/homework/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) });
+      if (!r.ok) { setMessage('sessionMessage', 'error', await r.text()); return; }
+      var data = await r.json();
+      await loadAssignmentFiles();
+      renderSubmission(data.submission || null);
+      setMessage('sessionMessage', 'info', '已进入作业提交区，可以直接上传或替换文件。');
+      setMessage('submissionMessage', '', '');
+    }
+    async function uploadSlot(slot, inputId) {
+      var input = document.getElementById(inputId);
+      var file = input.files && input.files[0];
+      if (!file) return;
+      var fd = new FormData();
+      fd.append('slot', slot);
+      fd.append('file', file);
+      setMessage('submissionMessage', 'info', '正在上传 ' + (slot === 'report' ? 'PDF' : 'Notebook') + '...');
+      var r = await fetch('/api/homework/upload', { method: 'POST', credentials: 'include', body: fd });
+      input.value = '';
+      if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+      var data = await r.json();
+      renderSubmission(data.submission || null);
+      setMessage('submissionMessage', 'info', (slot === 'report' ? 'PDF' : 'Notebook') + ' 已保存。');
+    }
+    async function deleteSlot(slot) {
+      if (!confirm('确认删除当前' + (slot === 'report' ? '报告 PDF' : '实验 Notebook') + '吗？')) return;
+      var r = await fetch('/api/homework/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ slot: slot }) });
+      if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+      var data = await r.json();
+      renderSubmission(data.submission || null);
+      setMessage('submissionMessage', 'info', '文件已删除。');
+    }
+
+    // ── Event bindings ──
+    document.getElementById('toggleKey').onclick = function() {
+      var inp = document.getElementById('hw_secret_key');
+      if (inp.type === 'password') { inp.type = 'text'; this.textContent = '🔒'; }
+      else { inp.type = 'password'; this.textContent = '👁'; }
+    };
+    document.getElementById('assignment_id').onchange = previewAssignmentFiles;
+    document.getElementById('enterBtn').onclick = startOrResumeSubmission;
+    document.getElementById('refreshBtn').onclick = function() { fetchCurrentSubmission(true); };
+    document.getElementById('reportUploadBtn').onclick = function() { document.getElementById('reportInput').click(); };
+    document.getElementById('codeUploadBtn').onclick = function() { document.getElementById('codeInput').click(); };
+    document.getElementById('reportDeleteBtn').onclick = function() { deleteSlot('report'); };
+    document.getElementById('codeDeleteBtn').onclick = function() { deleteSlot('code'); };
+    document.getElementById('reportInput').onchange = function() { uploadSlot('report', 'reportInput'); };
+    document.getElementById('codeInput').onchange = function() { uploadSlot('code', 'codeInput'); };
+
+    // ── Init ──
+    (function init() {
+      var saved = localStorage.getItem(COURSE_KEY);
+      if (saved) {
+        document.getElementById('courseInput').value = saved;
+        currentCourse = saved;
+        showPanel();
+      } else {
+        document.getElementById('courseInput').focus();
+      }
+    })();
+  </script>
+</body>
+</html>

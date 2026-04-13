@@ -118,12 +118,13 @@ func (m *memStore) GetHomeworkSubmissionByScope(_ context.Context, course, assig
 	}
 	return nil, sql.ErrNoRows
 }
-func (m *memStore) UpdateHomeworkSubmissionSession(_ context.Context, submissionID, token, name, className string) error {
+func (m *memStore) UpdateHomeworkSubmissionSession(_ context.Context, submissionID, token, name, className, secretKey string) error {
 	for i := range m.homeworkSubmissions {
 		if m.homeworkSubmissions[i].ID == submissionID {
 			m.homeworkSubmissions[i].SessionToken = token
 			m.homeworkSubmissions[i].Name = name
 			m.homeworkSubmissions[i].ClassName = className
+			m.homeworkSubmissions[i].SecretKey = secretKey
 			m.homeworkSubmissions[i].UpdatedAt = time.Now()
 			return nil
 		}

@@ -31,7 +31,7 @@ type Store interface {
 	GetHomeworkSubmissionByID(ctx context.Context, submissionID string) (*domain.HomeworkSubmission, error)
 	GetHomeworkSubmissionByToken(ctx context.Context, token string) (*domain.HomeworkSubmission, error)
 	GetHomeworkSubmissionByScope(ctx context.Context, course, assignmentID, studentNo string) (*domain.HomeworkSubmission, error)
-	UpdateHomeworkSubmissionSession(ctx context.Context, submissionID, token, name, className string) error
+	UpdateHomeworkSubmissionSession(ctx context.Context, submissionID, token, name, className, secretKey string) error
 	ListHomeworkSubmissions(ctx context.Context, course, assignmentID string) ([]domain.HomeworkSubmission, error)
 	SaveHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error
 	DeleteHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot) error

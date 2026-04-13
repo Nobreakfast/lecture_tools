@@ -208,7 +208,7 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	if err := st.SaveHomeworkFileMetadata(ctx, submission.ID, domain.HomeworkSlotCode, "最终代码包.zip"); err != nil {
 		t.Fatalf("SaveHomeworkFileMetadata code replace failed: %v", err)
 	}
-	if err := st.UpdateHomeworkSubmissionSession(ctx, submission.ID, "token-2", "张三同学", "1班"); err != nil {
+	if err := st.UpdateHomeworkSubmissionSession(ctx, submission.ID, "token-2", "张三同学", "1班", "my-secret"); err != nil {
 		t.Fatalf("UpdateHomeworkSubmissionSession failed: %v", err)
 	}
 

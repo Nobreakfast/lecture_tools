@@ -105,6 +105,7 @@ type HomeworkSubmission struct {
 	Name               string
 	StudentNo          string
 	ClassName          string
+	SecretKey          string
 	ReportOriginalName string
 	ReportUploadedAt   *time.Time
 	CodeOriginalName   string

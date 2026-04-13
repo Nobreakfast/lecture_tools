@@ -47,7 +47,7 @@ func (s *Server) apiHomeworkCourses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"items": items})
 }
 
-func (s *Server) apiHomeworkAssignments(w http.ResponseWriter, r *http.Request) {
+func (s *Server) apiHomeworkAssignmentIDs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -59,13 +59,52 @@ func (s *Server) apiHomeworkAssignments(w http.ResponseWriter, r *http.Request) 
 	}
 	assignments, err := s.listHomeworkAssignments(course)
 	if err != nil {
+		writeJSON(w, map[string]any{"items": []string{}})
+		return
+	}
+	writeJSON(w, map[string]any{"items": assignments})
+}
+
+func (s *Server) apiHomeworkAssignmentPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	course, err := validateHomeworkCourse(r.URL.Query().Get("course"))
+	if err != nil {
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
-	items := make([]map[string]any, 0, len(assignments))
-	for _, assignmentID := range assignments {
-		items = append(items, s.homeworkAssignmentPayload(course, assignmentID, false))
+	assignmentID, err := validateHomeworkAssignmentID(r.URL.Query().Get("assignment_id"))
+	if err != nil {
+		writeJSON(w, map[string]any{"items": []map[string]any{}})
+		return
 	}
+	if !s.homeworkAssignmentExists(course, assignmentID) {
+		writeJSON(w, map[string]any{"items": []map[string]any{}})
+		return
+	}
+	items := []map[string]any{s.homeworkAssignmentPayload(course, assignmentID, false)}
+	writeJSON(w, map[string]any{"items": items})
+}
+
+func (s *Server) apiHomeworkAssignments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	course := submission.Course
+	assignmentID := submission.AssignmentID
+	if !s.homeworkAssignmentExists(course, assignmentID) {
+		writeJSON(w, map[string]any{"items": []map[string]any{}})
+		return
+	}
+	items := []map[string]any{s.homeworkAssignmentPayload(course, assignmentID, false)}
 	writeJSON(w, map[string]any{"items": items})
 }
 
@@ -74,9 +113,20 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	submission, sErr := s.requireHomeworkStudent(r)
+	if sErr != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
 	_, _, fileName, fp, err := s.resolveHomeworkAssignmentFileRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	reqCourse := r.URL.Query().Get("course")
+	reqAssignment := r.URL.Query().Get("assignment_id")
+	if reqCourse != submission.Course || reqAssignment != submission.AssignmentID {
+		http.Error(w, "无权访问该文件", http.StatusForbidden)
 		return
 	}
 	if _, err := os.Stat(fp); err != nil {
@@ -102,6 +152,7 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 		Name         string `json:"name"`
 		StudentNo    string `json:"student_no"`
 		ClassName    string `json:"class_name"`
+		SecretKey    string `json:"secret_key"`
 		Course       string `json:"course"`
 		AssignmentID string `json:"assignment_id"`
 	}
@@ -112,8 +163,13 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 	req.Name = strings.TrimSpace(req.Name)
 	req.StudentNo = strings.TrimSpace(req.StudentNo)
 	req.ClassName = strings.TrimSpace(req.ClassName)
+	req.SecretKey = strings.TrimSpace(req.SecretKey)
 	if req.Name == "" || req.StudentNo == "" || req.ClassName == "" {
 		http.Error(w, "信息不完整", http.StatusBadRequest)
+		return
+	}
+	if req.SecretKey == "" {
+		http.Error(w, "请设置密钥", http.StatusBadRequest)
 		return
 	}
 	course, err := validateHomeworkCourse(req.Course)
@@ -133,16 +189,11 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 	token := newID() + newID()
 	existing, err := s.store.GetHomeworkSubmissionByScope(r.Context(), course, assignmentID, req.StudentNo)
 	if err == nil && existing != nil {
-		ownsExisting := false
-		if cookie, cookieErr := r.Cookie(homeworkCookieName); cookieErr == nil && cookie.Value != "" && cookie.Value == existing.SessionToken {
-			ownsExisting = true
-		}
-		matchesIdentity := existing.Name == req.Name && existing.ClassName == req.ClassName
-		if !ownsExisting && !matchesIdentity {
-			http.Error(w, errHomeworkIdentityMismatch.Error(), http.StatusForbidden)
+		if existing.SecretKey != "" && existing.SecretKey != req.SecretKey {
+			http.Error(w, "密钥错误", http.StatusForbidden)
 			return
 		}
-		if err := s.store.UpdateHomeworkSubmissionSession(r.Context(), existing.ID, token, req.Name, req.ClassName); err != nil {
+		if err := s.store.UpdateHomeworkSubmissionSession(r.Context(), existing.ID, token, req.Name, req.ClassName, req.SecretKey); err != nil {
 			http.Error(w, "恢复作业会话失败", http.StatusInternalServerError)
 			return
 		}
@@ -168,6 +219,7 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		StudentNo:    req.StudentNo,
 		ClassName:    req.ClassName,
+		SecretKey:    req.SecretKey,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -258,6 +310,45 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false)})
+}
+
+func (s *Server) apiHomeworkDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	slot, err := parseHomeworkSlot(r.URL.Query().Get("slot"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var originalName, contentType string
+	switch slot {
+	case domain.HomeworkSlotReport:
+		originalName = submission.ReportOriginalName
+		contentType = "application/pdf"
+	case domain.HomeworkSlotCode:
+		originalName = submission.CodeOriginalName
+		contentType = "application/x-ipynb+json"
+	}
+	if strings.TrimSpace(originalName) == "" {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	fp := s.homeworkStoredFilePath(submission, slot)
+	if _, err := os.Stat(fp); err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(originalName, homeworkDiskFilename(slot))))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, fp)
 }
 
 func (s *Server) apiHomeworkDelete(w http.ResponseWriter, r *http.Request) {
@@ -991,10 +1082,13 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 			"code":   homeworkFilePayload(submission, domain.HomeworkSlotCode),
 		},
 	}
+	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
+	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
 	if admin {
 		bulkParams := url.Values{}
 		bulkParams.Set("course", submission.Course)
 		bulkParams.Set("assignment_id", submission.AssignmentID)
+		payload["secret_key"] = submission.SecretKey
 		payload["report_preview_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID
 		payload["report_download_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID + "&download=1"
 		payload["code_download_url"] = s.pathPrefix() + "/api/admin/homework/code?id=" + submission.ID

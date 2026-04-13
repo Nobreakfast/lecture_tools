@@ -498,19 +498,6 @@ func TestServeMaterialDownloadAttachment(t *testing.T) {
 	}
 }
 
-func TestMaterialsRouteServesPage(t *testing.T) {
-	s := newMaterialTestServer(t)
-	h := s.Routes()
-	req := httptest.NewRequest(http.MethodGet, "/materials", nil)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if !strings.Contains(rr.Body.String(), "加载中") {
-		t.Fatalf("expected materials page body, got %q", rr.Body.String())
-	}
-}
 
 func TestMatchedPDFPathIgnoresCompanionFiles(t *testing.T) {
 	s := newMaterialTestServer(t)

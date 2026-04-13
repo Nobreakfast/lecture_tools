@@ -107,19 +107,24 @@ func (s *Server) pptDir() string {
 	return filepath.Join(filepath.Dir(s.cfg.DataDir), "ppt")
 }
 
-func (s *Server) pageMaterials(w http.ResponseWriter, _ *http.Request) {
-	s.servePage(w, "web/pdf.html")
+func (s *Server) pageStudent(w http.ResponseWriter, _ *http.Request) {
+	s.servePage(w, "web/student.html")
 }
 
-func (s *Server) pagePDF(w http.ResponseWriter, r *http.Request) {
-	s.pageMaterials(w, r)
-}
-
-func (s *Server) apiMaterials(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) apiMaterials(w http.ResponseWriter, r *http.Request) {
 	items, err := s.scanMaterialGroups()
 	if err != nil {
 		writeJSON(w, map[string]any{"items": []materialGroupItem{}})
 		return
+	}
+	if course := strings.TrimSpace(r.URL.Query().Get("course")); course != "" {
+		filtered := make([]materialGroupItem, 0)
+		for _, item := range items {
+			if item.Folder == course {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
 	}
 	writeJSON(w, map[string]any{"items": items})
 }

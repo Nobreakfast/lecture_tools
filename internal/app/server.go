@@ -104,19 +104,21 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.pageJoin)
 	mux.HandleFunc("/join", s.pageJoin)
-	mux.HandleFunc("/submit", s.pageSubmit)
 	mux.HandleFunc("/quiz", s.pageQuiz)
 	mux.HandleFunc("/result", s.pageResult)
 	mux.HandleFunc("/admin", s.pageAdmin)
-	mux.HandleFunc("/materials", s.pageMaterials)
+	mux.HandleFunc("/student", s.pageStudent)
 	mux.HandleFunc("/assets/", s.serveAsset)
 	mux.HandleFunc("/api/join", s.apiJoin)
 	mux.HandleFunc("/api/homework/courses", s.apiHomeworkCourses)
+	mux.HandleFunc("/api/homework/assignment-ids", s.apiHomeworkAssignmentIDs)
+	mux.HandleFunc("/api/homework/assignment-preview", s.apiHomeworkAssignmentPreview)
 	mux.HandleFunc("/api/homework/assignments", s.apiHomeworkAssignments)
 	mux.HandleFunc("/api/homework/assignment-file", s.apiHomeworkAssignmentFile)
 	mux.HandleFunc("/api/homework/session", s.apiHomeworkSession)
 	mux.HandleFunc("/api/homework/submission", s.apiHomeworkSubmission)
 	mux.HandleFunc("/api/homework/upload", s.apiHomeworkUpload)
+	mux.HandleFunc("/api/homework/download", s.apiHomeworkDownload)
 	mux.HandleFunc("/api/homework/delete", s.apiHomeworkDelete)
 	mux.HandleFunc("/api/entry-status", s.apiEntryStatus)
 	mux.HandleFunc("/api/me", s.apiMe)
@@ -162,7 +164,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/materials", s.apiAdminMaterials)
 	mux.HandleFunc("/api/materials", s.apiMaterials)
 	mux.HandleFunc("/api/pdfs", s.apiPDFs)
-	mux.HandleFunc("/pdf", s.pagePDF)
 	mux.HandleFunc("/ppt/", s.servePPT)
 	mux.HandleFunc("/materials-files/", s.serveMaterialDownload)
 	mux.HandleFunc("/api/answer-image", s.apiUploadAnswerImage)
@@ -189,10 +190,6 @@ func (s *Server) Routes() http.Handler {
 
 func (s *Server) pageJoin(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/join.html")
-}
-
-func (s *Server) pageSubmit(w http.ResponseWriter, _ *http.Request) {
-	s.servePage(w, "web/submit.html")
 }
 
 func (s *Server) pageQuiz(w http.ResponseWriter, _ *http.Request) {

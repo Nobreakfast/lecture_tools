@@ -162,7 +162,21 @@ func TestHomeworkCatalogAndSubmissionFlow(t *testing.T) {
 		t.Fatalf("unexpected courses response: %s", coursesRR.Body.String())
 	}
 
-	assignmentsRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignments?course=course-a", nil)
+	// assignments and file download require a session
+	noSessionRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignments", nil)
+	if noSessionRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected assignments 401 without session, got %d", noSessionRR.Code)
+	}
+
+	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"abc123","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+	createdID := decodeSubmissionResponse(t, createRR)["submission"].(map[string]any)["id"].(string)
+
+	assignmentsRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignments", nil, cookie)
 	if assignmentsRR.Code != http.StatusOK {
 		t.Fatalf("expected assignments 200, got %d body=%s", assignmentsRR.Code, assignmentsRR.Body.String())
 	}
@@ -170,21 +184,13 @@ func TestHomeworkCatalogAndSubmissionFlow(t *testing.T) {
 		t.Fatalf("unexpected assignments response: %s", assignmentsRR.Body.String())
 	}
 
-	downloadRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignment-file?course=course-a&assignment_id=task-1&file=task-1.pdf", nil)
+	downloadRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignment-file?course=course-a&assignment_id=task-1&file=task-1.pdf", nil, cookie)
 	if downloadRR.Code != http.StatusOK || !bytes.HasPrefix(downloadRR.Body.Bytes(), []byte("%PDF-")) {
 		t.Fatalf("expected assignment file download, got code=%d body=%q", downloadRR.Code, downloadRR.Body.String())
 	}
 	if !bytes.Contains([]byte(downloadRR.Header().Get("Content-Disposition")), []byte("attachment")) {
 		t.Fatalf("expected attachment header for assignment file, got %s", downloadRR.Header().Get("Content-Disposition"))
 	}
-
-	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","course":"course-a","assignment_id":"task-1"}`)
-	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
-	if createRR.Code != http.StatusOK {
-		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
-	}
-	cookie := homeworkCookieFromResponse(t, createRR)
-	createdID := decodeSubmissionResponse(t, createRR)["submission"].(map[string]any)["id"].(string)
 
 	resumeRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
 	if resumeRR.Code != http.StatusOK {
@@ -276,20 +282,26 @@ func TestHomeworkCatalogAndSubmissionFlow(t *testing.T) {
 	}
 }
 
-func TestHomeworkSessionRequiresMatchingIdentityForExistingRecord(t *testing.T) {
+func TestHomeworkSessionRequiresMatchingSecretKey(t *testing.T) {
 	s := newHomeworkTestServer(t)
 	h := s.Routes()
 
-	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","course":"course-a","assignment_id":"task-1"}`)
+	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"mykey","course":"course-a","assignment_id":"task-1"}`)
 	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
 	if createRR.Code != http.StatusOK {
 		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
 	}
 
-	mismatchBody := []byte(`{"name":"李四","student_no":"2026001","class_name":"2班","course":"course-a","assignment_id":"task-1"}`)
-	mismatchRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", mismatchBody)
-	if mismatchRR.Code != http.StatusForbidden {
-		t.Fatalf("expected mismatch resume 403, got %d body=%s", mismatchRR.Code, mismatchRR.Body.String())
+	wrongKeyBody := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"wrong","course":"course-a","assignment_id":"task-1"}`)
+	wrongKeyRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", wrongKeyBody)
+	if wrongKeyRR.Code != http.StatusForbidden {
+		t.Fatalf("expected wrong key 403, got %d body=%s", wrongKeyRR.Code, wrongKeyRR.Body.String())
+	}
+
+	correctKeyBody := []byte(`{"name":"李四","student_no":"2026001","class_name":"2班","secret_key":"mykey","course":"course-a","assignment_id":"task-1"}`)
+	correctKeyRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", correctKeyBody)
+	if correctKeyRR.Code != http.StatusOK {
+		t.Fatalf("expected correct key resume 200, got %d body=%s", correctKeyRR.Code, correctKeyRR.Body.String())
 	}
 }
 
@@ -297,7 +309,7 @@ func TestHomeworkAdminAssignmentAndSubmissionRoutes(t *testing.T) {
 	s := newHomeworkTestServer(t)
 	h := s.Routes()
 
-	body := []byte(`{"name":"李四","student_no":"2026999","class_name":"2班","course":"course-a","assignment_id":"task-2"}`)
+	body := []byte(`{"name":"李四","student_no":"2026999","class_name":"2班","secret_key":"key999","course":"course-a","assignment_id":"task-2"}`)
 	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
 	if createRR.Code != http.StatusOK {
 		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
@@ -399,7 +411,7 @@ func TestHomeworkAdminAssignmentAndSubmissionRoutes(t *testing.T) {
 		t.Fatalf("unexpected archive names: %+v", gotNames)
 	}
 
-	secondBody := []byte(`{"name":"王五","student_no":"2026888","class_name":"2班","course":"course-a","assignment_id":"task-2"}`)
+	secondBody := []byte(`{"name":"王五","student_no":"2026888","class_name":"2班","secret_key":"key888","course":"course-a","assignment_id":"task-2"}`)
 	secondCreateRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", secondBody)
 	if secondCreateRR.Code != http.StatusOK {
 		t.Fatalf("expected second create 200, got %d body=%s", secondCreateRR.Code, secondCreateRR.Body.String())
@@ -491,19 +503,6 @@ func TestHomeworkAssignmentFilesStayOutOfMaterialsRoutes(t *testing.T) {
 	}
 }
 
-func TestHomeworkSubmitRouteServesPage(t *testing.T) {
-	s := newHomeworkTestServer(t)
-	h := s.Routes()
-	req := httptest.NewRequest(http.MethodGet, "/submit", nil)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if !bytes.Contains(rr.Body.Bytes(), []byte("作业提交")) {
-		t.Fatalf("expected homework submit page body, got %q", rr.Body.String())
-	}
-}
 
 func containsString(items []string, want string) bool {
 	for _, item := range items {

@@ -330,10 +330,10 @@ func (s *SQLiteStore) Close() error {
 
 func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *domain.HomeworkSubmission) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO homework_submissions(
-		id, session_token, course, assignment_id, name, student_no, class_name,
+		id, session_token, course, assignment_id, name, student_no, class_name, secret_key,
 		report_original_name, report_uploaded_at, code_original_name, code_uploaded_at,
 		created_at, updated_at
-	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		submission.ID,
 		submission.SessionToken,
 		submission.Course,
@@ -341,6 +341,7 @@ func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *
 		submission.Name,
 		submission.StudentNo,
 		submission.ClassName,
+		submission.SecretKey,
 		submission.ReportOriginalName,
 		formatTimePtr(submission.ReportUploadedAt),
 		submission.CodeOriginalName,
@@ -352,7 +353,7 @@ func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *
 }
 
 func (s *SQLiteStore) GetHomeworkSubmissionByID(ctx context.Context, submissionID string) (*domain.HomeworkSubmission, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE id = ?`, submissionID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE id = ?`, submissionID)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +365,7 @@ func (s *SQLiteStore) GetHomeworkSubmissionByID(ctx context.Context, submissionI
 }
 
 func (s *SQLiteStore) GetHomeworkSubmissionByToken(ctx context.Context, token string) (*domain.HomeworkSubmission, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE session_token = ?`, token)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE session_token = ?`, token)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +377,7 @@ func (s *SQLiteStore) GetHomeworkSubmissionByToken(ctx context.Context, token st
 }
 
 func (s *SQLiteStore) GetHomeworkSubmissionByScope(ctx context.Context, course, assignmentID, studentNo string) (*domain.HomeworkSubmission, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE course = ? AND assignment_id = ? AND student_no = ? LIMIT 1`, course, assignmentID, studentNo)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions WHERE course = ? AND assignment_id = ? AND student_no = ? LIMIT 1`, course, assignmentID, studentNo)
 	if err != nil {
 		return nil, err
 	}
@@ -387,9 +388,9 @@ func (s *SQLiteStore) GetHomeworkSubmissionByScope(ctx context.Context, course, 
 	return scanHomeworkSubmissionRows(rows)
 }
 
-func (s *SQLiteStore) UpdateHomeworkSubmissionSession(ctx context.Context, submissionID, token, name, className string) error {
+func (s *SQLiteStore) UpdateHomeworkSubmissionSession(ctx context.Context, submissionID, token, name, className, secretKey string) error {
 	now := time.Now().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET session_token = ?, name = ?, class_name = ?, updated_at = ? WHERE id = ?`, token, name, className, now, submissionID)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET session_token = ?, name = ?, class_name = ?, secret_key = ?, updated_at = ? WHERE id = ?`, token, name, className, secretKey, now, submissionID)
 	if err != nil {
 		return err
 	}
@@ -404,7 +405,7 @@ func (s *SQLiteStore) UpdateHomeworkSubmissionSession(ctx context.Context, submi
 }
 
 func (s *SQLiteStore) ListHomeworkSubmissions(ctx context.Context, course, assignmentID string) ([]domain.HomeworkSubmission, error) {
-	query := `SELECT id, session_token, course, assignment_id, name, student_no, class_name, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions`
+	query := `SELECT id, session_token, course, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, created_at, updated_at FROM homework_submissions`
 	args := make([]any, 0, 2)
 	filters := make([]string, 0, 2)
 	if strings.TrimSpace(course) != "" {
@@ -524,6 +525,7 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 		&item.Name,
 		&item.StudentNo,
 		&item.ClassName,
+		&item.SecretKey,
 		&item.ReportOriginalName,
 		&reportUploaded,
 		&item.CodeOriginalName,
@@ -560,7 +562,7 @@ func (s *SQLiteStore) ensureHomeworkSubmissionSchema(ctx context.Context) error 
 		columns[name] = true
 	}
 	if len(columns) > 0 {
-		required := []string{"id", "session_token", "course", "assignment_id", "name", "student_no", "class_name", "report_original_name", "report_uploaded_at", "code_original_name", "code_uploaded_at", "created_at", "updated_at"}
+		required := []string{"id", "session_token", "course", "assignment_id", "name", "student_no", "class_name", "secret_key", "report_original_name", "report_uploaded_at", "code_original_name", "code_uploaded_at", "created_at", "updated_at"}
 		legacy := columns["quiz_id"] || columns["task_id"] || columns["status"] || columns["finalized_at"]
 		missing := false
 		for _, name := range required {
@@ -584,6 +586,7 @@ func (s *SQLiteStore) ensureHomeworkSubmissionSchema(ctx context.Context) error 
 		name TEXT NOT NULL,
 		student_no TEXT NOT NULL,
 		class_name TEXT NOT NULL,
+		secret_key TEXT NOT NULL DEFAULT '',
 		report_original_name TEXT NOT NULL DEFAULT '',
 		report_uploaded_at TEXT,
 		code_original_name TEXT NOT NULL DEFAULT '',
