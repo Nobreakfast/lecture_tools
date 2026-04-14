@@ -59,10 +59,19 @@ func Validate(q *domain.Quiz) error {
 			if strings.TrimSpace(item.CorrectAnswer) != "" {
 				return fmt.Errorf("题目 %s 简答题不能配置 correct_answer", item.ID)
 			}
+			mode := strings.TrimSpace(item.ShortAnswerMode)
+			switch mode {
+			case "", "text", "image", "code":
+			default:
+				return fmt.Errorf("题目 %s short_answer_mode 无效: %s（仅支持 text/image/code）", item.ID, mode)
+			}
 			if tag := strings.TrimSpace(item.PoolTag); tag != "" {
 				return fmt.Errorf("题目 %s 简答题不能配置 pool_tag", item.ID)
 			}
 			continue
+		}
+		if strings.TrimSpace(item.ShortAnswerMode) != "" {
+			return fmt.Errorf("题目 %s 仅 short_answer 题型支持 short_answer_mode", item.ID)
 		}
 		if len(item.Options) < 2 {
 			return fmt.Errorf("题目 %s options 至少 2 个", item.ID)

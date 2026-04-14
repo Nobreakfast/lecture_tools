@@ -120,3 +120,58 @@ questions:
 		t.Fatalf("expected parse error for non-survey allow_multiple")
 	}
 }
+
+func TestParseShortAnswerMode(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_short_mode"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    short_answer_mode: "image"
+    stem: "上传图片"
+`)
+	q, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if q.Questions[0].ShortAnswerMode != "image" {
+		t.Fatalf("unexpected short_answer_mode: %s", q.Questions[0].ShortAnswerMode)
+	}
+}
+
+func TestParseShortAnswerModeInvalid(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_short_mode_invalid"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    short_answer_mode: "upload"
+    stem: "上传图片"
+`)
+	if _, err := Parse(raw); err == nil {
+		t.Fatalf("expected parse error for invalid short_answer_mode")
+	}
+}
+
+func TestParseShortAnswerModeOnlyForShortAnswer(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_short_mode_non_short"
+title: "t"
+questions:
+  - id: "c1"
+    type: "single_choice"
+    short_answer_mode: "text"
+    stem: "s"
+    options:
+      - key: "A"
+        text: "a"
+      - key: "B"
+        text: "b"
+    correct_answer: "A"
+`)
+	if _, err := Parse(raw); err == nil {
+		t.Fatalf("expected parse error for short_answer_mode on non-short_answer")
+	}
+}

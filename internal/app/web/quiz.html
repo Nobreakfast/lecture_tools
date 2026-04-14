@@ -377,17 +377,36 @@
         const image = q.image ? `<img class="qimage" src="/assets/${q.image}" />` : '';
         card.innerHTML = `<strong>${idx + 1}. ${escapeHTML(q.stem)}</strong>${image}`;
         if (q.type === 'short_answer') {
-          const stem = q.stem || '';
-          const isUploadOnly = /上传|截图/.test(stem) && !/粘贴|代码|输入/.test(stem);
-          const isTextOnly = /粘贴|代码/.test(stem) && !/上传|截图/.test(stem);
-          const showText = !isUploadOnly;
-          const showUpload = !isTextOnly;
+          const mode = String(q.short_answer_mode || '').trim();
+          let showText = true;
+          let showUpload = true;
+          let placeholder = '请输入你的回答...';
+
+          if (mode === 'text') {
+            showText = true;
+            showUpload = false;
+          } else if (mode === 'image') {
+            showText = false;
+            showUpload = true;
+          } else if (mode === 'code') {
+            showText = true;
+            showUpload = false;
+            placeholder = '请粘贴你的代码...';
+          } else {
+            // Backward compatibility: keep old quizzes working without short_answer_mode.
+            const stem = q.stem || '';
+            const isUploadOnly = /上传|截图/.test(stem) && !/粘贴|代码|输入/.test(stem);
+            const isTextOnly = /粘贴|代码/.test(stem) && !/上传|截图/.test(stem);
+            showText = !isUploadOnly;
+            showUpload = !isTextOnly;
+            if (isTextOnly) placeholder = '请粘贴你的代码...';
+          }
 
           if (showText) {
             const area = document.createElement('textarea');
             area.className = 'text-answer';
             area.dataset.qid = q.id;
-            area.placeholder = isTextOnly ? '请粘贴你的代码...' : '请输入你的回答...';
+            area.placeholder = placeholder;
             area.value = state.answers[q.id] || '';
             card.appendChild(area);
           }

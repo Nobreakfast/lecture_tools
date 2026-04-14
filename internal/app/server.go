@@ -359,6 +359,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 			"stem":    q.Stem,
 			"options": q.Options,
 		}
+		if q.Type == domain.QuestionShortAnswer && strings.TrimSpace(q.ShortAnswerMode) != "" {
+			sq["short_answer_mode"] = q.ShortAnswerMode
+		}
 		if q.AllowMultiple {
 			sq["allow_multiple"] = true
 		}

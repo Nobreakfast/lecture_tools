@@ -31,6 +31,7 @@ type Question struct {
 	Stem            string       `json:"stem" yaml:"stem"`
 	Options         []Option     `json:"options" yaml:"options"`
 	AllowMultiple   bool         `json:"allow_multiple,omitempty" yaml:"allow_multiple,omitempty"`
+	ShortAnswerMode string       `json:"short_answer_mode,omitempty" yaml:"short_answer_mode,omitempty"`
 	CorrectAnswer   string       `json:"correct_answer,omitempty" yaml:"correct_answer,omitempty"`
 	ReferenceAnswer string       `json:"reference_answer,omitempty" yaml:"reference_answer,omitempty"`
 	Explanation     string       `json:"explanation,omitempty" yaml:"explanation,omitempty"`

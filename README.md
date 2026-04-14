@@ -17,7 +17,8 @@
 - 同一学号自动复用进行中的答题会话，防止重复记录
 - YAML 题库加载，支持图片路径
 - 选择题实时保存，简答题提交时自动批量保存（无需手动保存）
-- 简答题支持上传图片（JPEG/PNG）
+- 简答题支持按 `short_answer_mode` 显式区分：`text`（纯文本）、`image`（仅图像上传）、`code`（代码文本）
+- 简答题图像上传支持 JPEG/PNG
 - 同一学生支持按提交次数记录“第几次尝试”
 - 结果页显示逐题反馈与 AI 学习建议（可缓存）
 - 全班总结：管理端可生成课程整体复盘（可选结合匹配 PDF 的文本上下文）
@@ -183,6 +184,7 @@ go run ./cmd/server
 - `multi_choice` 必须配置 `correct_answer`，格式为英文逗号分隔的选项 key（如 `A,C,D`）
 - 选项可配置 `image` 字段（可与文本同时存在，或仅图片）
 - 每题可配置 `explanation` 作为结果页解析；`short_answer` 可额外配置 `reference_answer`
+- `short_answer` 可选 `short_answer_mode`：`text`（仅文本）、`image`（仅图片上传）、`code`（仅代码文本）；不填时保持旧规则兼容
 - `survey` 与 `short_answer` 不需要 `correct_answer`，不参与判分和 AI 总结
 - 使用分组抽题时，题目可设置 `pool_tag` 归入题池；未设置 `pool_tag` 的题会固定出现
 - 有图片时使用 `image` 字段，服务会优先读取 `QUIZ_ASSETS_DIR`（默认 `./quiz/assets`），其次读取 `DATA_DIR/assets`
