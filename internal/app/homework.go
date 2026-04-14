@@ -127,20 +127,15 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	submission, sErr := s.requireHomeworkStudent(r)
-	if sErr != nil {
-		http.Error(w, "未登录", http.StatusUnauthorized)
-		return
-	}
-	_, _, fileName, fp, err := s.resolveHomeworkAssignmentFileRequest(r)
+	course, _, fileName, fp, err := s.resolveHomeworkAssignmentFileRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	reqCourse := r.URL.Query().Get("course")
 	reqAssignment := r.URL.Query().Get("assignment_id")
-	if reqCourse != submission.Course || reqAssignment != submission.AssignmentID {
-		http.Error(w, "无权访问该文件", http.StatusForbidden)
+	visibility := s.loadHomeworkAssignmentVisibility()
+	if homeworkAssignmentHidden(visibility, course, reqAssignment) {
+		http.Error(w, "该作业不可访问", http.StatusForbidden)
 		return
 	}
 	if _, err := os.Stat(fp); err != nil {
