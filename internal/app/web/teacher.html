@@ -120,7 +120,32 @@
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%) !important;
       color: #fff !important;
     }
+    .opt-image-teacher { max-width:100%; max-height:120px; object-fit:contain; border-radius:6px; margin-top:2px; }
   </style>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+      chtml: { scale: 1 }
+    };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) { reject(new Error('mathjax load failed')); return; }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = loadNext;
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
+  </script>
 </head>
 <body>
   <script src="/static/app.js"></script>
@@ -168,14 +193,16 @@
     <!-- Tab: 课程管理 -->
     <div class="tab-page active" id="tab-courses">
       <div class="card">
-        <p><strong>创建新课程</strong></p>
-        <input type="text" id="newCourseName" placeholder="课程名称（如：机器学习导论）" />
-        <input type="text" id="newCourseSlug" placeholder="URL标识（如：ml-intro，仅限英文、数字、连字符）" />
-        <button id="createCourseBtn">创建课程</button>
-      </div>
-      <div class="card">
         <p><strong>我的课程</strong></p>
         <div id="courseList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">加载中…</p></div>
+      </div>
+      <div class="card">
+        <p><strong>创建新课程</strong></p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="newCourseName" placeholder="课程名称（如：机器学习导论）" style="flex:1;min-width:140px;" />
+          <input type="text" id="newCourseSlug" placeholder="URL标识（如：ml-intro）" style="flex:1;min-width:140px;" />
+        </div>
+        <button id="createCourseBtn" style="margin-top:8px;">创建课程</button>
       </div>
     </div>
 
@@ -1606,7 +1633,9 @@
               if (sel) style += 'font-weight:600;';
               if (!isSurvey && isCorrect) style += 'color:var(--success);';
               if (!isSurvey && sel && !isCorrect) style += 'color:var(--danger);';
-              html += '<div style="' + style + '">' + (sel ? '● ' : '○ ') + escapeHTML(op.key) + '. ' + escapeHTML(op.text || '') + '</div>';
+              const opImg = op.image ? '<img class="opt-image-teacher" src="/assets/' + encodeURIComponent(op.image) + '" />' : '';
+              const opLabel = op.image && !op.text ? '' : escapeHTML(op.text || '');
+              html += '<div style="' + style + '">' + (sel ? '● ' : '○ ') + escapeHTML(op.key) + '. ' + opLabel + opImg + '</div>';
             });
             if (!isSurvey) {
               html += '<div style="font-size:12px;margin-top:4px;color:var(--text-secondary);">学生选择：<strong>' + escapeHTML(optionText(q, q.answer)) + '</strong>　正确答案：<strong style="color:var(--success);">' + escapeHTML(optionText(q, q.correct)) + '</strong></div>';
@@ -1625,6 +1654,10 @@
           html += '</div>';
         });
         content.innerHTML = html;
+        if (window.MathJax && window.MathJax.typesetPromise) {
+          if (window.MathJax.typesetClear) window.MathJax.typesetClear([content]);
+          window.MathJax.typesetPromise([content]).catch(() => {});
+        }
       } catch (e) {
         content.innerHTML = '<p style="color:var(--danger);">网络异常：' + escapeHTML(String(e)) + '</p>';
       }

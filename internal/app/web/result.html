@@ -456,7 +456,9 @@
               if (sel && !isCorrect) { bg = 'var(--danger-bg)'; color = 'var(--danger)'; }
             }
             if (sel) prefix = '● ';
-            html += `<div style="padding:6px 10px;margin:3px 0;border-radius:8px;font-size:14px;background:${bg};color:${color};font-weight:${sel ? '600' : '400'};">${escapeHTML(prefix + op.key + '. ' + (op.text || ''))}</div>`;
+            const opImg = op.image ? `<img src="/assets/${escapeHTML(op.image)}" style="max-width:100%;max-height:120px;object-fit:contain;border-radius:6px;margin-top:2px;" />` : '';
+            const opLabel = op.image && !op.text ? '' : escapeHTML(op.text || '');
+            html += `<div style="padding:6px 10px;margin:3px 0;border-radius:8px;font-size:14px;background:${bg};color:${color};font-weight:${sel ? '600' : '400'};">${escapeHTML(prefix + op.key + '. ')}${opLabel}${opImg}</div>`;
           });
           if (!isSurvey) {
             html += `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
