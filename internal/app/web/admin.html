@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>系统管理 · 课程助手</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    /* admin.html only needs a few page-specific tweaks. */
+    .login-card { max-width: 400px; width: 100%; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .stat { padding: 16px; background: rgba(255,255,255,0.6); border-radius: var(--radius); text-align: center; }
+    .stat .num { font-size: 26px; font-weight: 700; color: var(--primary); }
+    .stat .lbl { font-size: 12px; color: var(--text-muted); }
+    .section-title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; }
+    .teacher-row td .row { gap: 8px; justify-content: flex-end; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background: rgba(79,70,229,0.12); color: var(--primary); }
+    .pill.muted { background: #e5e7eb; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <script src="/static/app.js"></script>
+
+  <!-- Login view ------------------------------------------------ -->
+  <div id="view-login" class="login-wrap">
+    <div class="app-shell" style="max-width: 420px; padding: 24px 16px;">
+      <div class="card login-card">
+        <h2 style="margin-bottom:6px">系统管理</h2>
+        <p class="muted small" style="margin-bottom:20px">仅限具有 admin 角色的教师登录</p>
+        <div class="form-group">
+          <label for="loginId">工号</label>
+          <input id="loginId" type="text" autocomplete="username" placeholder="例如 SC25132" />
+        </div>
+        <div class="form-group">
+          <label for="loginPwd">密码</label>
+          <input id="loginPwd" type="password" autocomplete="current-password" />
+        </div>
+        <button class="btn" id="loginBtn" style="width:100%;">登录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main view ------------------------------------------------- -->
+  <div id="view-main" class="app-shell hidden">
+    <div class="logout-row">
+      <div>
+        <h2 style="margin:0">系统管理</h2>
+        <div class="muted small" id="whoami"></div>
+      </div>
+      <button class="btn btn-secondary" id="logoutBtn">登出</button>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="overview">系统概览</button>
+      <button class="tab-btn" data-tab="teachers">教师管理</button>
+      <button class="tab-btn" data-tab="ai">AI 配置</button>
+    </div>
+
+    <!-- Tab: Overview --------------------------------------- -->
+    <div class="tab-page" data-tab="overview">
+      <div class="card">
+        <h3 class="section-title">实时统计</h3>
+        <div class="stats" id="statsBox">
+          <div class="stat"><div class="num" id="numTeachers">-</div><div class="lbl">教师账号</div></div>
+          <div class="stat"><div class="num" id="numCourses">-</div><div class="lbl">课程</div></div>
+          <div class="stat"><div class="num" id="numStudents">-</div><div class="lbl">累计学生</div></div>
+          <div class="stat"><div class="num" id="numAttempts">-</div><div class="lbl">答题记录</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">教师与课程</h3>
+        <div id="overviewTeacherList" class="empty">加载中…</div>
+      </div>
+    </div>
+
+    <!-- Tab: Teachers --------------------------------------- -->
+    <div class="tab-page hidden" data-tab="teachers">
+      <div class="card">
+        <h3 class="section-title">
+          添加教师
+          <span class="small muted">账号一经创建，教师可登录 /t 进入面板</span>
+        </h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label for="newTeacherId">工号</label>
+            <input id="newTeacherId" type="text" placeholder="例如 SC25132" />
+          </div>
+          <div class="form-group">
+            <label for="newTeacherName">姓名</label>
+            <input id="newTeacherName" type="text" placeholder="例如 张三" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="newTeacherPwd">初始密码</label>
+          <input id="newTeacherPwd" type="text" placeholder="可留空，默认 admin123" />
+        </div>
+        <div class="row-right">
+          <button class="btn" id="createTeacherBtn">创建教师</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">教师列表</h3>
+        <table class="table" id="teacherTable">
+          <thead>
+            <tr><th>工号</th><th>姓名</th><th>角色</th><th>创建时间</th><th style="text-align:right">操作</th></tr>
+          </thead>
+          <tbody id="teacherTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: AI --------------------------------------------- -->
+    <div class="tab-page hidden" data-tab="ai">
+      <div class="card">
+        <h3 class="section-title">AI 服务健康检查</h3>
+        <div class="row">
+          <button class="btn btn-secondary" id="aiHealthBtn">测试连接</button>
+          <span id="aiHealthResult" class="small muted">未测试</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">AI 配置</h3>
+        <div class="form-group">
+          <label>Endpoint</label>
+          <input id="aiEndpoint" type="text" placeholder="https://..." />
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input id="aiKey" type="password" placeholder="留空保持不变" />
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <input id="aiModel" type="text" placeholder="例如 gpt-4o" />
+        </div>
+        <div class="row-right">
+          <button class="btn btn-secondary" id="aiLoadBtn">重新加载</button>
+          <button class="btn" id="aiSaveBtn">保存</button>
+        </div>
+        <div class="small muted mt-8">
+          配置即时生效，无需重启；变更仅对后续 AI 调用生效。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    // ── Tab navigation ─────────────────────────────────────
+    $$('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+        const t = btn.dataset.tab;
+        $$('.tab-page').forEach(p => p.classList.toggle('hidden', p.dataset.tab !== t));
+        if (t === 'overview') loadOverview();
+        if (t === 'teachers') loadTeachers();
+        if (t === 'ai') loadAIConfig();
+      });
+    });
+
+    // ── Auth ───────────────────────────────────────────────
+    async function checkSession() {
+      try {
+        const me = await App.fetchJSON('/api/auth/me');
+        if (me && me.role === 'admin') {
+          enterMain(me);
+          return;
+        }
+      } catch (_) { /* fall through to login */ }
+      $('#view-login').classList.remove('hidden');
+    }
+
+    $('#loginBtn').addEventListener('click', async () => {
+      const id = $('#loginId').value.trim();
+      const pwd = $('#loginPwd').value;
+      if (!id || !pwd) { App.toast('请输入工号和密码', 'warn'); return; }
+      try {
+        await App.fetchJSON('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, password: pwd }),
+        });
+        const me = await App.fetchJSON('/api/auth/me');
+        if (me && me.role === 'admin') {
+          enterMain(me);
+        } else {
+          App.toast('此账号非管理员', 'error');
+        }
+      } catch (e) {
+        App.toast('登录失败：' + (e.message || '密码错误'), 'error');
+      }
+    });
+
+    $('#logoutBtn').addEventListener('click', async () => {
+      try { await App.fetchJSON('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+      location.reload();
+    });
+
+    function enterMain(me) {
+      $('#view-login').classList.add('hidden');
+      $('#view-main').classList.remove('hidden');
+      $('#whoami').textContent = (me.name || me.id) + ' · ' + (me.id || '');
+      loadOverview();
+    }
+
+    // ── Overview ───────────────────────────────────────────
+    async function loadOverview() {
+      try {
+        const r = await App.fetchJSON('/api/system/overview');
+        $('#numTeachers').textContent  = r.teacher_count ?? 0;
+        $('#numCourses').textContent   = r.course_count ?? 0;
+        $('#numStudents').textContent  = r.student_count ?? 0;
+        $('#numAttempts').textContent  = r.attempt_count ?? 0;
+        window.__overviewCourses = r.courses || [];
+        renderOverviewTeachers(r.teachers || []);
+      } catch (e) {
+        App.toast('加载概览失败', 'error');
+      }
+    }
+
+    function renderOverviewTeachers(list) {
+      const el = $('#overviewTeacherList');
+      if (!list.length) { el.className = 'empty'; el.textContent = '暂无教师'; return; }
+      el.className = '';
+      // Group courses by teacher_id using the flat list returned alongside.
+      const courseByTeacher = {};
+      (window.__overviewCourses || []).forEach(c => {
+        (courseByTeacher[c.teacher_id] ||= []).push(c);
+      });
+      el.innerHTML = list.map(t => {
+        const courses = (courseByTeacher[t.id] || []).map(c =>
+          '<span class="pill">' + App.escapeHTML(c.name || c.slug) + '</span>'
+        ).join(' ');
+        return '<div style="margin-bottom:12px;">'
+          + '<strong>' + App.escapeHTML(t.name) + '</strong> '
+          + '<span class="muted small">' + App.escapeHTML(t.id) + '</span> '
+          + (t.role === 'admin' ? '<span class="pill">管理员</span> ' : '')
+          + '<span class="muted small">· ' + (t.course_count || (courseByTeacher[t.id] || []).length || 0) + ' 门课程</span>'
+          + '<div class="mt-8">' + (courses || '<span class="muted small">无课程</span>') + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    // ── Teachers ───────────────────────────────────────────
+    async function loadTeachers() {
+      try {
+        const r = await App.fetchJSON('/api/system/teachers');
+        // Backend returns {items: [...]}; fall back to .teachers or the raw
+        // array for forward-compat.
+        const list = (r && (r.items || r.teachers)) || (Array.isArray(r) ? r : []);
+        const tbody = $('#teacherTbody');
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无教师</td></tr>'; return; }
+        tbody.innerHTML = list.map(t => {
+          const created = (t.created_at || '').slice(0, 10);
+          const roleTag = t.role === 'admin'
+            ? '<span class="pill">admin</span>'
+            : '<span class="pill muted">teacher</span>';
+          return '<tr class="teacher-row">'
+            + '<td>' + App.escapeHTML(t.id) + '</td>'
+            + '<td>' + App.escapeHTML(t.name) + '</td>'
+            + '<td>' + roleTag + '</td>'
+            + '<td class="small muted">' + App.escapeHTML(created) + '</td>'
+            + '<td><div class="row">'
+            +   '<button class="btn btn-ghost small" data-act="reset" data-id="' + App.escapeHTML(t.id) + '">重置密码</button>'
+            +   '<button class="btn btn-danger small" data-act="delete" data-id="' + App.escapeHTML(t.id) + '" data-name="' + App.escapeHTML(t.name) + '">删除</button>'
+            + '</div></td>'
+            + '</tr>';
+        }).join('');
+      } catch (e) {
+        App.toast('加载失败: ' + e.message, 'error');
+      }
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      if (btn.dataset.act === 'reset') {
+        const pwd = await App.promptModal('重置 ' + id + ' 的密码', '', { body: '留空则使用默认 admin123' });
+        if (pwd === null) return;
+        try {
+          await App.fetchJSON('/api/system/teachers/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, password: pwd || 'admin123' }),
+          });
+          App.toast('已重置密码', 'success');
+        } catch (err) { App.toast('失败: ' + err.message, 'error'); }
+      } else if (btn.dataset.act === 'delete') {
+        const name = btn.dataset.name || id;
+        const ok = await App.confirmModal('删除教师 ' + name + '？', '其名下课程也将被清理，此操作不可撤销。');
+        if (!ok) return;
+        try {
+          await App.fetchJSON('/api/system/teachers/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+          App.toast('已删除', 'success');
+          loadTeachers();
+          loadOverview();
+        } catch (err) { App.toast('失败: ' + err.message, 'error'); }
+      }
+    });
+
+    $('#createTeacherBtn').addEventListener('click', async () => {
+      const id = $('#newTeacherId').value.trim();
+      const name = $('#newTeacherName').value.trim();
+      const pwd = $('#newTeacherPwd').value;
+      if (!id || !name) { App.toast('请填写工号与姓名', 'warn'); return; }
+      try {
+        await App.fetchJSON('/api/system/teachers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, name, password: pwd }),
+        });
+        App.toast('已创建', 'success');
+        $('#newTeacherId').value = '';
+        $('#newTeacherName').value = '';
+        $('#newTeacherPwd').value = '';
+        loadTeachers();
+        loadOverview();
+      } catch (err) {
+        App.toast('创建失败: ' + err.message, 'error');
+      }
+    });
+
+    // ── AI ─────────────────────────────────────────────────
+    async function loadAIConfig() {
+      try {
+        const r = await App.fetchJSON('/api/system/ai-config');
+        $('#aiEndpoint').value = r.endpoint || '';
+        $('#aiModel').value = r.model || '';
+        $('#aiKey').placeholder = r.key_loaded ? '已配置（留空保持不变）' : '请填入 API Key';
+      } catch (e) {
+        App.toast('读取配置失败: ' + e.message, 'error');
+      }
+    }
+
+    $('#aiHealthBtn').addEventListener('click', async () => {
+      const el = $('#aiHealthResult');
+      el.textContent = '检测中…';
+      el.className = 'small muted';
+      el.style.color = '';
+      try {
+        // The backend Health() response contains endpoint/model/key_loaded/
+        // last_success_at/last_error. We treat "configured" as key present
+        // AND endpoint present.
+        const r = await App.fetchJSON('/api/system/ai-health');
+        const configured = r && r.key_loaded && r.endpoint;
+        if (!configured) {
+          el.textContent = '未配置：请先在下方填写 Endpoint + API Key + Model';
+          el.style.color = 'var(--danger)';
+          return;
+        }
+        if (r.last_error) {
+          el.textContent = '✗ 最近一次失败：' + r.last_error;
+          el.style.color = 'var(--danger)';
+        } else if (r.last_success_at) {
+          el.textContent = '✓ ' + (r.model || 'AI 服务正常') + '（最近成功：' + r.last_success_at.slice(0, 19).replace('T', ' ') + '）';
+          el.style.color = 'var(--success)';
+        } else {
+          el.textContent = '✓ 已配置 ' + (r.model || '') + '（尚未产生调用）';
+          el.style.color = 'var(--text-muted)';
+        }
+      } catch (e) {
+        el.textContent = '✗ ' + e.message;
+        el.style.color = 'var(--danger)';
+      }
+    });
+
+    $('#aiLoadBtn').addEventListener('click', loadAIConfig);
+
+    $('#aiSaveBtn').addEventListener('click', async () => {
+      const body = {
+        endpoint: $('#aiEndpoint').value.trim(),
+        model: $('#aiModel').value.trim(),
+      };
+      const k = $('#aiKey').value;
+      if (k) body.api_key = k;
+      try {
+        await App.fetchJSON('/api/system/ai-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        App.toast('已保存', 'success');
+        $('#aiKey').value = '';
+      } catch (e) {
+        App.toast('保存失败: ' + e.message, 'error');
+      }
+    });
+
+    // Boot
+    checkSession();
+  </script>
+</body>
+</html>

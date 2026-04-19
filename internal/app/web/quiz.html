@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>随堂测验</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script defer src="/static/app.js"></script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+      chtml: { scale: 1 }
+    };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) {
+          reject(new Error('mathjax load failed'));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => loadNext();
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
+  </script>
+  <style>
+    /* :root tokens come from /static/app.css. */
+    body {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 24px 16px 100px;
+    }
+    #title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 14px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+    }
+    .card strong {
+      display: inline;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .qimage {
+      width: min(100%, 340px);
+      border-radius: 8px;
+      margin-top: 10px;
+      border: 1px solid var(--border);
+    }
+    .opt-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .opt {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 11px 14px;
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .opt:hover {
+      border-color: var(--primary);
+      background: #ffffff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.05);
+    }
+    .opt:active {
+      transform: scale(.98);
+    }
+    .opt.active {
+      border-color: var(--primary);
+      background: #eff6ff;
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    }
+    .opt strong {
+      display: inline-block;
+      background: var(--primary);
+      color: #fff;
+      width: 22px;
+      height: 22px;
+      line-height: 22px;
+      text-align: center;
+      border-radius: 50%;
+      font-size: 12px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .opt-image {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      margin-top: 8px;
+    }
+    .hint {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .text-answer {
+      width: 100%;
+      margin-top: 10px;
+      min-height: 90px;
+      padding: 11px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--bg);
+      resize: vertical;
+      transition: border-color .2s, outline .2s;
+    }
+    .text-answer:focus {
+      border-color: var(--primary);
+      outline: 2px solid var(--primary);
+      outline-offset: -1px;
+    }
+    .bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      z-index: 100;
+    }
+    .bottom-bar-inner {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    #submit {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+      transition: all 0.2s ease;
+    }
+    #submit:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
+    }
+    #submit:active { transform: scale(.98); }
+    .upload-area {
+      margin-top: 10px;
+    }
+    .upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .upload-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .upload-btn.uploading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .thumb-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .thumb-item {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .thumb-del {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0,0,0,.55);
+      color: #fff;
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
+      cursor: pointer;
+      z-index: 2;
+      user-select: none;
+    }
+    .thumb-del:hover {
+      background: rgba(220,38,38,.8);
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      cursor: pointer;
+    }
+    .lightbox.show {
+      display: flex;
+    }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h2 id="title" style="margin:0;">加载中...</h2>
+    <button class="btn btn-ghost small" id="exitBtn" style="margin-top:0;">返回课程主页</button>
+  </div>
+  <script>
+    // Let students leave the quiz page without signing out. Their
+    // in-progress attempt is preserved and can be resumed from the landing.
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.getElementById('exitBtn');
+      if (b) b.onclick = function () { location.href = '/'; };
+    });
+  </script>
+  <div id="questions"></div>
+  <div class="bottom-bar"><div class="bottom-bar-inner"><button id="submit">提交并查看结果</button></div></div>
+  <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
+    <img id="lightboxImg" src="" />
+  </div>
+  <script>
+    let state = null;
+    function orderLabel(index) {
+      const labels = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+      return labels[index] || String(index + 1);
+    }
+    function escapeHTML(s) {
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+    async function waitMathJax(timeoutMs = 8000) {
+      const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+      if (window.__mathJaxReady) {
+        await Promise.race([window.__mathJaxReady.catch(() => null), timeout]);
+      }
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
+      }
+    }
+    function openLightbox(src) {
+      document.getElementById('lightboxImg').src = src;
+      document.getElementById('lightbox').classList.add('show');
+    }
+
+    async function compressImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxSize = 1200;
+            let w = img.width, h = img.height;
+            if (w > maxSize || h > maxSize) {
+              if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+              else { w = Math.round(w * maxSize / h); h = maxSize; }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            canvas.toBlob((blob) => {
+              if (!blob) { reject(new Error('压缩失败')); return; }
+              resolve(new File([blob], 'upload.jpg', { type: 'image/jpeg' }));
+            }, 'image/jpeg', 0.7);
+          };
+          img.onerror = () => reject(new Error('图片加载失败'));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('读取失败'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadImage(qid, file) {
+      const compressed = await compressImage(file);
+      const fd = new FormData();
+      fd.append('question_id', qid);
+      fd.append('image', compressed);
+      const r = await fetch('/api/answer-image', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd
+      });
+      if (!r.ok) {
+        alert('上传失败：' + await r.text());
+        return null;
+      }
+      return await r.json();
+    }
+
+    async function deleteImage(qid, url, container) {
+      const r = await fetch('/api/answer-image/delete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: qid, url })
+      });
+      if (!r.ok) { alert('删除失败：' + await r.text()); return; }
+      const res = await r.json();
+      if (!state.answer_images) state.answer_images = {};
+      state.answer_images[qid] = res.images || [];
+      renderThumbs(container, qid);
+    }
+
+    function renderThumbs(container, qid) {
+      container.innerHTML = '';
+      const images = (state.answer_images || {})[qid] || [];
+      images.forEach(url => {
+        const item = document.createElement('div');
+        item.className = 'thumb-item';
+        item.onclick = (e) => { if (!e.target.classList.contains('thumb-del')) openLightbox(url); };
+        const del = document.createElement('span');
+        del.className = 'thumb-del';
+        del.textContent = '×';
+        del.title = '删除';
+        del.onclick = (e) => { e.stopPropagation(); deleteImage(qid, url, container); };
+        item.innerHTML = `<img src="${url}" />`;
+        item.appendChild(del);
+        container.appendChild(item);
+      });
+    }
+
+    async function load() {
+      const r = await fetch('/api/me', { credentials: 'include' });
+      if (!r.ok) {
+        const msg = (await r.text()).trim() || r.statusText;
+        if (r.status === 401) {
+          alert('请先从课程页面「开始答题」进入（' + msg + '）');
+          location.href = '/';
+        } else {
+          alert('无法加载答题页：' + msg + '\n请返回课程页刷新后重试。');
+          location.href = '/';
+        }
+        return;
+      }
+      state = await r.json();
+      if (!state.answer_images) state.answer_images = {};
+      document.getElementById('title').textContent = state.quiz.title;
+      await render();
+      if (state.attempt.status === 'submitted') location.href = '/result';
+    }
+    async function render() {
+      const root = document.getElementById('questions');
+      root.innerHTML = '';
+      state.quiz.questions.forEach((q, idx) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const image = q.image ? `<img class="qimage" src="/assets/${q.image}" />` : '';
+        card.innerHTML = `<strong>${idx + 1}. ${escapeHTML(q.stem)}</strong>${image}`;
+        if (q.type === 'short_answer') {
+          const mode = String(q.short_answer_mode || '').trim();
+          let showText = true;
+          let showUpload = true;
+          let placeholder = '请输入你的回答...';
+
+          if (mode === 'text') {
+            showText = true;
+            showUpload = false;
+          } else if (mode === 'image') {
+            showText = false;
+            showUpload = true;
+          } else if (mode === 'code') {
+            showText = true;
+            showUpload = false;
+            placeholder = '请粘贴你的代码...';
+          } else {
+            // Backward compatibility: keep old quizzes working without short_answer_mode.
+            const stem = q.stem || '';
+            const isUploadOnly = /上传|截图/.test(stem) && !/粘贴|代码|输入/.test(stem);
+            const isTextOnly = /粘贴|代码/.test(stem) && !/上传|截图/.test(stem);
+            showText = !isUploadOnly;
+            showUpload = !isTextOnly;
+            if (isTextOnly) placeholder = '请粘贴你的代码...';
+          }
+
+          if (showText) {
+            const area = document.createElement('textarea');
+            area.className = 'text-answer';
+            area.dataset.qid = q.id;
+            area.placeholder = placeholder;
+            area.value = state.answers[q.id] || '';
+            card.appendChild(area);
+          }
+
+          if (showUpload) {
+            const uploadArea = document.createElement('div');
+            uploadArea.className = 'upload-area';
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'upload-btn';
+            btn.innerHTML = '📷 上传图片';
+            btn.onclick = () => input.click();
+            input.onchange = async () => {
+              if (!input.files || !input.files[0]) return;
+              btn.classList.add('uploading');
+              btn.innerHTML = '⏳ 上传中...';
+              try {
+                const res = await uploadImage(q.id, input.files[0]);
+                if (res && res.images) {
+                  if (!state.answer_images) state.answer_images = {};
+                  state.answer_images[q.id] = res.images;
+                  renderThumbs(thumbRow, q.id);
+                }
+              } catch (e) {
+                alert('上传失败');
+              }
+              btn.classList.remove('uploading');
+              btn.innerHTML = '📷 上传图片';
+              input.value = '';
+            };
+            uploadArea.appendChild(input);
+            uploadArea.appendChild(btn);
+            card.appendChild(uploadArea);
+
+            const thumbRow = document.createElement('div');
+            thumbRow.className = 'thumb-row';
+            card.appendChild(thumbRow);
+            renderThumbs(thumbRow, q.id);
+          }
+        } else if (q.type === 'multi_choice' || (q.type === 'survey' && q.allow_multiple)) {
+          const selected = new Set(String(state.answers[q.id] || '').split(',').map(s => s.trim()).filter(Boolean));
+          const box = document.createElement('div');
+          const hasImageOption = (q.options || []).some(op => !!op.image);
+          box.className = hasImageOption ? 'opt-grid' : '';
+          q.options.forEach((op, opIndex) => {
+            const b = document.createElement('button');
+            b.className = 'opt' + (selected.has(op.key) ? ' active' : '');
+            const text = op.image ? '' : (op.text ? escapeHTML(op.text) : `选项 ${escapeHTML(op.key)}`);
+            const opImage = op.image ? `<img class="opt-image" src="/assets/${escapeHTML(op.image)}" />` : '';
+            b.innerHTML = `<strong>${orderLabel(opIndex)}</strong> ${text}${opImage}`;
+            b.onclick = () => {
+              if (selected.has(op.key)) {
+                selected.delete(op.key);
+              } else {
+                selected.add(op.key);
+              }
+              const answer = Array.from(selected).sort().join(',');
+              save(q.id, answer);
+            };
+            box.appendChild(b);
+          });
+          card.appendChild(box);
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.textContent = q.type === 'survey' ? '本题为多选问卷，再次点击可取消。' : '本题可多选，再次点击可取消。';
+          card.appendChild(hint);
+        } else {
+          q.options.forEach((op, opIndex) => {
+            const b = document.createElement('button');
+            b.className = 'opt' + ((state.answers[q.id] === op.key) ? ' active' : '');
+            const text = op.image ? '' : (op.text ? escapeHTML(op.text) : `选项 ${escapeHTML(op.key)}`);
+            const opImage = op.image ? `<img class="opt-image" src="/assets/${escapeHTML(op.image)}" />` : '';
+            b.innerHTML = `<strong>${orderLabel(opIndex)}</strong> ${text}${opImage}`;
+            b.onclick = () => save(q.id, op.key);
+            card.appendChild(b);
+          });
+        }
+        root.appendChild(card);
+      });
+      await waitMathJax();
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        await window.MathJax.typesetPromise([root]);
+      }
+    }
+    function syncTextAreas() {
+      document.querySelectorAll('textarea.text-answer[data-qid]').forEach(area => {
+        state.answers[area.dataset.qid] = area.value;
+      });
+    }
+    async function save(qid, ans) {
+      syncTextAreas();
+      const r = await fetch('/api/answer', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ question_id: qid, answer: ans })
+      });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      state.answers[qid] = ans;
+      await render();
+    }
+    document.getElementById('submit').onclick = async () => {
+      const areas = document.querySelectorAll('textarea.text-answer[data-qid]');
+      for (const area of areas) {
+        const qid = area.dataset.qid;
+        const val = area.value.trim();
+        if (val) {
+          const sr = await fetch('/api/answer', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({ question_id: qid, answer: val })
+          });
+          if (!sr.ok) {
+            alert('保存简答失败：' + await sr.text());
+            return;
+          }
+          state.answers[qid] = val;
+        }
+      }
+      const r = await fetch('/api/submit', { method:'POST', credentials:'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        return;
+      }
+      location.href = '/result';
+    };
+    load();
+  </script>
+</body>
+</html>

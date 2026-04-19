@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>测验结果</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script defer src="/static/app.js"></script>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+      chtml: { scale: 1 }
+    };
+    window.__mathJaxReady = new Promise((resolve, reject) => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+        'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+      ];
+      let idx = 0;
+      const loadNext = () => {
+        if (idx >= sources.length) {
+          reject(new Error('mathjax load failed'));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = sources[idx++];
+        s.defer = true;
+        s.onload = () => resolve();
+        s.onerror = () => loadNext();
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    /* :root tokens come from /static/app.css. */
+    body {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 32px 16px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+      transition: all 0.2s ease;
+    }
+    .btn:hover { 
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3);
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-outline {
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      box-shadow: none;
+    }
+    .btn-outline:hover {
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+    }
+    .btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    #title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      letter-spacing: -.02em;
+    }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+    }
+    .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+    .card p { margin-top: 6px; font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
+    .card p strong { color: var(--text); }
+    .card p, .card strong { overflow-wrap: anywhere; word-break: break-word; }
+    mjx-container[jax="CHTML"] { white-space: normal !important; }
+    .qimage {
+      width: min(100%, 340px);
+      border-radius: 8px;
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      transition: transform .2s;
+    }
+    .qimage:hover { transform: scale(1.02); }
+    .ok {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--success);
+      background: var(--success-bg);
+    }
+    .bad {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--danger);
+      background: var(--danger-bg);
+    }
+    .ai-summary h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .ai-summary h3 .ai-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      font-size: 14px;
+    }
+    .ai-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--border);
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .ai-section {
+      margin-bottom: 16px;
+    }
+    .ai-section-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 8px;
+    }
+    .ai-section-title .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .ai-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .ai-tag {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .ai-tag-good {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .ai-tag-weak {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+    .ai-actions {
+      list-style: none;
+      padding: 0;
+    }
+    .ai-actions li {
+      position: relative;
+      padding: 12px 14px 12px 36px;
+      margin-bottom: 8px;
+      background: var(--bg);
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text);
+    }
+    .ai-actions li::before {
+      content: attr(data-idx);
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ai-priority {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .ai-priority-high { background: var(--danger-bg); color: var(--danger); }
+    .ai-priority-mid { background: #fffbeb; color: #d97706; }
+    .ai-priority-low { background: var(--success-bg); color: var(--success); }
+    .ai-encouragement {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+      border-left: 3px solid var(--primary);
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.7;
+    }
+    .ai-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0;
+    }
+    .btn-outline:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      background: transparent;
+      color: var(--text-secondary);
+      border-color: var(--border);
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    pre.code-block {
+      background: #f6f8fa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    pre.code-block code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .thumb-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .thumb-item {
+      width: 100px;
+      height: 100px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform .2s;
+    }
+    .thumb-item:hover { transform: scale(1.05); }
+    .thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      cursor: pointer;
+    }
+    .lightbox.show { display: flex; }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="btn" id="pdfBtn"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>导出为 PDF</button>
+    <button class="btn" id="imgBtn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>导出为图片</button>
+    <button class="btn btn-outline" id="retryBtn"><svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重新尝试</button>
+    <button class="btn btn-outline" id="homeBtn"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>返回课程页</button>
+    <button class="btn btn-outline" id="aiBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>AI 学习总结</button>
+  </div>
+  <div id="captureRoot">
+    <h2 id="title">结果加载中...</h2>
+    <div id="summary" class="card" style="display:none;"></div>
+    <div id="list"></div>
+  </div>
+  <div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
+    <img id="lightboxImg" src="" />
+  </div>
+  <script>
+    let resultData = null;
+    function escapeHTML(s) {
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+    function optionText(q, key) {
+      if (!key) return '未作答';
+      if (q.is_multi) {
+        const parts = String(key).split(',').map(s => s.trim()).filter(Boolean);
+        if (!parts.length) return '未作答';
+        return parts.map(k => {
+          const found = (q.options || []).find(op => op.key === k);
+          if (!found) return k;
+          if (!found.text) return found.key;
+          return `${found.key}. ${found.text}`;
+        }).join('；');
+      }
+      const found = (q.options || []).find(op => op.key === key);
+      if (!found) return key;
+      if (!found.text) return found.key;
+      return `${found.key}. ${found.text}`;
+    }
+    async function waitMathJax(timeoutMs = 8000) {
+      const timeout = new Promise(resolve => setTimeout(resolve, timeoutMs));
+      if (window.__mathJaxReady) {
+        await Promise.race([window.__mathJaxReady.catch(() => null), timeout]);
+      }
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        await Promise.race([window.MathJax.startup.promise.catch(() => null), timeout]);
+      }
+    }
+    async function typesetResult() {
+      const root = document.getElementById('captureRoot');
+      await waitMathJax();
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        if (window.MathJax.typesetClear) {
+          window.MathJax.typesetClear([root]);
+        }
+        await window.MathJax.typesetPromise([root]);
+      }
+    }
+    function openLightbox(src) {
+      document.getElementById('lightboxImg').src = src;
+      document.getElementById('lightbox').classList.add('show');
+    }
+
+    function looksLikePython(text) {
+      if (!text) return false;
+      return /(^|\n)\s*(def |class |import |from .+ import|for .+ in |while |if __name__|print\(|return |elif |except |try:|with )/.test(text);
+    }
+
+    function renderAnswerContent(text, isReference) {
+      if (!text) return isReference ? '' : '<span style="color:var(--text-secondary)">未作答</span>';
+      if (looksLikePython(text)) {
+        return `<pre class="code-block"><code class="language-python">${escapeHTML(text)}</code></pre>`;
+      }
+      return escapeHTML(text);
+    }
+
+    function renderImageThumbs(images) {
+      if (!images || !images.length) return '';
+      return '<div class="thumb-row">' + images.map((url, i) =>
+        `<div class="thumb-item" data-lb-idx="${i}"><img src="${escapeHTML(url)}" /></div>`
+      ).join('') + '</div>';
+    }
+
+    async function load() {
+      const r = await fetch('/api/result', { credentials:'include' });
+      if (!r.ok) {
+        alert(await r.text());
+        location.href = '/quiz';
+        return;
+      }
+      const data = await r.json();
+      resultData = data;
+      document.getElementById('title').textContent = `${data.quiz_title}（${data.score.correct}/${data.score.total}）`;
+      // Summary will be loaded on-demand via AI button
+      const root = document.getElementById('list');
+      root.innerHTML = '';
+      data.questions.forEach((q, idx) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const isSurvey = q.is_survey;
+        const mark = isSurvey ? '' : (q.is_correct
+          ? '<span class="ok" style="margin-left:8px;">✓ 正确</span>'
+          : '<span class="bad" style="margin-left:8px;">✗ 错误</span>');
+        let html = `<div style="font-weight:700;font-size:15px;margin-bottom:8px;">第${idx+1}题${mark}</div>`;
+        html += `<div style="margin-bottom:10px;line-height:1.7;">${escapeHTML(q.stem)}</div>`;
+        if (q.image) html += `<div style="margin-bottom:10px;"><img class="qimage" src="/assets/${escapeHTML(q.image)}" /></div>`;
+
+        const opts = q.options || [];
+        if (opts.length) {
+          const selectedKeys = q.answer ? q.answer.split(',').map(s => s.trim()) : [];
+          const correctKeys  = q.correct  ? q.correct.split(',').map(s => s.trim())  : [];
+          opts.forEach(op => {
+            const sel = selectedKeys.includes(op.key);
+            const isCorrect = correctKeys.includes(op.key);
+            let bg = 'transparent';
+            let color = 'var(--text)';
+            let prefix = '○ ';
+            if (!isSurvey) {
+              if (isCorrect) { bg = 'var(--success-bg)'; color = 'var(--success)'; }
+              if (sel && !isCorrect) { bg = 'var(--danger-bg)'; color = 'var(--danger)'; }
+            }
+            if (sel) prefix = '● ';
+            html += `<div style="padding:6px 10px;margin:3px 0;border-radius:8px;font-size:14px;background:${bg};color:${color};font-weight:${sel ? '600' : '400'};">${escapeHTML(prefix + op.key + '. ' + (op.text || ''))}</div>`;
+          });
+          if (!isSurvey) {
+            html += `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
+              你的选择：<strong>${escapeHTML(optionText(q, q.answer))}</strong>
+              　正确答案：<strong style="color:var(--success);">${escapeHTML(optionText(q, q.correct))}</strong>
+            </div>`;
+          }
+        }
+
+        if (q.type === 'short_answer') {
+          const answerContent = renderAnswerContent(q.answer, false);
+          const imgThumbs = renderImageThumbs(q.answer_images);
+          const refContent = q.reference ? `<p><strong>参考答案：</strong>${renderAnswerContent(q.reference, true)}</p>` : '';
+          html += `<p style="margin-top:6px;"><strong>你的回答：</strong>${answerContent}</p>${imgThumbs}${refContent}`;
+          html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">该题为开放题，不判对错。</p>`;
+        }
+        if (isSurvey && q.type !== 'short_answer') {
+          html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">该题为沟通题，不判对错。</p>`;
+        }
+        if (q.explanation) html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:6px;border-top:1px solid var(--border);padding-top:6px;"><strong>解析：</strong>${escapeHTML(q.explanation)}</p>`;
+
+        card.innerHTML = html;
+        root.appendChild(card);
+      });
+      await typesetResult();
+      if (window.hljs) {
+        document.querySelectorAll('pre.code-block code').forEach(el => hljs.highlightElement(el));
+      }
+      root.addEventListener('click', (e) => {
+        const item = e.target.closest('.thumb-item');
+        if (!item) return;
+        const img = item.querySelector('img');
+        if (img) openLightbox(img.src);
+      });
+    }
+    function downloadBlob(blob, fileName) {
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+    async function renderReportCanvas() {
+      await typesetResult();
+      const root = document.getElementById('captureRoot');
+      if (!window.html2canvas) throw new Error('html2canvas not loaded');
+      const canvas = await window.html2canvas(root, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true
+      });
+      return canvas;
+    }
+    function toUint8(dataURL) {
+      const b64 = dataURL.split(',')[1];
+      const raw = atob(b64);
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+    function buildPDFWithJPEG(jpegBytes, imgW, imgH) {
+      const encoder = new TextEncoder();
+      const parts = [];
+      const offsets = [0];
+      let pos = 0;
+      const pushText = (s) => {
+        const d = encoder.encode(s);
+        parts.push(d);
+        pos += d.length;
+      };
+      const pushBytes = (b) => {
+        parts.push(b);
+        pos += b.length;
+      };
+      const pageW = 595.28;
+      const pageH = 841.89;
+      let drawW = pageW - 40;
+      let drawH = drawW * imgH / imgW;
+      if (drawH > pageH - 40) {
+        drawH = pageH - 40;
+        drawW = drawH * imgW / imgH;
+      }
+      const x = (pageW - drawW) / 2;
+      const y = (pageH - drawH) / 2;
+      const content = `q\n${drawW.toFixed(2)} 0 0 ${drawH.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/Im0 Do\nQ\n`;
+
+      pushText('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+      offsets.push(pos); pushText('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+      offsets.push(pos); pushText('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+      offsets.push(pos); pushText(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources 6 0 R /Contents 5 0 R >>\nendobj\n`);
+      offsets.push(pos); pushText(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgW} /Height ${imgH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`); pushBytes(jpegBytes); pushText('\nendstream\nendobj\n');
+      const contentBytes = encoder.encode(content);
+      offsets.push(pos); pushText(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n${content}endstream\nendobj\n`);
+      offsets.push(pos); pushText('6 0 obj\n<< /XObject << /Im0 4 0 R >> >>\nendobj\n');
+      const xrefPos = pos;
+      pushText('xref\n0 7\n');
+      pushText('0000000000 65535 f \n');
+      for (let i = 1; i <= 6; i++) pushText(String(offsets[i]).padStart(10, '0') + ' 00000 n \n');
+      pushText(`trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+      return new Blob(parts, { type: 'application/pdf' });
+    }
+    async function exportImage() {
+      if (!resultData) return;
+      try {
+        const canvas = await renderReportCanvas();
+        canvas.toBlob((png) => {
+          if (!png) {
+            alert('图片导出失败，请重试');
+            return;
+          }
+          const fname = [resultData.course, resultData.quiz_id, resultData.student.student_no].filter(Boolean).join('_');
+          downloadBlob(png, `${fname}.png`);
+        }, 'image/png');
+      } catch (e) {
+        alert('图片导出失败，请刷新页面后重试');
+      }
+    }
+    async function exportPDF() {
+      if (!resultData) return;
+      try {
+        const canvas = await renderReportCanvas();
+        const jpeg = toUint8(canvas.toDataURL('image/jpeg', 0.92));
+        const pdf = buildPDFWithJPEG(jpeg, canvas.width, canvas.height);
+        const fname = [resultData.course, resultData.quiz_id, resultData.student.student_no].filter(Boolean).join('_');
+        downloadBlob(pdf, `${fname}.pdf`);
+      } catch (e) {
+        alert('PDF导出失败，请刷新页面后重试');
+      }
+    }
+    let exported = false;
+    const origExportImage = exportImage;
+    const origExportPDF = exportPDF;
+    exportImage = async function() { await origExportImage(); exported = true; };
+    exportPDF = async function() { await origExportPDF(); exported = true; };
+    document.getElementById('imgBtn').onclick = exportImage;
+    document.getElementById('pdfBtn').onclick = exportPDF;
+
+    document.getElementById('retryBtn').onclick = async function() {
+      if (exported) {
+        alert('你已导出了结果，无法重新尝试。请刷新页面重新进入。');
+        return;
+      }
+      if (!confirm('确认重新尝试？之前的答案将保留在记录中，你将开始一次全新的答题。')) return;
+      const btn = this;
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/retry', { method: 'POST', credentials: 'include' });
+        if (!r.ok) {
+          alert(await r.text());
+          btn.disabled = false;
+          return;
+        }
+        location.href = '/quiz';
+      } catch (e) {
+        alert('请求失败，请重试');
+        btn.disabled = false;
+      }
+    };
+
+    document.getElementById('homeBtn').onclick = async function() {
+      // Clear the student_token cookie (HttpOnly, must be done server-side)
+      await fetch('/api/student-signout', { method: 'POST', credentials: 'include' }).catch(() => {});
+      // Return to the unified student SPA; `/` is the canonical entry.
+      location.href = '/';
+    };
+
+    document.getElementById('aiBtn').onclick = async function() {
+      const btn = this;
+      const summaryEl = document.getElementById('summary');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>分析中...';
+      try {
+        const r = await fetch('/api/ai-summary', { method: 'POST', credentials: 'include' });
+        if (!r.ok) {
+          alert(await r.text());
+          btn.disabled = false;
+          btn.textContent = 'AI 学习总结';
+          return;
+        }
+        const data = await r.json();
+        const s = data.summary || {};
+        const badge = data.ai_error ? '<span class="ai-badge">基础分析</span>' : (data.cached ? '<span class="ai-badge">缓存</span>' : '');
+        const strengths = (s.strengths||[]).map(t => `<span class="ai-tag ai-tag-good">✓ ${escapeHTML(t)}</span>`).join('') || '<span class="ai-tag" style="background:var(--bg);color:var(--text-secondary);">暂无</span>';
+        const weaknesses = (s.weaknesses||[]).map(t => `<span class="ai-tag ai-tag-weak">✗ ${escapeHTML(t)}</span>`).join('') || '<span class="ai-tag" style="background:var(--bg);color:var(--text-secondary);">暂无</span>';
+        const actions = (s.next_actions||[]).map((a, i) => `<li data-idx="${i+1}">${escapeHTML(a)}</li>`).join('') || '<li data-idx="–">暂无建议</li>';
+        const pl = s.priority_level || s.priority || '中';
+        const plClass = pl === '高' ? 'ai-priority-high' : (pl === '低' ? 'ai-priority-low' : 'ai-priority-mid');
+        const encouragement = s.encouragement ? `<div class="ai-encouragement">💬 ${escapeHTML(s.encouragement)}</div>` : '';
+        summaryEl.style.display = '';
+        summaryEl.className = 'card ai-summary';
+        summaryEl.innerHTML = `
+          <h3><span class="ai-icon">✦</span>AI 学习总结 ${badge}</h3>
+          <div class="ai-section">
+            <div class="ai-section-title"><span class="dot" style="background:var(--success);"></span>掌握较好</div>
+            <div class="ai-tags">${strengths}</div>
+          </div>
+          <div class="ai-section">
+            <div class="ai-section-title"><span class="dot" style="background:var(--danger);"></span>建议巩固</div>
+            <div class="ai-tags">${weaknesses}</div>
+          </div>
+          <div class="ai-divider"></div>
+          <div class="ai-section">
+            <div class="ai-section-title" style="margin-bottom:10px;">📋 行动建议 <span class="ai-priority ${plClass}">优先级：${escapeHTML(pl)}</span></div>
+            <ul class="ai-actions">${actions}</ul>
+          </div>
+          ${encouragement}
+        `;
+        btn.textContent = '✓ 已生成';
+        await typesetResult();
+        if (window.hljs) {
+          document.querySelectorAll('pre.code-block code').forEach(el => hljs.highlightElement(el));
+        }
+      } catch (e) {
+        alert('请求失败，请重试');
+        btn.disabled = false;
+        btn.textContent = 'AI 学习总结';
+      }
+    };
+
+    load();
+  </script>
+</body>
+</html>

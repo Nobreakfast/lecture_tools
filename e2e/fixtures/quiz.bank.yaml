@@ -1,0 +1,15 @@
+quiz_id: "bank_test"
+title: "题库测试小测"
+questions:
+  - id: "bq1"
+    type: "single_choice"
+    stem: "1 + 1 = ?"
+    options:
+      - key: "A"
+        text: "1"
+      - key: "B"
+        text: "2"
+      - key: "C"
+        text: "3"
+    correct_answer: "B"
+    knowledge_tag: "数学"

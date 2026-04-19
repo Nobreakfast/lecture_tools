@@ -1,0 +1,1 @@
+This is a sample material file for E2E testing.
