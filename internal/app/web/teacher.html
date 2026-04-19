@@ -197,12 +197,13 @@
         <div id="courseList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">加载中…</p></div>
       </div>
       <div class="card">
-        <p><strong>创建新课程</strong></p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input type="text" id="newCourseName" placeholder="课程名称（如：机器学习导论）" style="flex:1;min-width:140px;" />
-          <input type="text" id="newCourseSlug" placeholder="URL标识（如：ml-intro）" style="flex:1;min-width:140px;" />
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <label for="newCourseName" style="font-size:14px;font-weight:600;white-space:nowrap;">课程名称</label>
+          <input type="text" id="newCourseName" placeholder="如：机器学习导论" style="flex:1;min-width:120px;" />
+          <label for="newCourseSlug" style="font-size:14px;font-weight:600;white-space:nowrap;">英文简称</label>
+          <input type="text" id="newCourseSlug" placeholder="如：ml-intro" style="flex:1;min-width:100px;" />
+          <button id="createCourseBtn">创建课程</button>
         </div>
-        <button id="createCourseBtn" style="margin-top:8px;">创建课程</button>
       </div>
     </div>
 
@@ -264,6 +265,10 @@
 
       <!-- Sub-tab: 小测题库 -->
       <div class="sub-tab-page" id="sub-quiz">
+        <div class="card" style="display:flex;gap:8px;align-items:center;padding:16px 24px;">
+          <button class="btn" style="font-size:13px;padding:8px 18px;" onclick="openQuizEditor()">+ 新建题库</button>
+          <span style="font-size:13px;color:var(--text-secondary);">可视化创建题目，支持 AI 生成</span>
+        </div>
         <div class="card">
           <p><strong>上传题库</strong></p>
           <p style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">上传 YAML 文件（自动以文件名作为题库 ID）</p>
@@ -424,6 +429,26 @@
       <div style="display:flex;gap:12px;">
         <button id="confirmCancelBtn" style="flex:1;background:#e2e8f0;color:#1e293b;">取消</button>
         <button id="confirmOkBtn" style="flex:1;" class="btn-danger">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建题库弹窗 -->
+  <div id="newQuizModal" class="modal">
+    <div class="modal-box" style="width:min(440px,100%);">
+      <h3 style="margin-bottom:16px;">新建题库</h3>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px;">题库 ID（英文，如 week7_l1）</label>
+        <input type="text" id="newQuizIdInput" placeholder="week7_l1" style="width:100%;"/>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px;">标题</label>
+        <input type="text" id="newQuizTitleInput" placeholder="第七周课堂反馈" style="width:100%;"/>
+      </div>
+      <div id="newQuizError" style="color:var(--danger);font-size:13px;margin-bottom:12px;min-height:18px;"></div>
+      <div style="display:flex;gap:12px;">
+        <button style="flex:1;background:#e2e8f0;color:#1e293b;" onclick="closeNewQuizModal()">取消</button>
+        <button style="flex:1;" class="btn" id="newQuizCreateBtn" onclick="createAndOpenQuiz()">创建并进入编辑</button>
       </div>
     </div>
   </div>
@@ -608,7 +633,10 @@
         btn.onclick = () => selectCoursePill(String(c.id));
         container.appendChild(btn);
       }
-      if (!selectedCourseId && coursesCache.length === 1) {
+      if (window.__restoreCourseId) {
+        selectCoursePill(String(window.__restoreCourseId));
+        delete window.__restoreCourseId;
+      } else if (!selectedCourseId && coursesCache.length === 1) {
         selectCoursePill(String(coursesCache[0].id));
       }
     }
@@ -932,6 +960,8 @@
             </div>
             <span style="white-space:nowrap;">
               ${bank.has_yaml ? `<button class="small" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="loadQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">加载</button>` : '<span class="badge badge-warning" style="font-size:11px;">无YAML</span>'}
+              <button class="small" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="openQuizEditor(decodeURIComponent('${jsArg(bank.quiz_id)}'))">编辑</button>
+              <button class="small btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="renameQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">重命名</button>
               <button class="small btn-danger" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="deleteQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">删除</button>
             </span>
           </div>`;
@@ -962,6 +992,66 @@
       if (!r.ok) { alert(await r.text()); return; }
       showToast('题库已删除');
       loadQuizBankList();
+    }
+
+    async function renameQuizBank(quizId) {
+      const newId = prompt('输入新的题库 ID（仅限字母、数字、下划线、横线）', quizId);
+      if (!newId || newId === quizId) return;
+      if (!/^[a-zA-Z0-9_\-]+$/.test(newId)) { alert('题库 ID 只能包含字母、数字、下划线和横线'); return; }
+      try {
+        const r = await fetch('/api/teacher/courses/quiz-bank/rename?course_id=' + selectedCourseId, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ old_quiz_id: quizId, new_quiz_id: newId })
+        });
+        if (!r.ok) { alert(await r.text()); return; }
+        showToast('重命名成功');
+        loadQuizBankList();
+      } catch(e) { alert('重命名失败: ' + e.message); }
+    }
+
+    function openQuizEditor(quizId) {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      if (quizId) {
+        location.href = '/quiz-editor?course_id=' + selectedCourseId + '&quiz_id=' + encodeURIComponent(quizId);
+        return;
+      }
+      document.getElementById('newQuizIdInput').value = '';
+      document.getElementById('newQuizTitleInput').value = '';
+      document.getElementById('newQuizError').textContent = '';
+      document.getElementById('newQuizModal').classList.add('show');
+    }
+
+    function closeNewQuizModal() {
+      document.getElementById('newQuizModal').classList.remove('show');
+    }
+
+    async function createAndOpenQuiz() {
+      const qid = document.getElementById('newQuizIdInput').value.trim();
+      const title = document.getElementById('newQuizTitleInput').value.trim();
+      const errEl = document.getElementById('newQuizError');
+      if (!qid) { errEl.textContent = '请输入题库 ID'; return; }
+      if (!/^[a-zA-Z0-9_\-]+$/.test(qid)) { errEl.textContent = '题库 ID 只能包含字母、数字、下划线和横线'; return; }
+      errEl.textContent = '';
+
+      const initYAML = 'quiz_id: ' + qid + '\ntitle: ' + JSON.stringify(title || '') + '\nquestions:\n  - id: q1\n    type: single_choice\n    stem: "（请编辑题干）"\n    options:\n      - key: A\n        text: "选项A"\n      - key: B\n        text: "选项B"\n      - key: C\n        text: "选项C"\n      - key: D\n        text: "选项D"\n    correct_answer: A\n';
+      const btn = document.getElementById('newQuizCreateBtn');
+      btn.disabled = true;
+      btn.textContent = '创建中…';
+      try {
+        await fetch('/api/teacher/courses/quiz-bank/save?course_id=' + selectedCourseId, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quiz_id: qid, yaml: initYAML, filename: qid + '.yaml' }),
+        }).then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); });
+        closeNewQuizModal();
+        location.href = '/quiz-editor?course_id=' + selectedCourseId + '&quiz_id=' + encodeURIComponent(qid) + (title ? '&title=' + encodeURIComponent(title) : '');
+      } catch(e) {
+        errEl.textContent = '创建失败: ' + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '创建并进入编辑';
+      }
     }
 
     async function loadCourseState() {
@@ -1701,6 +1791,8 @@
     document.getElementById('changePwdBtn').onclick = doChangePassword;
     document.getElementById('changePwdModal').onclick = (evt) => { if (evt.target.id === 'changePwdModal') closeChangePasswordModal(); };
     document.getElementById('detailModal').onclick = (evt) => { if (evt.target.id === 'detailModal') closeDetail(); };
+    document.getElementById('newQuizModal').onclick = (evt) => { if (evt.target.id === 'newQuizModal') closeNewQuizModal(); };
+    document.getElementById('newQuizTitleInput').onkeydown = (e) => { if (e.key === 'Enter') createAndOpenQuiz(); };
     document.getElementById('uploadYamlBtn').onclick = uploadYamlFiles;
     document.getElementById('uploadQuizBankBtn').onclick = uploadQuizBankPkg;
     document.getElementById('openEntryBtn').onclick = () => toggleEntry(true);
@@ -1742,6 +1834,28 @@
 
     /* ── init ── */
     checkSession();
+
+    // Restore tab/subtab/course from URL hash (e.g. #tab=tab-upload&subtab=sub-quiz&course=3)
+    (function restoreFromHash() {
+      const hash = location.hash.replace(/^#/, '');
+      if (!hash) return;
+      const hp = new URLSearchParams(hash);
+      const tab = hp.get('tab');
+      const subtab = hp.get('subtab');
+      const course = hp.get('course');
+      if (tab) {
+        const tabBtn = document.querySelector(`.tab-bar > .tab-btn[data-tab="${tab}"]`);
+        if (tabBtn) tabBtn.click();
+      }
+      if (subtab) {
+        const subBtn = document.querySelector(`.sub-tab-btn[data-subtab="${subtab}"]`);
+        if (subBtn) subBtn.click();
+      }
+      if (course) {
+        window.__restoreCourseId = course;
+      }
+      location.hash = '';
+    })();
   </script>
 </body>
 </html>

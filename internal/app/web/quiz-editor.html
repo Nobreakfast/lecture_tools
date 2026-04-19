@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<!-- Copyright 2024-2026 course-assistant contributors. SPDX-License-Identifier: MIT -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>题库编辑器</title>
+<link rel="stylesheet" href="/static/app.css"/>
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['\\(', '\\)'], ['$', '$']] },
+  chtml: { scale: 1 }
+};
+window.__mathJaxReady = new Promise((resolve, reject) => {
+  const sources = [
+    'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js',
+    'https://unpkg.com/mathjax@3/es5/tex-chtml.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.js'
+  ];
+  let idx = 0;
+  const loadNext = () => {
+    if (idx >= sources.length) { reject(new Error('mathjax load failed')); return; }
+    const s = document.createElement('script');
+    s.src = sources[idx++];
+    s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = () => loadNext();
+    document.head.appendChild(s);
+  };
+  loadNext();
+});
+</script>
+<style>
+.editor-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px 16px 120px;
+}
+.editor-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.editor-header .back-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+.editor-header .back-link:hover { color: var(--primary); }
+.editor-meta {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.editor-meta .form-group { margin-bottom: 0; flex: 1; min-width: 160px; }
+.editor-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.editor-toolbar .view-toggle {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.editor-toolbar .view-toggle button {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s, color 0.12s;
+}
+.editor-toolbar .view-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
+}
+.question-stats {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+/* Question cards */
+.q-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 16px;
+  position: relative;
+  transition: box-shadow 0.15s;
+}
+.q-card.dragging { opacity: 0.5; }
+.q-card.drag-over { box-shadow: 0 0 0 2px var(--primary), var(--shadow); }
+.q-card-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.q-num {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--primary);
+  min-width: 36px;
+  cursor: grab;
+  user-select: none;
+}
+.q-num:active { cursor: grabbing; }
+.q-card-header select {
+  width: auto;
+  min-width: 130px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.q-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.q-card-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+.q-card-actions button:hover { background: rgba(0,0,0,0.04); }
+.q-card-actions .btn-del:hover { color: var(--danger); border-color: var(--danger); }
+.q-stem textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+}
+/* Options */
+.q-options { margin-top: 12px; }
+.q-option-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.q-option-key {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 24px;
+  text-align: center;
+  color: var(--primary);
+}
+.q-option-row input[type="text"] { flex: 1; padding: 7px 10px; font-size: 13px; }
+.q-option-row .opt-img-slot {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+.q-option-row .opt-img-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.q-option-row .opt-img-slot .img-del {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  background: rgba(220,38,38,0.85);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 0 0 4px 0;
+  cursor: pointer;
+  display: none;
+}
+.q-option-row .opt-img-slot:hover .img-del { display: block; }
+.q-option-row .opt-remove {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.q-option-row .opt-remove:hover { color: var(--danger); }
+.q-correct-row { margin-top: 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.q-correct-row label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.q-correct-row label:has(input:checked) { color: var(--success); font-weight: 600; }
+.q-correct-row span.label-text { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+/* Stem image */
+.q-stem-img {
+  margin-top: 8px;
+  position: relative;
+  display: inline-block;
+}
+.q-stem-img img {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.q-stem-img .img-del {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  background: rgba(220,38,38,0.85);
+  color: #fff;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 0 0 6px 0;
+  cursor: pointer;
+}
+/* Advanced fields */
+.q-advanced { margin-top: 10px; }
+.q-advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.q-advanced .adv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.q-advanced .adv-grid input,
+.q-advanced .adv-grid textarea {
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.q-advanced .adv-full { grid-column: 1 / -1; }
+.q-flags {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+.q-flags label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+/* Add question area */
+.add-q-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+}
+.add-q-bar button {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text);
+  transition: border-color 0.12s;
+}
+.add-q-bar button:hover { border-color: var(--primary); color: var(--primary); }
+/* YAML view */
+#yamlView { display: none; }
+#yamlEditor {
+  width: 100%;
+  min-height: 500px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  resize: vertical;
+  tab-size: 2;
+}
+#yamlError {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 6px;
+  min-height: 18px;
+}
+/* Preview view */
+#previewView { display: none; }
+.preview-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.preview-stem {
+  font-size: 15px;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.preview-stem img { max-width: 300px; border-radius: 6px; margin-top: 8px; display: block; }
+.preview-options { display: flex; flex-direction: column; gap: 8px; }
+.preview-opt-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+  transition: border-color 0.12s, background 0.12s;
+  font-family: inherit;
+  text-align: left;
+}
+.preview-opt-btn:hover { border-color: var(--primary); }
+.preview-opt-btn.selected { border-color: var(--primary); background: rgba(59,130,246,0.06); }
+.preview-opt-btn.correct { border-color: var(--success); background: rgba(34,197,94,0.08); }
+.preview-opt-btn.incorrect { border-color: var(--danger); background: rgba(239,68,68,0.06); }
+.preview-opt-btn .opt-key {
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 24px;
+  text-align: center;
+}
+.preview-opt-btn .opt-text { flex: 1; }
+.preview-opt-btn .opt-text img { max-width: 200px; border-radius: 4px; margin-top: 4px; }
+.preview-opt-btn .opt-icon { font-size: 16px; }
+.preview-feedback {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.preview-feedback.correct-fb { background: rgba(34,197,94,0.08); border: 1px solid var(--success); }
+.preview-feedback.incorrect-fb { background: rgba(239,68,68,0.06); border: 1px solid var(--danger); }
+.preview-explanation {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.preview-short-answer textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+/* Bottom bar */
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.bottom-bar .save-status {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+/* AI panel */
+.ai-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,0.4);
+  backdrop-filter: blur(4px);
+  z-index: 8000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadein 0.15s ease-out;
+}
+.ai-panel {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.18);
+  max-width: 600px;
+  width: calc(100vw - 32px);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: popin 0.18s ease-out;
+}
+.ai-panel-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ai-panel-header h3 { margin: 0; font-size: 16px; }
+.ai-panel-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+}
+.ai-panel-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.ai-panel-body textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+.ai-preview {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  max-height: 250px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+.ai-panel-footer {
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ai-mode-select {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+  margin-right: auto;
+}
+.ai-mode-select label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+@media (max-width: 720px) {
+  .editor-shell { padding: 12px 8px 120px; }
+  .q-card { padding: 14px; }
+  .q-advanced .adv-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<script src="/static/app.js"></script>
+
+<div class="editor-shell" id="editorRoot">
+  <div class="editor-header">
+    <a class="back-link" href="/teacher" id="backLink">&larr; 返回教师面板</a>
+    <span style="flex:1;"></span>
+    <span id="courseName" style="font-size:14px;color:var(--text-muted);"></span>
+  </div>
+
+  <div class="card editor-meta">
+    <div class="form-group">
+      <label>题库 ID</label>
+      <input type="text" id="quizIdInput" placeholder="如 week7_l1" readonly style="background:var(--surface);color:var(--text-muted);cursor:not-allowed;"/>
+    </div>
+    <div class="form-group">
+      <label>标题</label>
+      <input type="text" id="quizTitleInput" placeholder="如 第七周课堂反馈"/>
+    </div>
+  </div>
+
+  <div class="editor-toolbar">
+    <div class="view-toggle">
+      <button class="active" id="btnFormView" onclick="switchView('form')">表单视图</button>
+      <button id="btnYamlView" onclick="switchView('yaml')">YAML 视图</button>
+      <button id="btnPreviewView" onclick="switchView('preview')">预览</button>
+    </div>
+    <button class="btn" style="font-size:13px;padding:7px 14px;" onclick="openAIPanel()">AI 生成</button>
+    <button class="btn" style="font-size:13px;padding:7px 14px;display:none;" id="btnAIAutoFill" onclick="doAIAutoFill()">AI 补全</button>
+    <span class="question-stats" id="questionStats"></span>
+  </div>
+
+  <div id="formView">
+    <div id="questionList"></div>
+    <div class="add-q-bar">
+      <button onclick="addQuestion('single_choice')">+ 单选题</button>
+      <button onclick="addQuestion('multi_choice')">+ 多选题</button>
+      <button onclick="addQuestion('yes_no')">+ 判断题</button>
+      <button onclick="addQuestion('survey')">+ 问卷题</button>
+      <button onclick="addQuestion('short_answer')">+ 简答题</button>
+    </div>
+  </div>
+
+  <div id="yamlView">
+    <textarea id="yamlEditor" spellcheck="false"></textarea>
+    <div id="yamlError"></div>
+  </div>
+
+  <div id="previewView">
+    <div id="previewList"></div>
+  </div>
+</div>
+
+<div class="bottom-bar">
+  <span class="save-status" id="saveStatus"></span>
+  <button class="btn" style="font-size:13px;padding:8px 16px;" onclick="validateQuiz()">校验</button>
+  <button class="btn" style="font-size:13px;padding:8px 20px;" onclick="saveQuiz()">保存到题库</button>
+</div>
+
+<script>
+(function() {
+"use strict";
+
+const params = new URLSearchParams(location.search);
+const courseId = params.get('course_id');
+const editQuizId = params.get('quiz_id');
+
+window.questions = [];
+let currentView = 'form';
+let dragSrcIdx = null;
+let isNewQuiz = !editQuizId;
+let lastSavedYAML = '';
+let autoSaving = false;
+
+const questions = window.questions;
+function setQuestions(arr) {
+  questions.length = 0;
+  for (const q of arr) questions.push(q);
+}
+
+/* ── Init ────────────────────────────────────────────────── */
+async function init() {
+  if (!courseId) {
+    document.getElementById('editorRoot').innerHTML = '<div class="card"><p>缺少 course_id 参数。请从教师面板进入。</p></div>';
+    return;
+  }
+
+  // Set back link to preserve tab/subtab/course
+  document.getElementById('backLink').href = '/teacher#tab=tab-upload&subtab=sub-quiz&course=' + courseId;
+
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses?course_id=' + courseId);
+    const courses = data.courses || [];
+    const c = courses.find(x => String(x.id) === String(courseId));
+    if (c) document.getElementById('courseName').textContent = c.name;
+  } catch(_) {}
+
+  if (editQuizId) {
+    document.getElementById('quizIdInput').value = editQuizId;
+    const titleParam = params.get('title');
+    if (titleParam) document.getElementById('quizTitleInput').value = titleParam;
+    await loadExisting(editQuizId);
+  } else {
+    addQuestion('single_choice');
+  }
+  updateStats();
+  startAutoSave();
+}
+
+async function loadExisting(quizId) {
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/content?course_id=' + courseId + '&quiz_id=' + encodeURIComponent(quizId));
+    if (data.yaml) {
+      const parsed = parseYAML(data.yaml);
+      if (parsed) {
+        document.getElementById('quizIdInput').value = parsed.quiz_id || quizId;
+        document.getElementById('quizTitleInput').value = parsed.title || '';
+        setQuestions((parsed.questions || []).map(normalizeQuestion));
+        isNewQuiz = false;
+        lastSavedYAML = data.yaml;
+        renderQuestions();
+        return;
+      }
+    }
+  } catch(e) {
+    App.toast('加载题库失败: ' + e.message, 'error');
+  }
+  addQuestion('single_choice');
+}
+
+/* ── YAML parser/serializer ──────────────────────────────── */
+function parseYAML(text) {
+  try {
+    const lines = text.split('\n');
+    const quiz = { quiz_id: '', title: '', questions: [] };
+    let i = 0;
+    const trim = s => s.replace(/^\s+|\s+$/g, '');
+    const unquote = s => {
+      s = trim(s);
+      if (s.startsWith('"') && s.endsWith('"')) {
+        return s.slice(1, -1).replace(/\\([\\"n])/g, (_, c) => c === 'n' ? '\n' : c);
+      }
+      if (s.startsWith("'") && s.endsWith("'"))
+        return s.slice(1, -1);
+      return s;
+    };
+    const getIndent = line => {
+      const m = line.match(/^(\s*)/);
+      return m ? m[1].length : 0;
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.match(/^\s*#/) || trim(line) === '' || trim(line) === '---') { i++; continue; }
+      if (line.match(/^quiz_id\s*:/)) { quiz.quiz_id = unquote(line.split(':').slice(1).join(':')); i++; continue; }
+      if (line.match(/^title\s*:/)) { quiz.title = unquote(line.split(':').slice(1).join(':')); i++; continue; }
+      if (line.match(/^questions\s*:/)) { i++; break; }
+      i++;
+    }
+
+    let currentQ = null;
+    let inOptions = false;
+    let currentOpt = null;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = trim(line);
+      if (trimmed === '' || trimmed.startsWith('#')) { i++; continue; }
+      const indent = getIndent(line);
+
+      if (trimmed.startsWith('- id:') || (trimmed.startsWith('- ') && indent <= 4 && !inOptions)) {
+        if (currentOpt && currentQ) { currentQ.options.push(currentOpt); currentOpt = null; }
+        if (currentQ) quiz.questions.push(currentQ);
+        inOptions = false;
+        currentQ = { id: '', type: 'single_choice', stem: '', options: [], correct_answer: '', explanation: '', knowledge_tag: '', pool_tag: '', reference_answer: '', image: '', allow_multiple: false, fixed_position: false, shuffle_options: null };
+        const afterDash = trimmed.slice(2);
+        if (afterDash.match(/^id\s*:/)) currentQ.id = unquote(afterDash.split(':').slice(1).join(':'));
+        i++; continue;
+      }
+
+      if (currentQ && !inOptions) {
+        if (trimmed.match(/^type\s*:/)) { currentQ.type = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^id\s*:/)) { currentQ.id = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^stem\s*:/)) {
+          let val = unquote(trimmed.split(':').slice(1).join(':'));
+          if (val === '|' || val === '>') {
+            val = '';
+            i++;
+            const baseIndent = i < lines.length ? getIndent(lines[i]) : indent + 4;
+            while (i < lines.length && (trim(lines[i]) === '' || getIndent(lines[i]) >= baseIndent)) {
+              val += (val ? '\n' : '') + lines[i].slice(baseIndent);
+              i++;
+            }
+            currentQ.stem = val;
+            continue;
+          }
+          currentQ.stem = val;
+          i++; continue;
+        }
+        if (trimmed.match(/^correct_answer\s*:/)) { currentQ.correct_answer = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^explanation\s*:/)) { currentQ.explanation = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^knowledge_tag\s*:/)) { currentQ.knowledge_tag = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^pool_tag\s*:/)) { currentQ.pool_tag = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^reference_answer\s*:/)) { currentQ.reference_answer = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^image\s*:/)) { currentQ.image = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        if (trimmed.match(/^allow_multiple\s*:/)) { currentQ.allow_multiple = unquote(trimmed.split(':').slice(1).join(':')) === 'true'; i++; continue; }
+        if (trimmed.match(/^fixed_position\s*:/)) { currentQ.fixed_position = unquote(trimmed.split(':').slice(1).join(':')) === 'true'; i++; continue; }
+        if (trimmed.match(/^shuffle_options\s*:/)) {
+          const v = unquote(trimmed.split(':').slice(1).join(':'));
+          currentQ.shuffle_options = (v === 'true') ? true : (v === 'false') ? false : null;
+          i++; continue;
+        }
+        if (trimmed.match(/^options\s*:/)) { inOptions = true; i++; continue; }
+      }
+
+      if (currentQ && inOptions) {
+        if (trimmed.startsWith('- key:') || (trimmed.startsWith('- ') && trimmed.includes('key:'))) {
+          if (currentOpt) currentQ.options.push(currentOpt);
+          currentOpt = { key: '', text: '', image: '' };
+          const afterDash = trimmed.slice(2);
+          if (afterDash.match(/^key\s*:/)) currentOpt.key = unquote(afterDash.split(':').slice(1).join(':'));
+          i++; continue;
+        }
+        if (currentOpt) {
+          if (trimmed.match(/^key\s*:/)) { currentOpt.key = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+          if (trimmed.match(/^text\s*:/)) { currentOpt.text = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+          if (trimmed.match(/^image\s*:/)) { currentOpt.image = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
+        }
+        if (indent <= 4 && !trimmed.startsWith('-')) {
+          if (currentOpt) { currentQ.options.push(currentOpt); currentOpt = null; }
+          inOptions = false;
+          continue;
+        }
+      }
+      i++;
+    }
+    if (currentOpt && currentQ) currentQ.options.push(currentOpt);
+    if (currentQ) quiz.questions.push(currentQ);
+    return quiz;
+  } catch(e) {
+    console.error('YAML parse error', e);
+    return null;
+  }
+}
+
+function quoteYAML(s) {
+  if (s === '' || s == null) return '""';
+  if (/[:{}\[\],&*?|>!%#@`'"\n]/.test(s) || s.startsWith(' ') || s.endsWith(' ') || s === 'true' || s === 'false')
+    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
+  return s;
+}
+
+function serializeToYAML() {
+  const qid = document.getElementById('quizIdInput').value.trim() || 'untitled';
+  const title = document.getElementById('quizTitleInput').value.trim();
+  let out = 'quiz_id: ' + quoteYAML(qid) + '\n';
+  out += 'title: ' + quoteYAML(title) + '\n';
+  out += 'questions:\n';
+  for (const q of questions) {
+    out += '  - id: ' + quoteYAML(q.id) + '\n';
+    out += '    type: ' + quoteYAML(q.type) + '\n';
+    out += '    stem: ' + quoteYAML(q.stem) + '\n';
+    if (q.image) out += '    image: ' + quoteYAML(q.image) + '\n';
+    if (q.type !== 'short_answer' && q.options.length > 0) {
+      out += '    options:\n';
+      for (const opt of q.options) {
+        out += '      - key: ' + quoteYAML(opt.key) + '\n';
+        out += '        text: ' + quoteYAML(opt.text) + '\n';
+        if (opt.image) out += '        image: ' + quoteYAML(opt.image) + '\n';
+      }
+    }
+    if (q.allow_multiple) out += '    allow_multiple: true\n';
+    if (q.correct_answer && q.type !== 'survey' && q.type !== 'short_answer')
+      out += '    correct_answer: ' + quoteYAML(q.correct_answer) + '\n';
+    if (q.reference_answer && q.type === 'short_answer')
+      out += '    reference_answer: ' + quoteYAML(q.reference_answer) + '\n';
+    if (q.explanation) out += '    explanation: ' + quoteYAML(q.explanation) + '\n';
+    if (q.knowledge_tag) out += '    knowledge_tag: ' + quoteYAML(q.knowledge_tag) + '\n';
+    if (q.pool_tag) out += '    pool_tag: ' + quoteYAML(q.pool_tag) + '\n';
+    if (q.fixed_position) out += '    fixed_position: true\n';
+    if (q.shuffle_options === true) out += '    shuffle_options: true\n';
+    if (q.shuffle_options === false) out += '    shuffle_options: false\n';
+  }
+  return out;
+}
+
+const yamlTemplate = `# 题库模板 - 直接编辑即可
+# 更多字段说明请参考文档
+
+quiz_id: untitled
+title: ""
+questions:
+  # ── 单选题示例 ──
+  - id: q1
+    type: single_choice
+    stem: "以下哪个是正确的？"
+    options:
+      - key: A
+        text: "选项 A"
+      - key: B
+        text: "选项 B"
+      - key: C
+        text: "选项 C"
+      - key: D
+        text: "选项 D"
+    correct_answer: A
+    explanation: "解析：A 是正确答案，因为..."
+    knowledge_tag: "知识点名称"
+
+  # ── 多选题示例 ──
+  # - id: q2
+  #   type: multi_choice
+  #   stem: "以下哪些是正确的？（多选）"
+  #   options:
+  #     - key: A
+  #       text: "选项 A"
+  #     - key: B
+  #       text: "选项 B"
+  #     - key: C
+  #       text: "选项 C"
+  #   correct_answer: "A,B"
+  #   explanation: "A和B都是正确的"
+  #   knowledge_tag: "知识点"
+
+  # ── 判断题示例 ──
+  # - id: q3
+  #   type: yes_no
+  #   stem: "地球是圆的。"
+  #   options:
+  #     - key: "Y"
+  #       text: "是"
+  #     - key: "N"
+  #       text: "否"
+  #   correct_answer: "Y"
+  #   explanation: "地球近似为球体"
+  #   knowledge_tag: "地理常识"
+
+  # ── 简答题示例 ──
+  # - id: q4
+  #   type: short_answer
+  #   stem: "请简述你的理解。"
+  #   reference_answer: "参考答案内容"
+  #   fixed_position: true
+
+  # ── 可选字段说明 ──
+  # fixed_position: true      # 固定该题位置（不参与随机排序）
+  # shuffle_options: false     # 禁止打乱该题选项顺序（默认打乱）
+  # pool_tag: "pool_a"        # 题池标签（用于抽题）
+  # image: "filename.jpg"     # 题干图片文件名
+`;
+
+/* ── Question model ──────────────────────────────────────── */
+function normalizeQuestion(q) {
+  const so = q.shuffle_options;
+  return {
+    id: q.id || '',
+    type: q.type || 'single_choice',
+    stem: q.stem || '',
+    options: (q.options || []).map(o => ({ key: o.key || '', text: o.text || '', image: o.image || '' })),
+    correct_answer: q.correct_answer || '',
+    explanation: q.explanation || '',
+    knowledge_tag: q.knowledge_tag || '',
+    pool_tag: q.pool_tag || '',
+    reference_answer: q.reference_answer || '',
+    image: q.image || '',
+    allow_multiple: q.allow_multiple || false,
+    fixed_position: q.fixed_position || false,
+    shuffle_options: (so === true) ? true : (so === false) ? false : null,
+  };
+}
+
+const defaultKeys = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function makeDefaultOptions(type) {
+  if (type === 'short_answer') return [];
+  if (type === 'yes_no') return [{ key: 'Y', text: '是', image: '' }, { key: 'N', text: '否', image: '' }];
+  return [
+    { key: 'A', text: '', image: '' },
+    { key: 'B', text: '', image: '' },
+    { key: 'C', text: '', image: '' },
+    { key: 'D', text: '', image: '' },
+  ];
+}
+
+function nextQuestionId() {
+  let max = 0;
+  for (const q of questions) {
+    const m = q.id.match(/^q(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1]));
+  }
+  return 'q' + (max + 1);
+}
+
+function addQuestion(type) {
+  const so = (type === 'short_answer') ? null : true;
+  questions.push(normalizeQuestion({
+    id: nextQuestionId(),
+    type: type,
+    options: makeDefaultOptions(type),
+    shuffle_options: so,
+  }));
+  isNewQuiz = false;
+  renderQuestions();
+  updateStats();
+  const list = document.getElementById('questionList');
+  list.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeQuestion(idx) {
+  questions.splice(idx, 1);
+  renderQuestions();
+  updateStats();
+}
+
+function duplicateQuestion(idx) {
+  const copy = JSON.parse(JSON.stringify(questions[idx]));
+  copy.id = nextQuestionId();
+  questions.splice(idx + 1, 0, copy);
+  renderQuestions();
+  updateStats();
+}
+
+/* ── Rendering ───────────────────────────────────────────── */
+function renderQuestions() {
+  const root = document.getElementById('questionList');
+  root.innerHTML = '';
+  questions.forEach((q, idx) => {
+    root.appendChild(buildQuestionCard(q, idx));
+  });
+}
+
+function buildQuestionCard(q, idx) {
+  const card = document.createElement('div');
+  card.className = 'q-card';
+  card.dataset.idx = idx;
+  // Drop target events on the card
+  card.addEventListener('dragover', onDragOver);
+  card.addEventListener('drop', onDrop);
+  card.addEventListener('dragend', onDragEnd);
+  card.addEventListener('dragleave', onDragLeave);
+
+  const isChoice = q.type !== 'short_answer';
+  const showAnswer = q.type !== 'survey' && q.type !== 'short_answer';
+  const isMulti = q.type === 'multi_choice';
+  const isYesNo = q.type === 'yes_no';
+
+  const shuffleChecked = q.shuffle_options !== false;
+  const fixedChecked = q.fixed_position;
+
+  let html = `<div class="q-card-header">
+    <span class="q-num" draggable="true" title="拖拽排序">#${idx + 1}</span>
+    <select onchange="changeType(${idx}, this.value)">
+      <option value="single_choice" ${q.type==='single_choice'?'selected':''}>单选题</option>
+      <option value="multi_choice" ${q.type==='multi_choice'?'selected':''}>多选题</option>
+      <option value="yes_no" ${q.type==='yes_no'?'selected':''}>判断题</option>
+      <option value="survey" ${q.type==='survey'?'selected':''}>问卷题</option>
+      <option value="short_answer" ${q.type==='short_answer'?'selected':''}>简答题</option>
+    </select>
+    <input type="text" style="width:80px;padding:6px 8px;font-size:12px;" value="${App.escapeHTML(q.id)}" placeholder="ID" onchange="questions[${idx}].id=this.value;updateStats();" title="题目 ID"/>
+    <div class="q-card-actions">
+      <button onclick="duplicateQuestion(${idx})" title="复制">复制</button>
+      <button class="btn-del" onclick="removeQuestion(${idx})" title="删除">删除</button>
+    </div>
+  </div>`;
+
+  // Flags row
+  html += `<div class="q-flags">
+    <label title="固定该题在列表中的位置，不参与随机排序"><input type="checkbox" ${fixedChecked?'checked':''} onchange="questions[${idx}].fixed_position=this.checked;"/> 固定位置</label>
+    ${isChoice ? `<label title="是否打乱该题的选项顺序"><input type="checkbox" ${shuffleChecked?'checked':''} onchange="questions[${idx}].shuffle_options=this.checked?true:false;"/> 打乱选项</label>` : ''}
+  </div>`;
+
+  html += `<div class="q-stem">
+    <textarea placeholder="题干内容" oninput="questions[${idx}].stem=this.value;">${App.escapeHTML(q.stem)}</textarea>`;
+  if (q.image) {
+    html += `<div class="q-stem-img"><img src="/assets/${App.escapeHTML(q.image)}"/><div class="img-del" onclick="questions[${idx}].image='';renderQuestions();">×</div></div>`;
+  } else {
+    html += `<div style="margin-top:4px;"><label style="font-size:12px;color:var(--text-muted);cursor:pointer;">📷 题干图片 <input type="file" accept="image/*" style="display:none;" onchange="uploadStemImage(${idx},this)"/></label></div>`;
+  }
+  html += `</div>`;
+
+  if (isChoice) {
+    html += `<div class="q-options">`;
+    q.options.forEach((opt, oi) => {
+      html += `<div class="q-option-row">
+        <span class="q-option-key">${App.escapeHTML(opt.key)}</span>
+        <input type="text" value="${App.escapeHTML(opt.text)}" placeholder="选项内容" oninput="questions[${idx}].options[${oi}].text=this.value;" ${isYesNo?'readonly':''}/>
+        <div class="opt-img-slot" onclick="this.querySelector('input[type=file]')?.click();">
+          ${opt.image
+            ? `<img src="/assets/${App.escapeHTML(opt.image)}"/><div class="img-del" onclick="event.stopPropagation();questions[${idx}].options[${oi}].image='';renderQuestions();">×</div>`
+            : `📷<input type="file" accept="image/*" style="display:none;" onchange="uploadOptionImage(${idx},${oi},this)"/>`}
+        </div>
+        ${(!isYesNo && q.options.length > 2) ? `<button class="opt-remove" onclick="removeOption(${idx},${oi})" title="删除选项">×</button>` : ''}
+      </div>`;
+    });
+    if (!isYesNo) {
+      html += `<button style="font-size:12px;margin-top:4px;padding:4px 12px;background:none;border:1px dashed var(--border);border-radius:6px;cursor:pointer;color:var(--text-muted);font-family:inherit;" onclick="addOption(${idx})">+ 添加选项</button>`;
+    }
+    html += `</div>`;
+  }
+
+  if (showAnswer) {
+    const correctKeys = q.correct_answer ? q.correct_answer.split(',').map(s => s.trim()) : [];
+    html += `<div class="q-correct-row"><span class="label-text">正确答案：</span>`;
+    q.options.forEach(opt => {
+      const checked = correctKeys.includes(opt.key) ? 'checked' : '';
+      if (isMulti) {
+        html += `<label><input type="checkbox" ${checked} onchange="updateCorrectMulti(${idx})"/> ${App.escapeHTML(opt.key)}</label>`;
+      } else {
+        html += `<label><input type="radio" name="correct_${idx}" value="${App.escapeHTML(opt.key)}" ${checked} onchange="questions[${idx}].correct_answer=this.value;renderQuestions();"/> ${App.escapeHTML(opt.key)}</label>`;
+      }
+    });
+    html += `</div>`;
+  }
+
+  html += `<details class="q-advanced"><summary>高级选项</summary><div class="adv-grid">
+    <div><label style="font-size:12px;color:var(--text-muted);">解析</label><textarea rows="2" oninput="questions[${idx}].explanation=this.value;">${App.escapeHTML(q.explanation)}</textarea></div>
+    <div><label style="font-size:12px;color:var(--text-muted);">知识点标签</label><input type="text" value="${App.escapeHTML(q.knowledge_tag)}" oninput="questions[${idx}].knowledge_tag=this.value;"/></div>
+    <div><label style="font-size:12px;color:var(--text-muted);">题池标签</label><input type="text" value="${App.escapeHTML(q.pool_tag)}" oninput="questions[${idx}].pool_tag=this.value;"/></div>`;
+  if (q.type === 'short_answer') {
+    html += `<div class="adv-full"><label style="font-size:12px;color:var(--text-muted);">参考答案</label><textarea rows="2" oninput="questions[${idx}].reference_answer=this.value;">${App.escapeHTML(q.reference_answer)}</textarea></div>`;
+  }
+  html += `</div></details>`;
+
+  card.innerHTML = html;
+
+  // Attach drag start to the handle only
+  const handle = card.querySelector('.q-num');
+  if (handle) {
+    handle.addEventListener('dragstart', (e) => {
+      dragSrcIdx = idx;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    handle.addEventListener('dragend', (e) => {
+      card.classList.remove('dragging');
+      dragSrcIdx = null;
+    });
+  }
+
+  return card;
+}
+
+/* ── Options management ──────────────────────────────────── */
+function addOption(idx) {
+  const q = questions[idx];
+  const usedKeys = new Set(q.options.map(o => o.key));
+  let newKey = '';
+  for (const c of defaultKeys) {
+    if (!usedKeys.has(c)) { newKey = c; break; }
+  }
+  if (!newKey) newKey = String.fromCharCode(65 + q.options.length);
+  q.options.push({ key: newKey, text: '', image: '' });
+  renderQuestions();
+}
+
+function removeOption(idx, oi) {
+  questions[idx].options.splice(oi, 1);
+  renderQuestions();
+}
+
+function changeType(idx, newType) {
+  const q = questions[idx];
+  const oldType = q.type;
+  q.type = newType;
+  if (newType === 'short_answer') {
+    q.options = [];
+    q.correct_answer = '';
+    q.shuffle_options = null;
+  } else if (newType === 'yes_no') {
+    q.options = [{ key: 'Y', text: '是', image: '' }, { key: 'N', text: '否', image: '' }];
+    q.correct_answer = '';
+    if (q.shuffle_options === null) q.shuffle_options = true;
+  } else if (oldType === 'short_answer' || oldType === 'yes_no') {
+    q.options = makeDefaultOptions(newType);
+    q.correct_answer = '';
+    if (q.shuffle_options === null) q.shuffle_options = true;
+  }
+  if (newType === 'survey') q.correct_answer = '';
+  renderQuestions();
+  updateStats();
+}
+
+function updateCorrectMulti(idx) {
+  const card = document.querySelectorAll('.q-card')[idx];
+  if (!card) return;
+  const checkboxes = card.querySelectorAll('.q-correct-row input[type="checkbox"]');
+  const keys = [];
+  const q = questions[idx];
+  checkboxes.forEach((cb, i) => {
+    if (cb.checked && q.options[i]) keys.push(q.options[i].key);
+  });
+  q.correct_answer = keys.join(',');
+}
+
+/* ── Drag and drop (handle-only) ─────────────────────────── */
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const card = e.currentTarget.closest ? e.currentTarget : e.currentTarget;
+  card.classList.add('drag-over');
+}
+function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function onDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const target = parseInt(e.currentTarget.dataset.idx);
+  if (dragSrcIdx != null && dragSrcIdx !== target) {
+    const [moved] = questions.splice(dragSrcIdx, 1);
+    questions.splice(target, 0, moved);
+    renderQuestions();
+  }
+}
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  dragSrcIdx = null;
+}
+
+/* ── View switching ──────────────────────────────────────── */
+function switchView(view) {
+  if (view === currentView) return;
+  if (view === 'yaml') {
+    syncFormToModel();
+    if (isNewQuiz && questions.length <= 1 && !questions[0]?.stem) {
+      document.getElementById('yamlEditor').value = yamlTemplate;
+    } else {
+      document.getElementById('yamlEditor').value = serializeToYAML();
+    }
+    document.getElementById('yamlError').textContent = '';
+  } else if (view === 'form' && currentView === 'yaml') {
+    const yamlText = document.getElementById('yamlEditor').value;
+    const parsed = parseYAML(yamlText);
+    if (!parsed) {
+      document.getElementById('yamlError').textContent = 'YAML 格式错误，无法切换到表单视图';
+      App.toast('YAML 格式错误', 'error');
+      return;
+    }
+    if (parsed.title) document.getElementById('quizTitleInput').value = parsed.title;
+    setQuestions((parsed.questions || []).map(normalizeQuestion));
+    isNewQuiz = false;
+    renderQuestions();
+    updateStats();
+  } else if (view === 'form' && currentView === 'preview') {
+    // returning from preview, model is unchanged
+  } else if (view === 'preview') {
+    if (currentView === 'yaml') {
+      const yamlText = document.getElementById('yamlEditor').value;
+      const parsed = parseYAML(yamlText);
+      if (!parsed) {
+        document.getElementById('yamlError').textContent = 'YAML 格式错误，无法预览';
+        App.toast('YAML 格式错误', 'error');
+        return;
+      }
+      if (parsed.title) document.getElementById('quizTitleInput').value = parsed.title;
+      setQuestions((parsed.questions || []).map(normalizeQuestion));
+      isNewQuiz = false;
+      updateStats();
+    } else {
+      syncFormToModel();
+    }
+    renderPreview();
+  }
+  currentView = view;
+  document.getElementById('formView').style.display = view === 'form' ? 'block' : 'none';
+  document.getElementById('yamlView').style.display = view === 'yaml' ? 'block' : 'none';
+  document.getElementById('previewView').style.display = view === 'preview' ? 'block' : 'none';
+  document.getElementById('btnFormView').classList.toggle('active', view === 'form');
+  document.getElementById('btnYamlView').classList.toggle('active', view === 'yaml');
+  document.getElementById('btnPreviewView').classList.toggle('active', view === 'preview');
+}
+
+function syncFormToModel() {
+  // model is already live-bound via oninput handlers
+}
+
+/* ── Preview ─────────────────────────────────────────────── */
+function renderPreview() {
+  const root = document.getElementById('previewList');
+  root.innerHTML = '';
+  Object.keys(previewSelections).forEach(k => delete previewSelections[k]);
+  Object.keys(previewSubmitted).forEach(k => delete previewSubmitted[k]);
+  questions.forEach((q, idx) => {
+    root.appendChild(buildPreviewCard(q, idx));
+  });
+  typesetMath(root);
+}
+
+function buildPreviewCard(q, idx) {
+  const card = document.createElement('div');
+  card.className = 'preview-card';
+  card.dataset.idx = idx;
+
+  const isChoice = q.type !== 'short_answer';
+  const isMulti = q.type === 'multi_choice';
+  const isSurvey = q.type === 'survey';
+
+  let stemHTML = `<div class="preview-stem"><strong>${idx + 1}.</strong> ${renderMathText(q.stem)}`;
+  if (q.image) stemHTML += `<img src="/assets/${App.escapeHTML(q.image)}" alt=""/>`;
+  stemHTML += '</div>';
+
+  let optionsHTML = '';
+  if (isChoice) {
+    optionsHTML = '<div class="preview-options">';
+    q.options.forEach((opt, oi) => {
+      const btnId = `prev-opt-${idx}-${oi}`;
+      optionsHTML += `<button class="preview-opt-btn" id="${btnId}" onclick="handlePreviewSelect(${idx},${oi})">
+        <span class="opt-key">${App.escapeHTML(opt.key)}</span>
+        <span class="opt-text">${renderMathText(opt.text)}${opt.image ? `<img src="/assets/${App.escapeHTML(opt.image)}" alt=""/>` : ''}</span>
+        <span class="opt-icon"></span>
+      </button>`;
+    });
+    optionsHTML += '</div>';
+  } else {
+    optionsHTML = `<div class="preview-short-answer">
+      <textarea placeholder="在此输入答案..."></textarea>
+      ${q.reference_answer ? `<div style="font-size:12px;color:var(--text-muted);">参考答案：${renderMathText(q.reference_answer)}</div>` : ''}
+    </div>`;
+  }
+
+  let submitHTML = '';
+  if (isMulti && !isSurvey && q.correct_answer) {
+    submitHTML = `<div style="margin-top:10px;"><button class="btn" style="font-size:13px;padding:6px 18px;" id="prev-submit-${idx}" onclick="submitPreviewAnswer(${idx})">提交</button></div>`;
+  }
+
+  let feedbackHTML = `<div class="preview-feedback" id="prev-fb-${idx}" style="display:none;"></div>`;
+  let explanationHTML = '';
+  if (q.explanation) {
+    explanationHTML = `<div class="preview-explanation" id="prev-exp-${idx}" style="display:none;"><strong>解析：</strong>${renderMathText(q.explanation)}</div>`;
+  }
+
+  const tagHTML = q.knowledge_tag ? `<div style="margin-top:6px;"><span style="font-size:11px;background:var(--surface);padding:2px 8px;border-radius:10px;color:var(--text-muted);">${App.escapeHTML(q.knowledge_tag)}</span></div>` : '';
+
+  card.innerHTML = stemHTML + optionsHTML + submitHTML + feedbackHTML + explanationHTML + tagHTML;
+  return card;
+}
+
+function renderMathText(text) {
+  if (!text) return '';
+  return App.escapeHTML(text)
+    .replace(/\n/g, '<br/>');
+}
+
+async function typesetMath(el) {
+  try {
+    await window.__mathJaxReady;
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      await window.MathJax.typesetPromise([el]);
+    }
+  } catch(_) {}
+}
+
+// Per-card selection state for preview
+const previewSelections = {};
+
+const previewSubmitted = {};
+
+function handlePreviewSelect(qIdx, optIdx) {
+  const q = questions[qIdx];
+  if (!q || previewSubmitted[qIdx]) return;
+  const isMulti = q.type === 'multi_choice';
+  const isSurvey = q.type === 'survey';
+
+  if (!previewSelections[qIdx]) previewSelections[qIdx] = new Set();
+  const sel = previewSelections[qIdx];
+
+  if (isMulti || isSurvey) {
+    if (sel.has(optIdx)) sel.delete(optIdx);
+    else sel.add(optIdx);
+  } else {
+    sel.clear();
+    sel.add(optIdx);
+  }
+
+  // Update button styles (selection only, no correct/incorrect yet)
+  q.options.forEach((opt, oi) => {
+    const btn = document.getElementById(`prev-opt-${qIdx}-${oi}`);
+    if (!btn) return;
+    btn.className = 'preview-opt-btn' + (sel.has(oi) ? ' selected' : '');
+    btn.querySelector('.opt-icon').textContent = '';
+  });
+
+  // For single-choice / yes_no: auto-submit immediately
+  if (!isMulti && !isSurvey) {
+    showPreviewFeedback(qIdx);
+  }
+}
+
+function submitPreviewAnswer(qIdx) {
+  showPreviewFeedback(qIdx);
+  const btn = document.getElementById(`prev-submit-${qIdx}`);
+  if (btn) btn.style.display = 'none';
+}
+
+function showPreviewFeedback(qIdx) {
+  const q = questions[qIdx];
+  if (!q) return;
+  previewSubmitted[qIdx] = true;
+  const sel = previewSelections[qIdx] || new Set();
+
+  if (q.correct_answer) {
+    const correctKeys = q.correct_answer.split(',').map(s => s.trim());
+    const selectedKeys = [];
+    sel.forEach(i => { if (q.options[i]) selectedKeys.push(q.options[i].key); });
+
+    const isCorrect = correctKeys.length === selectedKeys.length &&
+      correctKeys.every(k => selectedKeys.includes(k));
+
+    q.options.forEach((opt, oi) => {
+      const btn = document.getElementById(`prev-opt-${qIdx}-${oi}`);
+      if (!btn) return;
+      const isSelected = sel.has(oi);
+      const isCorrectOpt = correctKeys.includes(opt.key);
+
+      if (isSelected && isCorrectOpt) {
+        btn.className = 'preview-opt-btn correct';
+        btn.querySelector('.opt-icon').textContent = '✓';
+      } else if (isSelected && !isCorrectOpt) {
+        btn.className = 'preview-opt-btn incorrect';
+        btn.querySelector('.opt-icon').textContent = '✗';
+      } else if (!isSelected && isCorrectOpt) {
+        btn.className = 'preview-opt-btn correct';
+        btn.querySelector('.opt-icon').textContent = '✓';
+      } else {
+        btn.className = 'preview-opt-btn';
+        btn.querySelector('.opt-icon').textContent = '';
+      }
+    });
+
+    const fb = document.getElementById(`prev-fb-${qIdx}`);
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'preview-feedback ' + (isCorrect ? 'correct-fb' : 'incorrect-fb');
+      fb.textContent = isCorrect ? '回答正确！' : '回答错误，正确答案：' + q.correct_answer;
+    }
+  }
+
+  const exp = document.getElementById(`prev-exp-${qIdx}`);
+  if (exp) exp.style.display = '';
+}
+
+/* ── Image upload with compression ───────────────────────── */
+async function compressImage(file) {
+  if (file.size <= 200 * 1024) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxDim = 800;
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        const ext = file.name.replace(/.*\./, '').toLowerCase();
+        const name = file.name.replace(/\.[^.]+$/, '') + (ext === 'png' ? '.png' : '.jpg');
+        resolve(new File([blob], name, { type: blob.type }));
+      }, file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.7);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+async function uploadImage(file) {
+  const quizId = document.getElementById('quizIdInput').value.trim();
+  if (!quizId) { App.toast('请先填写题库 ID', 'error'); return null; }
+  const compressed = await compressImage(file);
+  const fd = new FormData();
+  fd.append('course_id', courseId);
+  fd.append('quiz_id', quizId);
+  fd.append('file', compressed);
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/upload-image', {
+      method: 'POST', body: fd,
+    });
+    if (data.ok) return data.filename;
+    App.toast('上传失败', 'error');
+  } catch(e) {
+    App.toast('上传失败: ' + e.message, 'error');
+  }
+  return null;
+}
+
+async function uploadStemImage(idx, input) {
+  if (!input.files[0]) return;
+  const filename = await uploadImage(input.files[0]);
+  if (filename) {
+    questions[idx].image = filename;
+    renderQuestions();
+  }
+}
+
+async function uploadOptionImage(idx, oi, input) {
+  if (!input.files[0]) return;
+  const filename = await uploadImage(input.files[0]);
+  if (filename) {
+    questions[idx].options[oi].image = filename;
+    renderQuestions();
+  }
+}
+
+/* ── Stats ───────────────────────────────────────────────── */
+function updateStats() {
+  const counts = {};
+  for (const q of questions) counts[q.type] = (counts[q.type] || 0) + 1;
+  const labels = {
+    single_choice: '单选', multi_choice: '多选', yes_no: '判断',
+    survey: '问卷', short_answer: '简答'
+  };
+  const parts = Object.entries(counts).map(([k,v]) => (labels[k]||k) + ' ' + v);
+  const el = document.getElementById('questionStats');
+  el.textContent = '共 ' + questions.length + ' 题' + (parts.length ? ' (' + parts.join(' | ') + ')' : '');
+
+  // Show/hide AI auto-fill button
+  const hasMissing = questions.some(q => !q.explanation || !q.knowledge_tag);
+  const afBtn = document.getElementById('btnAIAutoFill');
+  if (afBtn) afBtn.style.display = (questions.length > 0 && hasMissing) ? '' : 'none';
+}
+
+/* ── Validation ──────────────────────────────────────────── */
+function validateQuiz() {
+  syncFormToModel();
+  const errors = [];
+  const qid = document.getElementById('quizIdInput').value.trim();
+  if (!qid) errors.push('题库 ID 不能为空');
+  if (!questions.length) errors.push('至少需要一道题目');
+  const ids = new Set();
+  questions.forEach((q, i) => {
+    const n = i + 1;
+    if (!q.id) errors.push(`第 ${n} 题缺少 ID`);
+    if (ids.has(q.id)) errors.push(`题目 ID "${q.id}" 重复`);
+    ids.add(q.id);
+    if (!q.stem) errors.push(`第 ${n} 题缺少题干`);
+    if (q.type !== 'short_answer' && q.options.length < 2) errors.push(`第 ${n} 题至少需要 2 个选项`);
+    if ((q.type === 'single_choice' || q.type === 'yes_no') && !q.correct_answer)
+      errors.push(`第 ${n} 题未设置正确答案`);
+    if (q.type === 'multi_choice' && !q.correct_answer)
+      errors.push(`第 ${n} 题未设置正确答案`);
+    if (q.correct_answer && q.type !== 'survey' && q.type !== 'short_answer') {
+      const keys = new Set(q.options.map(o => o.key));
+      for (const k of q.correct_answer.split(',')) {
+        if (!keys.has(k.trim())) errors.push(`第 ${n} 题正确答案 "${k.trim()}" 不在选项中`);
+      }
+    }
+  });
+  if (errors.length) {
+    App.toast('校验发现 ' + errors.length + ' 个问题', 'error');
+    document.getElementById('saveStatus').textContent = errors.join('；');
+    document.getElementById('saveStatus').style.color = 'var(--danger)';
+    return false;
+  }
+  App.toast('校验通过');
+  document.getElementById('saveStatus').textContent = '校验通过 ✓';
+  document.getElementById('saveStatus').style.color = 'var(--success)';
+  return true;
+}
+
+/* ── Save ────────────────────────────────────────────────── */
+async function saveQuiz() {
+  if (currentView === 'yaml') {
+    const yamlText = document.getElementById('yamlEditor').value;
+    const quizId = document.getElementById('quizIdInput').value.trim();
+    if (!quizId) { App.toast('请先填写题库 ID', 'error'); return; }
+    try {
+      const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/save?course_id=' + courseId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz_id: quizId, yaml: yamlText, filename: quizId + '.yaml' }),
+      });
+      lastSavedYAML = yamlText;
+      App.toast('保存成功 (' + data.question_count + ' 道题)');
+      document.getElementById('saveStatus').textContent = '已保存 ✓';
+      document.getElementById('saveStatus').style.color = 'var(--success)';
+    } catch(e) {
+      App.toast('保存失败: ' + e.message, 'error');
+      document.getElementById('saveStatus').textContent = '保存失败: ' + e.message;
+      document.getElementById('saveStatus').style.color = 'var(--danger)';
+    }
+    return;
+  }
+
+  if (!validateQuiz()) return;
+  const quizId = document.getElementById('quizIdInput').value.trim();
+  const yaml = serializeToYAML();
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/save?course_id=' + courseId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quiz_id: quizId, yaml: yaml, filename: quizId + '.yaml' }),
+    });
+    lastSavedYAML = yaml;
+    App.toast('保存成功 (' + data.question_count + ' 道题)');
+    document.getElementById('saveStatus').textContent = '已保存 ✓';
+    document.getElementById('saveStatus').style.color = 'var(--success)';
+  } catch(e) {
+    App.toast('保存失败: ' + e.message, 'error');
+    document.getElementById('saveStatus').textContent = '保存失败: ' + e.message;
+    document.getElementById('saveStatus').style.color = 'var(--danger)';
+  }
+}
+
+/* ── Auto-save ───────────────────────────────────────────── */
+function startAutoSave() {
+  setInterval(async () => {
+    const quizId = document.getElementById('quizIdInput').value.trim();
+    if (!quizId || !courseId || autoSaving) return;
+    if (currentView === 'preview') return;
+
+    let yaml;
+    if (currentView === 'yaml') {
+      yaml = document.getElementById('yamlEditor').value;
+      if (!yaml.trim() || yaml === yamlTemplate) return;
+    } else {
+      if (questions.length === 0) return;
+      const hasContent = questions.some(q => q.stem.trim());
+      if (!hasContent) return;
+      syncFormToModel();
+      yaml = serializeToYAML();
+    }
+    if (yaml === lastSavedYAML) return;
+
+    autoSaving = true;
+    const status = document.getElementById('saveStatus');
+    status.textContent = '自动保存中…';
+    status.style.color = 'var(--text-muted)';
+    try {
+      await App.fetchJSON('/api/teacher/courses/quiz-bank/save?course_id=' + courseId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz_id: quizId, yaml: yaml, filename: quizId + '.yaml' }),
+      });
+      lastSavedYAML = yaml;
+      status.textContent = '已自动保存 ✓ ' + new Date().toLocaleTimeString();
+      status.style.color = 'var(--success)';
+    } catch(e) {
+      status.textContent = '自动保存失败';
+      status.style.color = 'var(--text-muted)';
+    } finally {
+      autoSaving = false;
+    }
+  }, 300000);
+}
+
+/* ── AI Panel ────────────────────────────────────────────── */
+function openAIPanel() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'ai-panel-backdrop';
+  backdrop.innerHTML = `<div class="ai-panel">
+    <div class="ai-panel-header">
+      <h3>AI 题库生成</h3>
+      <button class="ai-panel-close" onclick="closeAIPanel()">&times;</button>
+    </div>
+    <div class="ai-panel-body">
+      <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">描述你想生成的题目</label>
+      <textarea id="aiPromptInput" placeholder="例如：生成5道关于凸优化基本概念的单选题，难度中等，每题4个选项"></textarea>
+      <div style="text-align:right;">
+        <button class="btn" style="font-size:13px;padding:7px 18px;" id="aiGenBtn" onclick="doAIGenerate()">生成</button>
+      </div>
+      <div id="aiPreviewWrap" style="display:none;">
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin:12px 0 6px;">生成结果预览</label>
+        <div class="ai-preview" id="aiPreview"></div>
+      </div>
+    </div>
+    <div class="ai-panel-footer" id="aiFooter" style="display:none;">
+      <div class="ai-mode-select">
+        <label><input type="radio" name="aiMode" value="replace" checked/> 替换当前内容</label>
+        <label><input type="radio" name="aiMode" value="append"/> 追加到末尾</label>
+      </div>
+      <button class="btn" style="font-size:13px;padding:7px 16px;" onclick="applyAIResult()">应用到编辑器</button>
+    </div>
+  </div>`;
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeAIPanel(); });
+  document.body.appendChild(backdrop);
+}
+
+function closeAIPanel() {
+  const el = document.querySelector('.ai-panel-backdrop');
+  if (el) el.remove();
+}
+
+async function doAIGenerate() {
+  const prompt = document.getElementById('aiPromptInput').value.trim();
+  if (!prompt) { App.toast('请输入描述', 'warn'); return; }
+  const btn = document.getElementById('aiGenBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 生成中…';
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/ai-generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ course_id: parseInt(courseId), prompt: prompt }),
+    });
+    if (data.error) {
+      App.toast('AI 生成失败: ' + data.error, 'error');
+      return;
+    }
+    document.getElementById('aiPreview').textContent = data.yaml || '';
+    document.getElementById('aiPreviewWrap').style.display = '';
+    document.getElementById('aiFooter').style.display = '';
+  } catch(e) {
+    App.toast('AI 生成失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成';
+  }
+}
+
+function applyAIResult() {
+  const yaml = document.getElementById('aiPreview').textContent;
+  if (!yaml) return;
+  const mode = document.querySelector('input[name="aiMode"]:checked')?.value || 'replace';
+
+  if (mode === 'replace') {
+    const parsed = parseYAML(yaml);
+    if (parsed) {
+      // Keep the existing quiz ID (readonly) — only update title if AI provides one
+      if (parsed.title) document.getElementById('quizTitleInput').value = parsed.title;
+      setQuestions((parsed.questions || []).map(normalizeQuestion));
+      // Deduplicate IDs
+      const seen = new Set();
+      for (const q of questions) {
+        if (!q.id || seen.has(q.id)) q.id = nextQuestionId();
+        seen.add(q.id);
+      }
+    } else {
+      App.toast('AI 生成的内容格式有误，已切换到 YAML 视图供手动修改', 'warn');
+      switchView('yaml');
+      document.getElementById('yamlEditor').value = yaml;
+      closeAIPanel();
+      return;
+    }
+  } else {
+    const parsed = parseYAML(yaml);
+    if (parsed && parsed.questions) {
+      const newQs = parsed.questions.map(normalizeQuestion);
+      // Push one at a time so nextQuestionId() sees previously added ones
+      for (const nq of newQs) {
+        nq.id = nextQuestionId();
+        questions.push(nq);
+      }
+    } else {
+      App.toast('AI 生成的内容格式有误，已切换到 YAML 视图供手动修改', 'warn');
+      switchView('yaml');
+      const existing = serializeToYAML();
+      document.getElementById('yamlEditor').value = existing + '\n' + yaml;
+      closeAIPanel();
+      return;
+    }
+  }
+
+  isNewQuiz = false;
+  if (currentView === 'yaml') {
+    document.getElementById('yamlEditor').value = serializeToYAML();
+  } else {
+    renderQuestions();
+  }
+  updateStats();
+  closeAIPanel();
+  App.toast('AI 生成内容已应用');
+}
+
+/* ── AI Auto-fill ────────────────────────────────────────── */
+async function doAIAutoFill() {
+  const hasMissing = questions.some(q => !q.explanation || !q.knowledge_tag);
+  if (!hasMissing) { App.toast('所有题目已有解析和标签'); return; }
+
+  syncFormToModel();
+  const yaml = serializeToYAML();
+  const btn = document.getElementById('btnAIAutoFill');
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 补全中…';
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/ai-autofill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ course_id: parseInt(courseId), yaml: yaml }),
+    });
+    if (data.error) {
+      App.toast('AI 补全失败: ' + data.error, 'error');
+      return;
+    }
+    const parsed = parseYAML(data.yaml);
+    if (parsed && parsed.questions) {
+      setQuestions(parsed.questions.map(normalizeQuestion));
+      if (currentView === 'form') renderQuestions();
+      else if (currentView === 'yaml') document.getElementById('yamlEditor').value = serializeToYAML();
+      updateStats();
+      App.toast('AI 补全完成');
+    } else {
+      App.toast('AI 返回的内容格式有误', 'error');
+    }
+  } catch(e) {
+    App.toast('AI 补全失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+/* ── Keyboard shortcuts ──────────────────────────────────── */
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveQuiz();
+  }
+});
+
+/* ── Expose to inline handlers ───────────────────────────── */
+window.switchView = switchView;
+window.addQuestion = addQuestion;
+window.removeQuestion = removeQuestion;
+window.duplicateQuestion = duplicateQuestion;
+window.addOption = addOption;
+window.removeOption = removeOption;
+window.changeType = changeType;
+window.updateCorrectMulti = updateCorrectMulti;
+window.uploadStemImage = uploadStemImage;
+window.uploadOptionImage = uploadOptionImage;
+window.validateQuiz = validateQuiz;
+window.saveQuiz = saveQuiz;
+window.openAIPanel = openAIPanel;
+window.closeAIPanel = closeAIPanel;
+window.doAIGenerate = doAIGenerate;
+window.applyAIResult = applyAIResult;
+window.doAIAutoFill = doAIAutoFill;
+window.handlePreviewSelect = handlePreviewSelect;
+window.submitPreviewAnswer = submitPreviewAnswer;
+window.renderQuestions = renderQuestions;
+window.updateStats = updateStats;
+
+init();
+
+})();
+</script>
+</body>
+</html>

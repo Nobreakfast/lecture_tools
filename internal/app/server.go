@@ -28,6 +28,7 @@ import (
 	"course-assistant/internal/store"
 
 	qrcode "github.com/skip2/go-qrcode"
+	"gopkg.in/yaml.v3"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -198,6 +199,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/upload", s.apiTeacherCourseQuizBankUpload)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/load", s.apiTeacherCourseQuizBankLoad)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/delete", s.apiTeacherCourseQuizBankDelete)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/content", s.apiTeacherCourseQuizBankContent)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/save", s.apiTeacherCourseQuizBankSave)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/upload-image", s.apiTeacherCourseQuizBankUploadImage)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-generate", s.apiTeacherCourseQuizBankAIGenerate)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-autofill", s.apiTeacherCourseQuizBankAIAutoFill)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/rename", s.apiTeacherCourseQuizBankRename)
+	mux.HandleFunc("/quiz-editor", s.pageQuizEditor)
 	mux.HandleFunc("/api/teacher/courses/attempts", s.apiTeacherCourseAttempts)
 	mux.HandleFunc("/api/teacher/courses/attempt-detail", s.apiTeacherCourseAttemptDetail)
 	mux.HandleFunc("/api/teacher/courses/live", s.apiTeacherCourseLive)
@@ -2326,6 +2334,294 @@ func (s *Server) apiTeacherCourseQuizBankDelete(w http.ResponseWriter, r *http.R
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+func (s *Server) pageQuizEditor(w http.ResponseWriter, _ *http.Request) {
+	s.servePage(w, "web/quiz-editor.html")
+}
+
+func (s *Server) apiTeacherCourseQuizBankContent(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	quizID := r.URL.Query().Get("quiz_id")
+	if quizID == "" {
+		http.Error(w, "quiz_id 不能为空", http.StatusBadRequest)
+		return
+	}
+	dir := s.metadataQuizDir(course.TeacherID, course.Slug, quizID)
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		http.Error(w, "题库不存在", http.StatusNotFound)
+		return
+	}
+	var yamlContent string
+	var yamlFile string
+	type fileItem struct {
+		Name string `json:"name"`
+		Size int64  `json:"size"`
+	}
+	var items []fileItem
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		info, _ := f.Info()
+		sz := int64(0)
+		if info != nil {
+			sz = info.Size()
+		}
+		items = append(items, fileItem{Name: f.Name(), Size: sz})
+		name := strings.ToLower(f.Name())
+		if yamlFile == "" && (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+			raw, rErr := os.ReadFile(filepath.Join(dir, f.Name()))
+			if rErr == nil {
+				yamlContent = string(raw)
+				yamlFile = f.Name()
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"yaml": yamlContent, "quiz_id": quizID, "filename": yamlFile, "files": items})
+}
+
+func (s *Server) apiTeacherCourseQuizBankSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		QuizID   string `json:"quiz_id"`
+		YAML     string `json:"yaml"`
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if req.QuizID == "" || req.YAML == "" {
+		http.Error(w, "quiz_id 和 yaml 不能为空", http.StatusBadRequest)
+		return
+	}
+	parsed, pErr := quiz.Parse([]byte(req.YAML))
+	if pErr != nil {
+		http.Error(w, pErr.Error(), http.StatusBadRequest)
+		return
+	}
+	dir := s.metadataQuizDir(course.TeacherID, course.Slug, req.QuizID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "创建目录失败", http.StatusInternalServerError)
+		return
+	}
+	filename := req.Filename
+	if filename == "" {
+		filename = req.QuizID + ".yaml"
+	}
+	if !strings.HasSuffix(strings.ToLower(filename), ".yaml") && !strings.HasSuffix(strings.ToLower(filename), ".yml") {
+		filename += ".yaml"
+	}
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(req.YAML), 0o644); err != nil {
+		http.Error(w, "写入失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "question_count": len(parsed.Questions), "quiz_id": req.QuizID})
+}
+
+func (s *Server) apiTeacherCourseQuizBankUploadImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "读取文件失败", http.StatusBadRequest)
+		return
+	}
+	quizID := r.FormValue("quiz_id")
+	if quizID == "" {
+		http.Error(w, "quiz_id 不能为空", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "未上传文件", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	dir := s.metadataQuizDir(course.TeacherID, course.Slug, quizID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "创建目录失败", http.StatusInternalServerError)
+		return
+	}
+	data, _ := io.ReadAll(file)
+	dst := filepath.Join(dir, header.Filename)
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		http.Error(w, "写入失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "filename": header.Filename})
+}
+
+func (s *Server) apiTeacherCourseQuizBankAIGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		CourseID int    `json:"course_id"`
+		Prompt   string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		http.Error(w, "prompt 不能为空", http.StatusBadRequest)
+		return
+	}
+	yaml, err := s.aiClient.GenerateQuiz(r.Context(), req.Prompt)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"yaml": yaml})
+}
+
+func (s *Server) apiTeacherCourseQuizBankAIAutoFill(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		CourseID int    `json:"course_id"`
+		YAML     string `json:"yaml"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.YAML) == "" {
+		http.Error(w, "yaml 不能为空", http.StatusBadRequest)
+		return
+	}
+	result, err := s.aiClient.AutoFillQuiz(r.Context(), req.YAML)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"yaml": result})
+}
+
+func (s *Server) apiTeacherCourseQuizBankRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		OldQuizID string `json:"old_quiz_id"`
+		NewQuizID string `json:"new_quiz_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if req.OldQuizID == "" || req.NewQuizID == "" {
+		http.Error(w, "old_quiz_id 和 new_quiz_id 不能为空", http.StatusBadRequest)
+		return
+	}
+	if req.OldQuizID == req.NewQuizID {
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
+	oldDir := s.metadataQuizDir(course.TeacherID, course.Slug, req.OldQuizID)
+	newDir := s.metadataQuizDir(course.TeacherID, course.Slug, req.NewQuizID)
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		http.Error(w, "原题库不存在", http.StatusNotFound)
+		return
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		http.Error(w, "目标题库 ID 已存在", http.StatusConflict)
+		return
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		http.Error(w, "重命名失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Update YAML files inside: replace quiz_id field
+	entries, _ := os.ReadDir(newDir)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(strings.ToLower(name), ".yaml") && !strings.HasSuffix(strings.ToLower(name), ".yml") {
+			continue
+		}
+		fpath := filepath.Join(newDir, name)
+		content, err := os.ReadFile(fpath)
+		if err != nil {
+			continue
+		}
+		var q domain.Quiz
+		if err := yaml.Unmarshal(content, &q); err != nil {
+			continue
+		}
+		q.QuizID = req.NewQuizID
+		out, err := yaml.Marshal(&q)
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(fpath, out, 0o644)
+		// Rename the YAML file itself to match the new quiz ID
+		newName := req.NewQuizID + filepath.Ext(name)
+		if newName != name {
+			_ = os.Rename(fpath, filepath.Join(newDir, newName))
+		}
+	}
+	writeJSON(w, map[string]any{"ok": true, "new_quiz_id": req.NewQuizID})
+}
+
 func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request) {
 	sess := s.requireTeacherOrAdmin(r)
 	if sess == nil {
@@ -3778,22 +4074,29 @@ func topKeys(m map[string]int, n int) []string {
 }
 
 func shuffledQuestions(q *domain.Quiz, attemptID string) []domain.Question {
-	items := make([]domain.Question, 0, len(q.Questions))
-	tailFixed := make([]domain.Question, 0)
+	// Check if any question explicitly uses FixedPosition. If none do,
+	// fall back to legacy behavior (short_answer pinned at the end).
+	anyExplicitFixed := false
+	for _, question := range q.Questions {
+		if question.FixedPosition {
+			anyExplicitFixed = true
+			break
+		}
+	}
+
+	var allItems []domain.Question
 	if q.Sampling != nil && len(q.Sampling.Groups) > 0 {
 		byTag := map[string][]domain.Question{}
+		var ungrouped []domain.Question
 		for _, question := range q.Questions {
 			tag := strings.TrimSpace(question.PoolTag)
 			if tag == "" {
-				if question.Type == domain.QuestionShortAnswer {
-					tailFixed = append(tailFixed, question)
-				} else {
-					items = append(items, question)
-				}
+				ungrouped = append(ungrouped, question)
 				continue
 			}
 			byTag[tag] = append(byTag[tag], question)
 		}
+		allItems = append(allItems, ungrouped...)
 		for _, group := range q.Sampling.Groups {
 			tag := strings.TrimSpace(group.Tag)
 			pool := byTag[tag]
@@ -3806,31 +4109,61 @@ func shuffledQuestions(q *domain.Quiz, attemptID string) []domain.Question {
 			if pick > len(pool) {
 				pick = len(pool)
 			}
-			items = append(items, pool[:pick]...)
+			allItems = append(allItems, pool[:pick]...)
 		}
 	} else {
-		for _, question := range q.Questions {
-			if question.Type == domain.QuestionShortAnswer {
-				tailFixed = append(tailFixed, question)
-				continue
-			}
-			items = append(items, question)
+		allItems = append(allItems, q.Questions...)
+	}
+
+	isFixed := func(question domain.Question) bool {
+		if anyExplicitFixed {
+			return question.FixedPosition
+		}
+		return question.Type == domain.QuestionShortAnswer
+	}
+
+	type indexedQ struct {
+		idx int
+		q   domain.Question
+	}
+	var fixed []indexedQ
+	var shuffleable []domain.Question
+	for i, question := range allItems {
+		if isFixed(question) {
+			fixed = append(fixed, indexedQ{i, question})
+		} else {
+			shuffleable = append(shuffleable, question)
 		}
 	}
+
 	r := seededRandom(q.QuizID + ":" + attemptID + ":final")
-	r.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
-	for i := range items {
-		items[i] = shuffleQuestionOptions(items[i], q.QuizID, attemptID)
+	r.Shuffle(len(shuffleable), func(i, j int) { shuffleable[i], shuffleable[j] = shuffleable[j], shuffleable[i] })
+
+	result := make([]domain.Question, len(allItems))
+	fixedSet := map[int]bool{}
+	for _, fq := range fixed {
+		result[fq.idx] = fq.q
+		fixedSet[fq.idx] = true
 	}
-	for i := range tailFixed {
-		tailFixed[i] = shuffleQuestionOptions(tailFixed[i], q.QuizID, attemptID)
+	si := 0
+	for i := range result {
+		if !fixedSet[i] {
+			result[i] = shuffleable[si]
+			si++
+		}
 	}
-	items = append(items, tailFixed...)
-	return items
+
+	for i := range result {
+		result[i] = shuffleQuestionOptions(result[i], q.QuizID, attemptID)
+	}
+	return result
 }
 
 func shuffleQuestionOptions(question domain.Question, quizID, attemptID string) domain.Question {
 	if len(question.Options) <= 1 {
+		return question
+	}
+	if question.ShuffleOptions != nil && !*question.ShuffleOptions {
 		return question
 	}
 	opts := append([]domain.Option(nil), question.Options...)

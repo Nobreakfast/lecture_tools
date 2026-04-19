@@ -74,6 +74,8 @@ type Question struct {
 	KnowledgeTag    string       `json:"knowledge_tag,omitempty" yaml:"knowledge_tag,omitempty"`
 	PoolTag         string       `json:"pool_tag,omitempty" yaml:"pool_tag,omitempty"`
 	Image           string       `json:"image,omitempty" yaml:"image,omitempty"`
+	FixedPosition   bool         `json:"fixed_position,omitempty" yaml:"fixed_position,omitempty"`
+	ShuffleOptions  *bool        `json:"shuffle_options,omitempty" yaml:"shuffle_options,omitempty"`
 }
 
 type SamplingGroup struct {
