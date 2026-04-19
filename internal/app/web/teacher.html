@@ -105,6 +105,21 @@
     }
     .file-input-label:hover { background: #cbd5e1; }
     .file-input-name { font-size: 13px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Course pills */
+    .course-pills { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    .course-pills::-webkit-scrollbar { display: none; }
+    .course-pill {
+      padding: 5px 14px !important; font-size: 13px !important; border-radius: 20px !important;
+      background: #e2e8f0 !important; color: #1e293b !important;
+      white-space: nowrap; flex-shrink: 0; box-shadow: none !important;
+      transition: background 0.15s, color 0.15s, transform 0.12s !important;
+    }
+    .course-pill:hover { background: #cbd5e1 !important; transform: none !important; }
+    .course-pill.active {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%) !important;
+      color: #fff !important;
+    }
   </style>
 </head>
 <body>
@@ -134,9 +149,7 @@
     <div class="logout-row">
       <div style="display:flex;align-items:center;gap:12px;">
         <h2 style="margin:0">教师面板</h2>
-        <select id="globalCourseSelect" class="hidden" style="padding:6px 10px;font-size:13px;min-width:160px;width:auto;">
-          <option value="">-- 选择课程 --</option>
-        </select>
+        <div id="coursePills" class="course-pills hidden"></div>
       </div>
       <div class="row" id="headerRight">
         <span class="muted" id="teacherName"></span>
@@ -200,7 +213,16 @@
       </div>
 
       <div class="card">
-        <p><strong>答题记录</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">仅显示当前加载题库的提交</span></p>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <p style="margin:0;"><strong>答题记录</strong></p>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;color:var(--text-secondary);">筛选题库</span>
+            <select id="attemptsQuizFilter" style="width:auto;min-width:120px;padding:4px 8px;font-size:12px;margin:0;">
+              <option value="__current__">当前题库</option>
+              <option value="__all__">全部题库</option>
+            </select>
+          </div>
+        </div>
         <div id="attemptsList"></div>
       </div>
     </div>
@@ -492,7 +514,7 @@
     function enterPanel() {
       document.getElementById('view-login').classList.add('hidden');
       document.getElementById('view-main').classList.remove('hidden');
-      document.getElementById('globalCourseSelect').classList.remove('hidden');
+      document.getElementById('coursePills').classList.remove('hidden');
       document.getElementById('teacherName').textContent = currentTeacher.name || currentTeacher.id || '教师';
       loadCourses();
     }
@@ -543,18 +565,33 @@
         const data = await r.json();
         coursesCache = data.items || [];
         renderCourses();
-        syncAllCourseSelects();
+        syncCoursePills();
       } catch (_) {}
     }
 
-    function syncAllCourseSelects() {
-      const sel = document.getElementById('globalCourseSelect');
-      const prev = sel.value;
-      sel.innerHTML = '<option value="">-- 选择课程 --</option>';
+    function syncCoursePills() {
+      const container = document.getElementById('coursePills');
+      container.innerHTML = '';
       for (const c of coursesCache) {
-        sel.innerHTML += `<option value="${c.id}">${escapeHTML(c.name)}</option>`;
+        const btn = document.createElement('button');
+        btn.className = 'course-pill' + (String(c.id) === String(selectedCourseId) ? ' active' : '');
+        btn.textContent = c.name;
+        btn.dataset.courseId = c.id;
+        btn.dataset.slug = c.slug || '';
+        btn.onclick = () => selectCoursePill(String(c.id));
+        container.appendChild(btn);
       }
-      if (prev && coursesCache.some(c => String(c.id) === prev)) sel.value = prev;
+      if (!selectedCourseId && coursesCache.length === 1) {
+        selectCoursePill(String(coursesCache[0].id));
+      }
+    }
+
+    function selectCoursePill(courseId) {
+      selectedCourseId = courseId;
+      document.querySelectorAll('.course-pill').forEach(b => {
+        b.classList.toggle('active', b.dataset.courseId === courseId);
+      });
+      refreshActiveTab();
     }
 
     function buildJoinURL(inviteCode) {
@@ -721,12 +758,6 @@
       document.body.removeChild(a);
     }
 
-    /* ── global course change ── */
-    function onGlobalCourseChange() {
-      selectedCourseId = document.getElementById('globalCourseSelect').value;
-      refreshActiveTab();
-    }
-
     function getActiveTab() {
       const btn = document.querySelector('.tab-bar > .tab-btn.active:not(.sub-tab-btn)');
       return btn ? btn.dataset.tab : '';
@@ -738,8 +769,8 @@
     }
 
     function currentCourseSlug() {
-      const opt = document.querySelector('#globalCourseSelect option:checked');
-      return opt ? (opt.dataset.slug || '') : '';
+      const pill = document.querySelector('.course-pill.active');
+      return pill ? (pill.dataset.slug || '') : '';
     }
 
     function refreshActiveTab() {
@@ -781,10 +812,36 @@
         if (liveSSE) { liveSSE.close(); liveSSE = null; }
         return;
       }
-      // Status strip lives on this tab now: entry toggle + live meters.
       loadCourseState();
       startLiveSSE();
       loadAttempts();
+      loadAttemptsQuizFilter();
+    }
+
+    async function loadAttemptsQuizFilter() {
+      if (!selectedCourseId) return;
+      try {
+        const r = await fetch('/api/teacher/courses/quiz-bank?course_id=' + selectedCourseId, { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        attemptsQuizBanks = data.items || [];
+        syncAttemptsQuizFilter();
+      } catch (_) {}
+    }
+
+    function syncAttemptsQuizFilter() {
+      const sel = document.getElementById('attemptsQuizFilter');
+      const prev = sel.value;
+      sel.innerHTML = '<option value="__current__">当前题库</option><option value="__all__">全部题库</option>';
+      for (const b of attemptsQuizBanks) {
+        const suffix = b.quiz_id === currentLoadedQuizId ? ' (当前)' : '';
+        sel.innerHTML += `<option value="${escapeHTML(b.quiz_id)}">${escapeHTML(b.quiz_id)}${suffix}</option>`;
+      }
+      if (prev && prev !== '__current__' && prev !== '__all__') {
+        if (attemptsQuizBanks.some(b => b.quiz_id === prev)) sel.value = prev;
+      } else {
+        sel.value = prev || '__current__';
+      }
     }
 
     async function refreshSummaryTab() {
@@ -990,6 +1047,7 @@
 
     /* ── attempts ── */
     let attemptsCache = [];
+    let attemptsQuizBanks = [];
 
     async function loadAttempts() {
       if (!selectedCourseId) return;
@@ -1006,14 +1064,22 @@
 
     function renderAttempts() {
       const root = document.getElementById('attemptsList');
-      const items = currentLoadedQuizId
-        ? attemptsCache.filter(i => i.quiz_id === currentLoadedQuizId)
-        : attemptsCache;
+      const filterVal = document.getElementById('attemptsQuizFilter').value;
+      let items;
+      if (filterVal === '__all__') {
+        items = attemptsCache;
+      } else if (filterVal === '__current__') {
+        items = currentLoadedQuizId
+          ? attemptsCache.filter(i => i.quiz_id === currentLoadedQuizId)
+          : attemptsCache;
+      } else {
+        items = attemptsCache.filter(i => i.quiz_id === filterVal);
+      }
       if (!items.length) {
         root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无答题记录</p>';
         return;
       }
-      const showQuizCol = false;
+      const showQuizCol = filterVal === '__all__';
       const rows = items.map(item => {
         const total = Number(item.total || 0);
         const correct = Number(item.correct || 0);
@@ -1413,16 +1479,20 @@
         if (item.archive_download_url && dlLinks.length > 1)
           dlLinks.push(`<a href="${escapeHTML(item.archive_download_url)}" target="_blank">全部</a>`);
         const dlCell = dlLinks.length ? dlLinks.join(' ') : '-';
+        const keyCell = item.secret_key
+          ? `<span style="font-family:monospace;font-size:11px;user-select:all;cursor:pointer;" title="点击可选中复制">${escapeHTML(item.secret_key)}</span>`
+          : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
         return `<tr>
           <td>${escapeHTML(item.assignment_id)}</td>
           <td>${escapeHTML(item.name)}</td>
           <td>${escapeHTML(item.student_no)}</td>
           <td>${escapeHTML(item.class_name)}</td>
+          <td>${keyCell}</td>
           <td>${dlCell}</td>
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN',{hour12:false}) : '-')}</td>
         </tr>`;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>下载</th><th>更新</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>更新</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     async function uploadHomeworkAssignment() {
@@ -1598,7 +1668,6 @@
     document.getElementById('changePwdBtn').onclick = doChangePassword;
     document.getElementById('changePwdModal').onclick = (evt) => { if (evt.target.id === 'changePwdModal') closeChangePasswordModal(); };
     document.getElementById('detailModal').onclick = (evt) => { if (evt.target.id === 'detailModal') closeDetail(); };
-    document.getElementById('globalCourseSelect').onchange = onGlobalCourseChange;
     document.getElementById('uploadYamlBtn').onclick = uploadYamlFiles;
     document.getElementById('uploadQuizBankBtn').onclick = uploadQuizBankPkg;
     document.getElementById('openEntryBtn').onclick = () => toggleEntry(true);
@@ -1617,6 +1686,7 @@
     document.getElementById('downloadSummaryMdBtn').onclick = downloadSummaryMd;
     document.getElementById('uploadMaterialBtn').onclick = uploadMaterial;
     document.getElementById('uploadHomeworkBtn').onclick = uploadHomeworkAssignment;
+    document.getElementById('attemptsQuizFilter').onchange = renderAttempts;
     document.getElementById('homeworkAssignmentFilter').onchange = loadHomeworkSubmissions;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };

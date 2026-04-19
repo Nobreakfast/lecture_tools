@@ -221,6 +221,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete", s.apiTeacherCourseHomeworkAssignmentDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/visibility", s.apiTeacherCourseHomeworkAssignmentVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
+	mux.HandleFunc("/api/teacher/courses/homework/submissions/download", s.apiTeacherCourseHomeworkSubmissionDownload)
+	mux.HandleFunc("/api/teacher/courses/homework/submissions/archive", s.apiTeacherCourseHomeworkSubmissionArchive)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/invite-qr", s.apiTeacherCourseInviteQR)
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
@@ -3055,9 +3057,124 @@ func (s *Server) apiTeacherCourseHomeworkSubmissions(w http.ResponseWriter, r *h
 	}
 	resp := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		resp = append(resp, s.homeworkSubmissionPayload(&item, true))
+		resp = append(resp, s.homeworkSubmissionPayload(&item, true, courseID))
 	}
 	writeJSON(w, map[string]any{"items": resp})
+}
+
+func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "缺少 id 参数", http.StatusBadRequest)
+		return
+	}
+	submission, err := s.store.GetHomeworkSubmissionByID(r.Context(), id)
+	if err != nil || submission.Course != course.Slug {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	slotStr := strings.TrimSpace(r.URL.Query().Get("slot"))
+	slot, err := parseHomeworkSlot(slotStr)
+	if err != nil {
+		http.Error(w, "无效的 slot 参数", http.StatusBadRequest)
+		return
+	}
+	subDir := s.resolveHomeworkSubmissionDirForCourse(course, submission)
+	switch slot {
+	case domain.HomeworkSlotReport:
+		if strings.TrimSpace(submission.ReportOriginalName) == "" {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		fp := filepath.Join(subDir, homeworkDiskFilename(domain.HomeworkSlotReport))
+		if _, statErr := os.Stat(fp); statErr != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.URL.Query().Get("download") == "1" {
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.ReportOriginalName, "report.pdf")))
+		}
+		http.ServeFile(w, r, fp)
+	case domain.HomeworkSlotCode:
+		if strings.TrimSpace(submission.CodeOriginalName) == "" {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		fp := s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode)
+		if _, statErr := os.Stat(fp); statErr != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ipynb+json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb")))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, fp)
+	case domain.HomeworkSlotExtra:
+		if strings.TrimSpace(submission.ExtraOriginalName) == "" {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		fp := filepath.Join(subDir, "extra.zip")
+		if _, statErr := os.Stat(fp); statErr != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip")))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, fp)
+	default:
+		http.Error(w, "无效的 slot 参数", http.StatusBadRequest)
+	}
+}
+
+func (s *Server) apiTeacherCourseHomeworkSubmissionArchive(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "缺少 id 参数", http.StatusBadRequest)
+		return
+	}
+	submission, err := s.store.GetHomeworkSubmissionByID(r.Context(), id)
+	if err != nil || submission.Course != course.Slug {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	archiveData, err := s.buildHomeworkArchive(submission)
+	if err != nil {
+		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
+		return
+	}
+	if len(archiveData) == 0 {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	archiveName := fmt.Sprintf("homework_%s_%s.zip", safePathPart(submission.StudentNo), safePathPart(submission.AssignmentID))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(archiveData)
 }
 
 func (s *Server) apiTeacherCourseHomeworkArchiveAll(w http.ResponseWriter, r *http.Request) {

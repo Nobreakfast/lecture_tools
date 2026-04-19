@@ -279,12 +279,11 @@ test.describe("Multi-tenant isolation", () => {
     await teacher.createCourse("多课程测试", slug);
     await teacher.page.waitForTimeout(500);
 
-    // Get the new course ID from the dropdown
+    // Get the new course ID from the pills
     const newCourseId = await teacher.page.evaluate(() => {
-      const select = document.querySelector("#globalCourseSelect") as HTMLSelectElement;
-      const options = Array.from(select.options);
-      const last = options[options.length - 1];
-      return parseInt(last.value);
+      const pills = document.querySelectorAll("#coursePills .course-pill");
+      const last = pills[pills.length - 1] as HTMLElement;
+      return parseInt(last.dataset.courseId || "0");
     });
     expect(newCourseId).toBeGreaterThan(0);
 

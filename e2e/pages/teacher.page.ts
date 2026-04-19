@@ -11,7 +11,7 @@ export class TeacherPage {
   readonly loginBtn: Locator;
   readonly viewMain: Locator;
   readonly teacherName: Locator;
-  readonly globalCourseSelect: Locator;
+  readonly coursePills: Locator;
 
   // Course tab
   readonly newCourseName: Locator;
@@ -29,6 +29,7 @@ export class TeacherPage {
   readonly exportCsvBtn: Locator;
   readonly clearAttemptsBtn: Locator;
   readonly attemptsList: Locator;
+  readonly attemptsQuizFilter: Locator;
 
   // Upload tab — quiz
   readonly yamlFileInput: Locator;
@@ -79,7 +80,7 @@ export class TeacherPage {
     this.loginBtn = page.locator("#loginBtn");
     this.viewMain = page.locator("#view-main");
     this.teacherName = page.locator("#teacherName");
-    this.globalCourseSelect = page.locator("#globalCourseSelect");
+    this.coursePills = page.locator("#coursePills");
 
     this.newCourseName = page.locator("#newCourseName");
     this.newCourseSlug = page.locator("#newCourseSlug");
@@ -95,6 +96,7 @@ export class TeacherPage {
     this.exportCsvBtn = page.locator("#exportCsvBtn");
     this.clearAttemptsBtn = page.locator("#clearAttemptsBtn");
     this.attemptsList = page.locator("#attemptsList");
+    this.attemptsQuizFilter = page.locator("#attemptsQuizFilter");
 
     this.yamlFileInput = page.locator("#yamlFileInput");
     this.uploadYamlBtn = page.locator("#uploadYamlBtn");
@@ -151,7 +153,9 @@ export class TeacherPage {
   }
 
   async selectCourse(courseId: number) {
-    await this.globalCourseSelect.selectOption(String(courseId));
+    await this.coursePills
+      .locator(`.course-pill[data-course-id="${courseId}"]`)
+      .click();
     await this.page.waitForTimeout(500);
   }
 

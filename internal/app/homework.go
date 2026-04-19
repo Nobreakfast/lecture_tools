@@ -245,7 +245,7 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "读取作业会话失败", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(fresh, false)})
+		writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(fresh, false, 0)})
 		return
 	}
 	if err != nil && !store.IsNotFound(err) {
@@ -271,7 +271,7 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setHomeworkCookie(w, token)
-	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(submission, false)})
+	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(submission, false, 0)})
 }
 
 func (s *Server) apiHomeworkSubmission(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +280,7 @@ func (s *Server) apiHomeworkSubmission(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "未登录", http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, false)})
+	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, false, 0)})
 }
 
 func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +352,7 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "读取作业状态失败", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false)})
+	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false, 0)})
 }
 
 func (s *Server) apiHomeworkDownload(w http.ResponseWriter, r *http.Request) {
@@ -431,7 +431,7 @@ func (s *Server) apiHomeworkDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "读取作业状态失败", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false)})
+	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false, 0)})
 }
 
 func (s *Server) apiAdminHomeworkAssignments(w http.ResponseWriter, r *http.Request) {
@@ -648,7 +648,7 @@ func (s *Server) apiAdminHomeworkSubmissions(w http.ResponseWriter, r *http.Requ
 		if nameFilter != "" && !strings.Contains(item.Name, nameFilter) {
 			continue
 		}
-		resp = append(resp, s.homeworkSubmissionPayload(&item, true))
+		resp = append(resp, s.homeworkSubmissionPayload(&item, true, 0))
 	}
 	writeJSON(w, map[string]any{"items": resp})
 }
@@ -663,7 +663,7 @@ func (s *Server) apiAdminHomeworkSubmission(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, true)})
+	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, true, submission.CourseID)})
 }
 
 func (s *Server) apiAdminHomeworkReport(w http.ResponseWriter, r *http.Request) {
@@ -1258,7 +1258,7 @@ func (s *Server) listHomeworkAssignmentFiles(course string, courseID int, assign
 				if err != nil {
 					continue
 				}
-				items = append(items, s.homeworkAssignmentFilePayload(course, assignmentID, name, info.Size(), info.ModTime()))
+				items = append(items, s.homeworkAssignmentFilePayload(course, courseID, assignmentID, name, info.Size(), info.ModTime()))
 				seen[name] = struct{}{}
 			}
 		}
@@ -1277,7 +1277,7 @@ func (s *Server) listHomeworkAssignmentFiles(course string, courseID int, assign
 			if err != nil {
 				continue
 			}
-			items = append(items, s.homeworkAssignmentFilePayload(course, assignmentID, name, info.Size(), info.ModTime()))
+			items = append(items, s.homeworkAssignmentFilePayload(course, courseID, assignmentID, name, info.Size(), info.ModTime()))
 			seen[name] = struct{}{}
 		}
 	}
@@ -1285,7 +1285,7 @@ func (s *Server) listHomeworkAssignmentFiles(course string, courseID int, assign
 	legacyName := assignmentID + ".pdf"
 	if _, ok := seen[legacyName]; !ok {
 		if info, err := os.Stat(legacyPath); err == nil {
-			items = append(items, s.homeworkAssignmentFilePayload(course, assignmentID, legacyName, info.Size(), info.ModTime()))
+			items = append(items, s.homeworkAssignmentFilePayload(course, courseID, assignmentID, legacyName, info.Size(), info.ModTime()))
 		}
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1294,11 +1294,14 @@ func (s *Server) listHomeworkAssignmentFiles(course string, courseID int, assign
 	return items
 }
 
-func (s *Server) homeworkAssignmentFilePayload(course, assignmentID, name string, size int64, updatedAt time.Time) map[string]any {
+func (s *Server) homeworkAssignmentFilePayload(course string, courseID int, assignmentID, name string, size int64, updatedAt time.Time) map[string]any {
 	params := url.Values{}
 	params.Set("course", course)
 	params.Set("assignment_id", assignmentID)
 	params.Set("file", name)
+	if courseID > 0 {
+		params.Set("course_id", strconv.Itoa(courseID))
+	}
 	return map[string]any{
 		"name":         name,
 		"size":         size,
@@ -1363,7 +1366,7 @@ func (s *Server) resolveHomeworkCourse(courseID int, courseSlug string) *domain.
 	return nil
 }
 
-func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission, admin bool) map[string]any {
+func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission, admin bool, courseID int) map[string]any {
 	payload := map[string]any{
 		"id":            submission.ID,
 		"course":        submission.Course,
@@ -1382,17 +1385,25 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
 	payload["extra_download_url"] = s.pathPrefix() + "/api/homework/download?slot=extra"
-	if admin {
+	if admin && courseID > 0 {
+		cid := strconv.Itoa(courseID)
+		dlParams := func(slot string) string {
+			p := url.Values{}
+			p.Set("course_id", cid)
+			p.Set("id", submission.ID)
+			p.Set("slot", slot)
+			return p.Encode()
+		}
 		bulkParams := url.Values{}
-		bulkParams.Set("course", submission.Course)
+		bulkParams.Set("course_id", cid)
 		bulkParams.Set("assignment_id", submission.AssignmentID)
 		payload["secret_key"] = submission.SecretKey
-		payload["report_preview_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID
-		payload["report_download_url"] = s.pathPrefix() + "/api/admin/homework/report?id=" + submission.ID + "&download=1"
-		payload["code_download_url"] = s.pathPrefix() + "/api/admin/homework/code?id=" + submission.ID
-		payload["extra_download_url"] = s.pathPrefix() + "/api/admin/homework/extra?id=" + submission.ID
-		payload["archive_download_url"] = s.pathPrefix() + "/api/admin/homework/archive?id=" + submission.ID
-		payload["bulk_archive_download_url"] = s.pathPrefix() + "/api/admin/homework/archive-all?" + bulkParams.Encode()
+		payload["report_preview_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report")
+		payload["report_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report") + "&download=1"
+		payload["code_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("code")
+		payload["extra_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("extra")
+		payload["archive_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/archive?" + dlParams("")
+		payload["bulk_archive_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/archive-all?" + bulkParams.Encode()
 	}
 	return payload
 }
