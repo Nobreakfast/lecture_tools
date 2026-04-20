@@ -22,7 +22,7 @@ bin/
 tmp/
 dist/
 ppt/
-quiz/
+./quiz/
 metadata*/
 .sisyphus/
 

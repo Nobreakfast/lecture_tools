@@ -85,4 +85,5 @@ type Store interface {
 	ListHomeworkSubmissions(ctx context.Context, courseID int, course, assignmentID string) ([]domain.HomeworkSubmission, error)
 	SaveHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error
 	DeleteHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot) error
+	DeleteHomeworkSubmission(ctx context.Context, submissionID string) error
 }

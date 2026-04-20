@@ -920,6 +920,21 @@ func (s *SQLiteStore) DeleteHomeworkFileMetadata(ctx context.Context, submission
 	return sql.ErrNoRows
 }
 
+func (s *SQLiteStore) DeleteHomeworkSubmission(ctx context.Context, submissionID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM homework_submissions WHERE id = ?`, submissionID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }

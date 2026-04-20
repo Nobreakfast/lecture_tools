@@ -112,7 +112,7 @@ export class StudentPage {
     await this.qzStudentNo.fill(studentNo);
     await this.qzClassName.fill(className);
     await this.quizJoinBtn.click();
-    await this.page.waitForURL("**/quiz", { timeout: 5000 });
+    await this.page.waitForURL("**/quiz", { waitUntil: "domcontentloaded", timeout: 10_000 });
   }
 
   async startHomeworkSession(

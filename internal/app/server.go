@@ -240,6 +240,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/download", s.apiTeacherCourseHomeworkSubmissionDownload)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/archive", s.apiTeacherCourseHomeworkSubmissionArchive)
+	mux.HandleFunc("/api/teacher/courses/homework/submissions/delete", s.apiTeacherCourseHomeworkSubmissionDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/invite-qr", s.apiTeacherCourseInviteQR)
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
@@ -3612,6 +3613,44 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionArchive(w http.ResponseWriter
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(archiveData)
+}
+
+func (s *Server) apiTeacherCourseHomeworkSubmissionDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ID) == "" {
+		http.Error(w, "缺少 id 参数", http.StatusBadRequest)
+		return
+	}
+	submission, err := s.store.GetHomeworkSubmissionByID(r.Context(), req.ID)
+	if err != nil || submission.Course != course.Slug {
+		http.Error(w, "提交记录不存在", http.StatusNotFound)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.homeworkSubmissionDir(submission)
+	if err := s.store.DeleteHomeworkSubmission(r.Context(), submission.ID); err != nil {
+		http.Error(w, "删除失败", http.StatusInternalServerError)
+		return
+	}
+	_ = os.RemoveAll(dir)
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) apiTeacherCourseHomeworkArchiveAll(w http.ResponseWriter, r *http.Request) {

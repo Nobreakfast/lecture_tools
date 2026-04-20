@@ -235,6 +235,15 @@ func (m *memStore) DeleteHomeworkFileMetadata(_ context.Context, submissionID st
 	}
 	return errors.New("not implemented")
 }
+func (m *memStore) DeleteHomeworkSubmission(_ context.Context, submissionID string) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID == submissionID {
+			m.homeworkSubmissions = append(m.homeworkSubmissions[:i], m.homeworkSubmissions[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{

@@ -1636,9 +1636,10 @@
           <td>${keyCell}</td>
           <td>${dlCell}</td>
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN',{hour12:false}) : '-')}</td>
+          <td><button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission('${escapeHTML(item.id)}','${escapeHTML(item.student_no)}','${escapeHTML(item.assignment_id)}')">删除</button></td>
         </tr>`;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>更新</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     async function uploadHomeworkAssignment() {
@@ -1694,6 +1695,16 @@
       const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
       if (!assignmentID) { alert('请先选择作业编号'); return; }
       window.open('/api/teacher/courses/homework/archive-all?course_id=' + selectedCourseId + '&assignment_id=' + encodeURIComponent(assignmentID), '_blank');
+    }
+
+    async function deleteHwSubmission(id, studentNo, assignmentID) {
+      if (!await showConfirm('删除学号「' + studentNo + '」在作业「' + assignmentID + '」的提交记录及所有文件，无法恢复。', { title: '删除学生提交', okLabel: '确认删除' })) return;
+      const r = await fetch('/api/teacher/courses/homework/submissions/delete?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ id: id })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadHomeworkSubmissions();
     }
 
     /* ── detail modal ── */
