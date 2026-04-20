@@ -202,6 +202,9 @@ func (m *memStore) SaveHomeworkFileMetadata(_ context.Context, submissionID stri
 		case domain.HomeworkSlotCode:
 			m.homeworkSubmissions[i].CodeOriginalName = originalName
 			m.homeworkSubmissions[i].CodeUploadedAt = &now
+		case domain.HomeworkSlotExtra:
+			m.homeworkSubmissions[i].ExtraOriginalName = originalName
+			m.homeworkSubmissions[i].ExtraUploadedAt = &now
 		default:
 			return errors.New("not implemented")
 		}
@@ -222,6 +225,9 @@ func (m *memStore) DeleteHomeworkFileMetadata(_ context.Context, submissionID st
 		case domain.HomeworkSlotCode:
 			m.homeworkSubmissions[i].CodeOriginalName = ""
 			m.homeworkSubmissions[i].CodeUploadedAt = nil
+		case domain.HomeworkSlotExtra:
+			m.homeworkSubmissions[i].ExtraOriginalName = ""
+			m.homeworkSubmissions[i].ExtraUploadedAt = nil
 		default:
 			return errors.New("not implemented")
 		}

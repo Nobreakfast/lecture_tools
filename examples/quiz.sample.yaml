@@ -52,4 +52,11 @@ questions:
   - id: "q5"
     type: "short_answer"
     stem: "请描述你目前最困惑的知识点。"
+    short_answer_mode: "text"
     reference_answer: "可从定义、几何意义、判定方法三方面回顾。"
+    fixed_position: true
+  - id: "q6"
+    type: "short_answer"
+    stem: "请上传你的代码运行截图。"
+    short_answer_mode: "image"
+    fixed_position: true

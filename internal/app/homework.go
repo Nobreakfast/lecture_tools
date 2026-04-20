@@ -40,6 +40,8 @@ const (
 	homeworkCookieName              = "homework_token"
 	homeworkAssignmentsFolder       = "_homework"
 	homeworkAssignmentPDFMaxSize    = 500 << 20
+	homeworkOthersMaxSize           = 50 << 20
+	homeworkOthersFolder            = "others"
 	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
 )
 
@@ -432,6 +434,241 @@ func (s *Server) apiHomeworkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, false, 0)})
+}
+
+func (s *Server) homeworkOthersDir(submission *domain.HomeworkSubmission) string {
+	return filepath.Join(s.homeworkSubmissionDir(submission), homeworkOthersFolder)
+}
+
+func validateOthersFilename(raw string) (string, error) {
+	name := strings.TrimSpace(filepath.Base(raw))
+	if name == "" || name == "." || name == ".." ||
+		strings.ContainsAny(name, "/\\") || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("文件名无效")
+	}
+	return name, nil
+}
+
+func (s *Server) apiHomeworkOthersUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireEditableHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, err.Error(), homeworkAuthStatus(err))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, homeworkOthersMaxSize)
+	if err := r.ParseMultipartForm(homeworkOthersMaxSize); err != nil {
+		http.Error(w, "文件过大（限 50 MB）或格式错误", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "未找到上传文件", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	name, err := validateOthersFilename(header.Filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "读取文件失败", http.StatusInternalServerError)
+		return
+	}
+	if len(data) == 0 {
+		http.Error(w, "文件不能为空", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.homeworkOthersDir(submission)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "创建目录失败", http.StatusInternalServerError)
+		return
+	}
+	finalPath := filepath.Join(dir, name)
+	tmpPath := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", name, time.Now().UnixNano()))
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		http.Error(w, "写入文件失败", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tmpPath)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		http.Error(w, "写入文件失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "file": s.othersFilePayload(name, finalPath)})
+}
+
+func (s *Server) apiHomeworkOthersList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	items := s.listOthersFiles(submission)
+	writeJSON(w, map[string]any{"items": items})
+}
+
+func (s *Server) apiHomeworkOthersDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, "未登录", http.StatusUnauthorized)
+		return
+	}
+	name, err := validateOthersFilename(r.URL.Query().Get("file"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	fp := filepath.Join(s.homeworkOthersDir(submission), name)
+	if _, statErr := os.Stat(fp); statErr != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+	if strings.TrimSpace(ct) == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, fp)
+}
+
+func (s *Server) apiHomeworkOthersDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireEditableHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, err.Error(), homeworkAuthStatus(err))
+		return
+	}
+	var req struct {
+		File string `json:"file"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	name, err := validateOthersFilename(req.File)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fp := filepath.Join(s.homeworkOthersDir(submission), name)
+	if err := os.Remove(fp); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "文件不存在", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "删除失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiHomeworkOthersRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	submission, err := s.requireEditableHomeworkStudent(r)
+	if err != nil {
+		http.Error(w, err.Error(), homeworkAuthStatus(err))
+		return
+	}
+	var req struct {
+		OldName string `json:"old_name"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	oldName, err := validateOthersFilename(req.OldName)
+	if err != nil {
+		http.Error(w, "旧文件名无效", http.StatusBadRequest)
+		return
+	}
+	newName, err := validateOthersFilename(req.NewName)
+	if err != nil {
+		http.Error(w, "新文件名无效", http.StatusBadRequest)
+		return
+	}
+	if oldName == newName {
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.homeworkOthersDir(submission)
+	oldPath := filepath.Join(dir, oldName)
+	newPath := filepath.Join(dir, newName)
+	if _, statErr := os.Stat(oldPath); statErr != nil {
+		http.Error(w, "文件不存在", http.StatusNotFound)
+		return
+	}
+	if _, statErr := os.Stat(newPath); statErr == nil {
+		http.Error(w, "目标文件名已存在", http.StatusConflict)
+		return
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		http.Error(w, "重命名失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "file": s.othersFilePayload(newName, newPath)})
+}
+
+func (s *Server) listOthersFiles(submission *domain.HomeworkSubmission) []map[string]any {
+	dir := s.homeworkOthersDir(submission)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []map[string]any{}
+	}
+	items := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		name, nameErr := validateOthersFilename(entry.Name())
+		if nameErr != nil {
+			continue
+		}
+		fp := filepath.Join(dir, name)
+		items = append(items, s.othersFilePayload(name, fp))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i]["name"].(string) < items[j]["name"].(string)
+	})
+	return items
+}
+
+func (s *Server) othersFilePayload(name, fp string) map[string]any {
+	info, err := os.Stat(fp)
+	payload := map[string]any{"name": name}
+	if err == nil {
+		payload["size"] = info.Size()
+		payload["updated_at"] = info.ModTime()
+	}
+	return payload
 }
 
 func (s *Server) apiAdminHomeworkAssignments(w http.ResponseWriter, r *http.Request) {
@@ -1381,6 +1618,7 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 			"code":   homeworkFilePayload(submission, domain.HomeworkSlotCode),
 			"extra":  homeworkFilePayload(submission, domain.HomeworkSlotExtra),
 		},
+		"others": s.listOthersFiles(submission),
 	}
 	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
@@ -1441,6 +1679,8 @@ func parseHomeworkSlot(raw string) (domain.HomeworkFileSlot, error) {
 		return domain.HomeworkSlotCode, nil
 	case string(domain.HomeworkSlotExtra):
 		return domain.HomeworkSlotExtra, nil
+	case string(domain.HomeworkSlotOthers):
+		return domain.HomeworkSlotOthers, nil
 	default:
 		return "", fmt.Errorf("无效文件槽位")
 	}
@@ -1517,36 +1757,40 @@ func (s *Server) homeworkStoredFilePath(submission *domain.HomeworkSubmission, s
 }
 
 func (s *Server) buildHomeworkArchive(submission *domain.HomeworkSubmission) ([]byte, error) {
-	entries := []struct {
+	type archiveFile struct {
 		Name string
 		Path string
-	}{}
+	}
+	entries := []archiveFile{}
 	if submission.ReportOriginalName != "" {
-		entries = append(entries, struct {
-			Name string
-			Path string
-		}{
+		entries = append(entries, archiveFile{
 			Name: sanitizeHomeworkMetadataFilename(submission.ReportOriginalName, "report.pdf"),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "report.pdf"),
 		})
 	}
 	if submission.CodeOriginalName != "" {
-		entries = append(entries, struct {
-			Name string
-			Path string
-		}{
+		entries = append(entries, archiveFile{
 			Name: sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb"),
 			Path: s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode),
 		})
 	}
 	if submission.ExtraOriginalName != "" {
-		entries = append(entries, struct {
-			Name string
-			Path string
-		}{
+		entries = append(entries, archiveFile{
 			Name: sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip"),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "extra.zip"),
 		})
+	}
+	othersDir := s.homeworkOthersDir(submission)
+	if dirEntries, err := os.ReadDir(othersDir); err == nil {
+		for _, de := range dirEntries {
+			if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+				continue
+			}
+			entries = append(entries, archiveFile{
+				Name: homeworkOthersFolder + "/" + de.Name(),
+				Path: filepath.Join(othersDir, de.Name()),
+			})
+		}
 	}
 	if len(entries) == 0 {
 		return nil, nil
@@ -1616,6 +1860,19 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "extra.zip"),
 				Slot: domain.HomeworkSlotExtra,
 			})
+		}
+		othersDir := s.homeworkOthersDir(&submission)
+		if dirEntries, oErr := os.ReadDir(othersDir); oErr == nil {
+			for _, de := range dirEntries {
+				if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+					continue
+				}
+				entries = append(entries, archiveEntry{
+					Name: homeworkOthersFolder + "/" + de.Name(),
+					Path: filepath.Join(othersDir, de.Name()),
+					Slot: domain.HomeworkSlotOthers,
+				})
+			}
 		}
 		if len(entries) == 0 {
 			continue

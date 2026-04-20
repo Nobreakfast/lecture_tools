@@ -1,6 +1,8 @@
 package app
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"embed"
@@ -163,6 +165,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/homework/upload", s.apiHomeworkUpload)
 	mux.HandleFunc("/api/homework/download", s.apiHomeworkDownload)
 	mux.HandleFunc("/api/homework/delete", s.apiHomeworkDelete)
+	mux.HandleFunc("/api/homework/others/upload", s.apiHomeworkOthersUpload)
+	mux.HandleFunc("/api/homework/others/list", s.apiHomeworkOthersList)
+	mux.HandleFunc("/api/homework/others/download", s.apiHomeworkOthersDownload)
+	mux.HandleFunc("/api/homework/others/delete", s.apiHomeworkOthersDelete)
+	mux.HandleFunc("/api/homework/others/rename", s.apiHomeworkOthersRename)
 	mux.HandleFunc("/api/entry-status", s.apiEntryStatus)
 	mux.HandleFunc("/api/me", s.apiMe)
 	mux.HandleFunc("/api/student-signout", s.apiStudentSignout)
@@ -205,6 +212,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-generate", s.apiTeacherCourseQuizBankAIGenerate)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-autofill", s.apiTeacherCourseQuizBankAIAutoFill)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/rename", s.apiTeacherCourseQuizBankRename)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/download", s.apiTeacherCourseQuizBankDownload)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/download-all", s.apiTeacherCourseQuizBankDownloadAll)
 	mux.HandleFunc("/quiz-editor", s.pageQuizEditor)
 	mux.HandleFunc("/api/teacher/courses/attempts", s.apiTeacherCourseAttempts)
 	mux.HandleFunc("/api/teacher/courses/attempt-detail", s.apiTeacherCourseAttemptDetail)
@@ -2620,6 +2629,138 @@ func (s *Server) apiTeacherCourseQuizBankRename(w http.ResponseWriter, r *http.R
 		}
 	}
 	writeJSON(w, map[string]any{"ok": true, "new_quiz_id": req.NewQuizID})
+}
+
+func (s *Server) apiTeacherCourseQuizBankDownload(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
+	if quizID == "" {
+		http.Error(w, "quiz_id 不能为空", http.StatusBadRequest)
+		return
+	}
+	bankDir := s.metadataQuizDir(course.TeacherID, course.Slug, quizID)
+	data, err := s.buildQuizBankZip(bankDir, quizID)
+	if err != nil {
+		http.Error(w, "生成压缩包失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(data) == 0 {
+		http.Error(w, "题库为空或不存在", http.StatusNotFound)
+		return
+	}
+	archiveName := safePathPart(quizID) + ".zip"
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(data)
+}
+
+func (s *Server) apiTeacherCourseQuizBankDownloadAll(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
+	dirs, _ := os.ReadDir(quizRoot)
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+	filesWritten := 0
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		qid := d.Name()
+		bankDir := filepath.Join(quizRoot, qid)
+		entries, err := os.ReadDir(bankDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			fpath := filepath.Join(bankDir, entry.Name())
+			data, err := os.ReadFile(fpath)
+			if err != nil {
+				continue
+			}
+			fw, err := zw.Create(filepath.Join(qid, entry.Name()))
+			if err != nil {
+				continue
+			}
+			_, _ = fw.Write(data)
+			filesWritten++
+		}
+	}
+	if err := zw.Close(); err != nil {
+		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
+		return
+	}
+	if filesWritten == 0 {
+		http.Error(w, "题库为空", http.StatusNotFound)
+		return
+	}
+	archiveName := safePathPart(course.Slug) + "_quiz_bank_all.zip"
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// buildQuizBankZip packs all files in a single quiz bank directory into a ZIP.
+func (s *Server) buildQuizBankZip(bankDir, quizID string) ([]byte, error) {
+	entries, err := os.ReadDir(bankDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+	filesWritten := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fpath := filepath.Join(bankDir, entry.Name())
+		data, err := os.ReadFile(fpath)
+		if err != nil {
+			continue
+		}
+		fw, err := zw.Create(filepath.Join(quizID, entry.Name()))
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		if _, err := fw.Write(data); err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		filesWritten++
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	if filesWritten == 0 {
+		return nil, nil
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request) {

@@ -175,3 +175,22 @@ questions:
 		t.Fatalf("expected parse error for short_answer_mode on non-short_answer")
 	}
 }
+
+func TestParseShortAnswerModeTextImage(t *testing.T) {
+	raw := []byte(`
+quiz_id: "q_text_image"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    short_answer_mode: "text_image"
+    stem: "描述并上传截图"
+`)
+	q, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if q.Questions[0].ShortAnswerMode != "text_image" {
+		t.Fatalf("unexpected short_answer_mode: %s", q.Questions[0].ShortAnswerMode)
+	}
+}

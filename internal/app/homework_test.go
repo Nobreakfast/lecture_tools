@@ -363,6 +363,188 @@ func TestHomeworkAssignmentFilesStayOutOfMaterialsRoutes(t *testing.T) {
 }
 
 
+func TestHomeworkOthersUploadListRenameDeleteFlow(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+
+	body := []byte(`{"name":"王五","student_no":"2026099","class_name":"3班","secret_key":"mykey","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+
+	// Upload file to others
+	fileData := []byte("hello world content")
+	uploadRR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, "notes.txt", fileData, cookie)
+	if uploadRR.Code != http.StatusOK {
+		t.Fatalf("expected others upload 200, got %d body=%s", uploadRR.Code, uploadRR.Body.String())
+	}
+	var uploadResp map[string]any
+	if err := json.Unmarshal(uploadRR.Body.Bytes(), &uploadResp); err != nil {
+		t.Fatalf("unmarshal upload response: %v", err)
+	}
+	if uploadResp["ok"] != true {
+		t.Fatalf("expected ok=true, got %v", uploadResp)
+	}
+
+	// Upload second file
+	upload2RR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, "data.csv", []byte("a,b,c\n1,2,3"), cookie)
+	if upload2RR.Code != http.StatusOK {
+		t.Fatalf("expected second upload 200, got %d body=%s", upload2RR.Code, upload2RR.Body.String())
+	}
+
+	// List others
+	listRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/others/list", nil, cookie)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d body=%s", listRR.Code, listRR.Body.String())
+	}
+	var listResp map[string]any
+	if err := json.Unmarshal(listRR.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	items := listResp["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d: %s", len(items), listRR.Body.String())
+	}
+	names := []string{}
+	for _, item := range items {
+		names = append(names, item.(map[string]any)["name"].(string))
+	}
+	sort.Strings(names)
+	if names[0] != "data.csv" || names[1] != "notes.txt" {
+		t.Fatalf("unexpected file names: %v", names)
+	}
+
+	// Download
+	downloadRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/others/download?file=notes.txt", nil, cookie)
+	if downloadRR.Code != http.StatusOK {
+		t.Fatalf("expected download 200, got %d", downloadRR.Code)
+	}
+	if string(downloadRR.Body.Bytes()) != string(fileData) {
+		t.Fatalf("unexpected download content: %q", downloadRR.Body.String())
+	}
+
+	// Rename
+	renameBody := []byte(`{"old_name":"notes.txt","new_name":"readme.txt"}`)
+	renameRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/others/rename", renameBody, cookie)
+	if renameRR.Code != http.StatusOK {
+		t.Fatalf("expected rename 200, got %d body=%s", renameRR.Code, renameRR.Body.String())
+	}
+
+	// Verify rename: old name gone, new name exists
+	download404RR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/others/download?file=notes.txt", nil, cookie)
+	if download404RR.Code != http.StatusNotFound {
+		t.Fatalf("expected old name 404, got %d", download404RR.Code)
+	}
+	downloadNewRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/others/download?file=readme.txt", nil, cookie)
+	if downloadNewRR.Code != http.StatusOK {
+		t.Fatalf("expected renamed file download 200, got %d", downloadNewRR.Code)
+	}
+
+	// Delete
+	deleteBody := []byte(`{"file":"data.csv"}`)
+	deleteRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/others/delete", deleteBody, cookie)
+	if deleteRR.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", deleteRR.Code, deleteRR.Body.String())
+	}
+
+	// List again — should have 1 item
+	list2RR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/others/list", nil, cookie)
+	if list2RR.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d", list2RR.Code)
+	}
+	var list2Resp map[string]any
+	if err := json.Unmarshal(list2RR.Body.Bytes(), &list2Resp); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	items2 := list2Resp["items"].([]any)
+	if len(items2) != 1 {
+		t.Fatalf("expected 1 item after delete, got %d", len(items2))
+	}
+	if items2[0].(map[string]any)["name"].(string) != "readme.txt" {
+		t.Fatalf("unexpected remaining file: %v", items2[0])
+	}
+
+	// Verify filesystem: others/ directory contains readme.txt
+	submissionDir := filepath.Join(s.cfg.MetadataDir, "course-a", "assignment", "task-1", "submissions", "2026099")
+	othersDir := filepath.Join(submissionDir, "others")
+	entries, err := os.ReadDir(othersDir)
+	if err != nil {
+		t.Fatalf("ReadDir others: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "readme.txt" {
+		var entryNames []string
+		for _, e := range entries {
+			entryNames = append(entryNames, e.Name())
+		}
+		t.Fatalf("expected [readme.txt] in others/, got %v", entryNames)
+	}
+
+	// Delete nonexistent file should 404
+	delete404RR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/others/delete", []byte(`{"file":"nope.bin"}`), cookie)
+	if delete404RR.Code != http.StatusNotFound {
+		t.Fatalf("expected delete 404, got %d", delete404RR.Code)
+	}
+
+	// Rename to existing name should conflict
+	upload3RR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, "conflict.txt", []byte("conflict"), cookie)
+	if upload3RR.Code != http.StatusOK {
+		t.Fatalf("expected upload 200, got %d", upload3RR.Code)
+	}
+	conflictBody := []byte(`{"old_name":"readme.txt","new_name":"conflict.txt"}`)
+	conflictRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/others/rename", conflictBody, cookie)
+	if conflictRR.Code != http.StatusConflict {
+		t.Fatalf("expected rename conflict 409, got %d", conflictRR.Code)
+	}
+
+	// Verify others appear in submission payload
+	subRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/submission", nil, cookie)
+	if subRR.Code != http.StatusOK {
+		t.Fatalf("expected submission 200, got %d", subRR.Code)
+	}
+	subResp := decodeSubmissionResponse(t, subRR)
+	submission := subResp["submission"].(map[string]any)
+	others := submission["others"].([]any)
+	if len(others) != 2 {
+		t.Fatalf("expected 2 others in submission payload, got %d", len(others))
+	}
+}
+
+func TestHomeworkOthersEmptyUploadRejected(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+
+	body := []byte(`{"name":"赵六","student_no":"2026100","class_name":"4班","secret_key":"key2","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d", createRR.Code)
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+
+	emptyRR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, "empty.txt", []byte{}, cookie)
+	if emptyRR.Code != http.StatusBadRequest {
+		t.Fatalf("expected empty upload 400, got %d body=%s", emptyRR.Code, emptyRR.Body.String())
+	}
+}
+
+func TestHomeworkOthersInvalidFilename(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+
+	body := []byte(`{"name":"钱七","student_no":"2026101","class_name":"5班","secret_key":"key3","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d", createRR.Code)
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+
+	dotRR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, ".hidden", []byte("data"), cookie)
+	if dotRR.Code != http.StatusBadRequest {
+		t.Fatalf("expected dot-file upload 400, got %d", dotRR.Code)
+	}
+}
+
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

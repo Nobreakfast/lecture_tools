@@ -182,6 +182,12 @@
       box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
     }
     #submit:active { transform: scale(.98); }
+    #exitBtn:hover {
+      background: transparent;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+    }
+    #exitBtn:active { transform: translateY(0); box-shadow: none; }
     .upload-area {
       margin-top: 10px;
     }
@@ -432,6 +438,9 @@
             showText = true;
             showUpload = false;
             placeholder = '请粘贴你的代码...';
+          } else if (mode === 'text_image') {
+            showText = true;
+            showUpload = true;
           } else {
             // Backward compatibility: keep old quizzes working without short_answer_mode.
             const stem = q.stem || '';

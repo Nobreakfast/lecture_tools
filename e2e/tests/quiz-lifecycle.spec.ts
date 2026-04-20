@@ -48,6 +48,8 @@ test.describe("Quiz lifecycle (end-to-end)", () => {
       q3: "A,B,C",    // multi_choice: 定义法, 一阶条件, 二阶条件
       q4: "A",        // survey: 更多案例
       q5: "我觉得凸函数的几何意义还不太清楚。",
+      q7: "print('hello')",
+      q8: "先用贪心法求解。",
     });
 
     // ── Submit ──

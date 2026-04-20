@@ -135,7 +135,8 @@ metadata/
 - 顶层必须有 `quiz_id`、`title`、`questions`
 - 每题必须有 `id`、`type`、`stem`；类型限 `single_choice`/`multi_choice`/`yes_no`/`survey`/`short_answer`
 - 判分类（single/multi/yes_no）必须有 `correct_answer`
-- `short_answer.short_answer_mode`：`text` / `image` / `code`
+- `short_answer.short_answer_mode`：`text` / `image` / `code` / `text_image`（省略则根据题干自动检测）
+- `fixed_position: true`：固定该题位置，不参与随机排序
 - 图片放在 YAML 同目录，YAML 里写 `image: foo.svg`
 - **上传 YAML 时以文件名为准**：`week7_l1.yaml` → 目录 `week7_l1`，运行时 `quiz_id = week7_l1`
 

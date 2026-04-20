@@ -150,6 +150,110 @@ test.describe("Homework lifecycle", () => {
     await studentCtx.close();
   });
 
+  test("student can upload, list, rename, delete files in others/ via API", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+
+    // Ensure assignment exists
+    const teacherCtx = await browser.newContext();
+    const teacherPage = new TeacherPage(await teacherCtx.newPage());
+    await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+    await teacherPage.selectCourse(seed.courseId);
+    const fixturePath = path.resolve(__dirname, "../fixtures/sample.txt");
+    await teacherPage.uploadHomeworkAssignment(ASSIGNMENT_ID, fixturePath);
+    await teacherCtx.close();
+
+    const studentCtx = await browser.newContext();
+    const page = await studentCtx.newPage();
+    await page.goto("/");
+
+    // Create homework session
+    const sessionRes = await page.evaluate(
+      async ({ courseId, assignmentId }) => {
+        const r = await fetch("/api/homework/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            course_id: courseId,
+            assignment_id: assignmentId,
+            name: "附件学生",
+            student_no: "2024OT01",
+            class_name: "附件班",
+            secret_key: "otsecret",
+          }),
+        });
+        return { status: r.status, body: await r.json() };
+      },
+      { courseId: seed.courseId, assignmentId: ASSIGNMENT_ID }
+    );
+    expect(sessionRes.status).toBe(200);
+
+    // Upload a file to others
+    const uploadStatus = await page.evaluate(async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob(["hello world"], { type: "text/plain" }), "notes.txt");
+      const r = await fetch("/api/homework/others/upload", {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      return r.status;
+    });
+    expect(uploadStatus).toBe(200);
+
+    // List others files
+    const listRes = await page.evaluate(async () => {
+      const r = await fetch("/api/homework/others/list", { credentials: "include" });
+      return { status: r.status, body: await r.json() };
+    });
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.items).toHaveLength(1);
+    expect(listRes.body.items[0].name).toBe("notes.txt");
+
+    // Rename
+    const renameRes = await page.evaluate(async () => {
+      const r = await fetch("/api/homework/others/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ old_name: "notes.txt", new_name: "readme.md" }),
+      });
+      return { status: r.status, body: await r.json() };
+    });
+    expect(renameRes.status).toBe(200);
+
+    // Download renamed file
+    const dlRes = await page.evaluate(async () => {
+      const r = await fetch("/api/homework/others/download?file=readme.md", { credentials: "include" });
+      return { status: r.status, text: await r.text() };
+    });
+    expect(dlRes.status).toBe(200);
+    expect(dlRes.text).toBe("hello world");
+
+    // Delete
+    const delRes = await page.evaluate(async () => {
+      const r = await fetch("/api/homework/others/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ file: "readme.md" }),
+      });
+      return r.status;
+    });
+    expect(delRes).toBe(200);
+
+    // Verify empty list
+    const list2Res = await page.evaluate(async () => {
+      const r = await fetch("/api/homework/others/list", { credentials: "include" });
+      return { status: r.status, body: await r.json() };
+    });
+    expect(list2Res.body.items).toHaveLength(0);
+
+    await studentCtx.close();
+  });
+
   test("teacher can toggle assignment visibility", async ({ page }) => {
     const seed = getSeedResult();
     const teacherPage = new TeacherPage(page);

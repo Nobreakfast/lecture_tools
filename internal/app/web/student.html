@@ -113,7 +113,7 @@
     .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
     .meta-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(255,255,255,0.65); font-size: 13px; }
     .meta-item strong { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
-    .slot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .slot-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
     .slot-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; background: rgba(255,255,255,0.78); }
     .slot-card h3 { font-size: 15px; margin-bottom: 6px; }
     .slot-card p { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
@@ -122,6 +122,13 @@
     .download-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
     .download-item:last-child { border-bottom: 0; }
     .download-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+    .others-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+    .others-item:last-child { border-bottom: 0; }
+    .others-item .others-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .others-item .others-meta { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+    .others-item .others-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .others-item .others-actions button { padding: 4px 10px; font-size: 12px; }
+    .others-item .others-actions a { padding: 4px 10px; font-size: 12px; }
     .message { margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); font-size: 13px; line-height: 1.7; display: none; }
     .message.show { display: block; }
     .message.info { background: rgba(79,70,229,0.08); color: var(--primary); }
@@ -245,7 +252,7 @@
 
       <div class="card" id="submissionCard" style="display:none;">
         <div class="section-title">3. 当前上传状态</div>
-        <div class="section-hint">上传 PDF 会覆盖当前报告文件，上传 .ipynb 会覆盖当前实验 Notebook。</div>
+        <div class="section-hint">上传 PDF 会覆盖当前报告文件；其它文件区可上传任意文件（单个文件限 50 MB）。</div>
         <div class="meta-grid" id="submissionMeta"></div>
         <div class="slot-grid">
           <div class="slot-card">
@@ -258,24 +265,13 @@
               <button id="reportDeleteBtn" class="danger">删除 PDF</button>
             </div>
           </div>
-          <div class="slot-card">
-            <h3>🧩 实验 Notebook（.ipynb）</h3>
-            <p>系统保存为 <code>notebook.ipynb</code>，页面展示原始文件名。</p>
-            <div class="slot-file empty" id="codeInfo">暂未上传 Notebook</div>
+          <div class="slot-card" style="grid-column:1/-1;">
+            <h3>📂 其它文件</h3>
+            <p>可上传任意文件（代码、数据、文档等），存储在 <code>others/</code> 目录。</p>
+            <div id="othersFileList" class="slot-file empty">暂无文件</div>
             <div class="slot-actions">
-              <input id="codeInput" type="file" accept=".ipynb,.json" hidden />
-              <button id="codeUploadBtn">上传 / 替换 Notebook</button>
-              <button id="codeDeleteBtn" class="danger">删除 Notebook</button>
-            </div>
-          </div>
-          <div class="slot-card">
-            <h3>📦 其它附件（.zip）</h3>
-            <p>系统保存为 <code>extra.zip</code>，可用于上传代码、数据等压缩包。</p>
-            <div class="slot-file empty" id="extraInfo">暂未上传附件</div>
-            <div class="slot-actions">
-              <input id="extraInput" type="file" accept=".zip,application/zip" hidden />
-              <button id="extraUploadBtn">上传 / 替换 ZIP</button>
-              <button id="extraDeleteBtn" class="danger">删除 ZIP</button>
+              <input id="othersInput" type="file" hidden />
+              <button id="othersUploadBtn">上传文件</button>
             </div>
           </div>
         </div>
@@ -618,18 +614,33 @@
         '<div class="meta-item"><strong>作业编号</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
         '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>';
       document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
-      document.getElementById('codeInfo').outerHTML = fileInfoHTML(submission.files && submission.files.code, '暂未上传 Notebook');
-      document.getElementById('extraInfo').outerHTML = fileInfoHTML(submission.files && submission.files.extra, '暂未上传附件');
       var slotFiles = document.querySelectorAll('.slot-card .slot-file');
       if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
-      if (slotFiles[1]) slotFiles[1].id = 'codeInfo';
-      if (slotFiles[2]) slotFiles[2].id = 'extraInfo';
       document.getElementById('reportDeleteBtn').disabled = !(submission.files && submission.files.report && submission.files.report.uploaded);
-      document.getElementById('codeDeleteBtn').disabled = !(submission.files && submission.files.code && submission.files.code.uploaded);
-      document.getElementById('extraDeleteBtn').disabled = !(submission.files && submission.files.extra && submission.files.extra.uploaded);
+      renderOthersFileList(submission.others || []);
       if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
       renderAssignmentFiles();
       saveHwToStorage();
+    }
+    function renderOthersFileList(items) {
+      var root = document.getElementById('othersFileList');
+      if (!items || !items.length) {
+        root.innerHTML = '暂无文件';
+        root.className = 'slot-file empty';
+        return;
+      }
+      root.className = 'slot-file';
+      root.innerHTML = items.map(function(f) {
+        return '<div class="others-item">' +
+          '<span class="others-name" title="' + escapeHTML(f.name) + '">' + escapeHTML(f.name) + '</span>' +
+          '<span class="others-meta">' + escapeHTML(formatSize(f.size)) + '</span>' +
+          '<span class="others-actions">' +
+            '<a class="link-btn secondary" href="/api/homework/others/download?file=' + encodeURIComponent(f.name) + '">下载</a>' +
+            '<button class="secondary" onclick="renameOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">重命名</button>' +
+            '<button class="danger" onclick="deleteOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">删除</button>' +
+          '</span>' +
+        '</div>';
+      }).join('');
     }
     async function loadAssignmentFiles() {
       assignmentItems = [];
@@ -693,27 +704,25 @@
       var fd = new FormData();
       fd.append('slot', slot);
       fd.append('file', file);
-      var slotLabel = slot === 'report' ? 'PDF' : slot === 'code' ? 'Notebook' : 'ZIP';
-      setMessage('submissionMessage', 'info', '正在上传 ' + slotLabel + '...');
+      setMessage('submissionMessage', 'info', '正在上传 PDF...');
       try {
         var r = await fetch('/api/homework/upload', { method: 'POST', credentials: 'include', body: fd });
         input.value = '';
         if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
         var data = await r.json();
         renderSubmission(data.submission || null);
-        setMessage('submissionMessage', 'info', slotLabel + ' 已保存。');
+        setMessage('submissionMessage', 'info', 'PDF 已保存。');
       } catch (_) {
         input.value = '';
         setMessage('submissionMessage', 'error', '上传失败，请重试。');
       }
     }
     async function deleteSlot(slot) {
-      var label = slot === 'report' ? '报告 PDF' : slot === 'code' ? '实验 Notebook' : 'ZIP 附件';
       var ok;
       if (window.App) {
-        ok = await App.confirmModal('删除当前' + label + '？', '删除后可以重新上传，但旧文件不会自动恢复。');
+        ok = await App.confirmModal('删除当前报告 PDF？', '删除后可以重新上传，但旧文件不会自动恢复。');
       } else {
-        ok = confirm('确认删除当前' + label + '吗？');
+        ok = confirm('确认删除当前报告 PDF 吗？');
       }
       if (!ok) return;
       try {
@@ -724,6 +733,71 @@
         setMessage('submissionMessage', 'info', '文件已删除。');
       } catch (_) {
         setMessage('submissionMessage', 'error', '删除失败，请重试。');
+      }
+    }
+    async function uploadOthersFile() {
+      var input = document.getElementById('othersInput');
+      var file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 50 * 1024 * 1024) {
+        setMessage('submissionMessage', 'error', '文件大小超过 50 MB 限制。');
+        input.value = '';
+        return;
+      }
+      var fd = new FormData();
+      fd.append('file', file);
+      setMessage('submissionMessage', 'info', '正在上传 ' + file.name + '...');
+      try {
+        var r = await fetch('/api/homework/others/upload', { method: 'POST', credentials: 'include', body: fd });
+        input.value = '';
+        if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+        await refreshOthersList();
+        setMessage('submissionMessage', 'info', file.name + ' 已上传。');
+      } catch (_) {
+        input.value = '';
+        setMessage('submissionMessage', 'error', '上传失败，请重试。');
+      }
+    }
+    async function refreshOthersList() {
+      try {
+        var r = await fetch('/api/homework/others/list', { credentials: 'include' });
+        if (!r.ok) return;
+        var data = await r.json();
+        renderOthersFileList(data.items || []);
+      } catch (_) {}
+    }
+    async function deleteOthersFile(name) {
+      var ok;
+      if (window.App) {
+        ok = await App.confirmModal('删除文件 ' + name + '？', '删除后不可恢复。');
+      } else {
+        ok = confirm('确认删除 ' + name + ' 吗？');
+      }
+      if (!ok) return;
+      try {
+        var r = await fetch('/api/homework/others/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ file: name }) });
+        if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+        await refreshOthersList();
+        setMessage('submissionMessage', 'info', name + ' 已删除。');
+      } catch (_) {
+        setMessage('submissionMessage', 'error', '删除失败，请重试。');
+      }
+    }
+    async function renameOthersFile(oldName) {
+      var newName;
+      if (window.App && App.promptModal) {
+        newName = await App.promptModal('重命名文件', oldName);
+      } else {
+        newName = prompt('新文件名：', oldName);
+      }
+      if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+      try {
+        var r = await fetch('/api/homework/others/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ old_name: oldName, new_name: newName.trim() }) });
+        if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
+        await refreshOthersList();
+        setMessage('submissionMessage', 'info', '已重命名为 ' + newName.trim());
+      } catch (_) {
+        setMessage('submissionMessage', 'error', '重命名失败，请重试。');
       }
     }
 
@@ -737,14 +811,10 @@
     document.getElementById('enterBtn').onclick = startOrResumeSubmission;
     document.getElementById('refreshBtn').onclick = function() { fetchCurrentSubmission(true); };
     document.getElementById('reportUploadBtn').onclick = function() { document.getElementById('reportInput').click(); };
-    document.getElementById('codeUploadBtn').onclick = function() { document.getElementById('codeInput').click(); };
-    document.getElementById('extraUploadBtn').onclick = function() { document.getElementById('extraInput').click(); };
     document.getElementById('reportDeleteBtn').onclick = function() { deleteSlot('report'); };
-    document.getElementById('codeDeleteBtn').onclick = function() { deleteSlot('code'); };
-    document.getElementById('extraDeleteBtn').onclick = function() { deleteSlot('extra'); };
     document.getElementById('reportInput').onchange = function() { uploadSlot('report', 'reportInput'); };
-    document.getElementById('codeInput').onchange = function() { uploadSlot('code', 'codeInput'); };
-    document.getElementById('extraInput').onchange = function() { uploadSlot('extra', 'extraInput'); };
+    document.getElementById('othersUploadBtn').onclick = function() { document.getElementById('othersInput').click(); };
+    document.getElementById('othersInput').onchange = function() { uploadOthersFile(); };
 
     // ══════════════════════════════════════════
     //  Init

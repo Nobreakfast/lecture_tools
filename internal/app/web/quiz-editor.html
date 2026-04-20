@@ -279,6 +279,7 @@ window.__mathJaxReady = new Promise((resolve, reject) => {
   font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
+  white-space: nowrap;
 }
 /* Add question area */
 .add-q-bar {
@@ -672,7 +673,7 @@ function parseYAML(text) {
         if (currentOpt && currentQ) { currentQ.options.push(currentOpt); currentOpt = null; }
         if (currentQ) quiz.questions.push(currentQ);
         inOptions = false;
-        currentQ = { id: '', type: 'single_choice', stem: '', options: [], correct_answer: '', explanation: '', knowledge_tag: '', pool_tag: '', reference_answer: '', image: '', allow_multiple: false, fixed_position: false, shuffle_options: null };
+        currentQ = { id: '', type: 'single_choice', stem: '', options: [], correct_answer: '', explanation: '', knowledge_tag: '', pool_tag: '', reference_answer: '', image: '', allow_multiple: false, fixed_position: false, shuffle_options: null, short_answer_mode: '' };
         const afterDash = trimmed.slice(2);
         if (afterDash.match(/^id\s*:/)) currentQ.id = unquote(afterDash.split(':').slice(1).join(':'));
         i++; continue;
@@ -705,6 +706,7 @@ function parseYAML(text) {
         if (trimmed.match(/^image\s*:/)) { currentQ.image = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
         if (trimmed.match(/^allow_multiple\s*:/)) { currentQ.allow_multiple = unquote(trimmed.split(':').slice(1).join(':')) === 'true'; i++; continue; }
         if (trimmed.match(/^fixed_position\s*:/)) { currentQ.fixed_position = unquote(trimmed.split(':').slice(1).join(':')) === 'true'; i++; continue; }
+        if (trimmed.match(/^short_answer_mode\s*:/)) { currentQ.short_answer_mode = unquote(trimmed.split(':').slice(1).join(':')); i++; continue; }
         if (trimmed.match(/^shuffle_options\s*:/)) {
           const v = unquote(trimmed.split(':').slice(1).join(':'));
           currentQ.shuffle_options = (v === 'true') ? true : (v === 'false') ? false : null;
@@ -774,6 +776,8 @@ function serializeToYAML() {
       out += '    correct_answer: ' + quoteYAML(q.correct_answer) + '\n';
     if (q.reference_answer && q.type === 'short_answer')
       out += '    reference_answer: ' + quoteYAML(q.reference_answer) + '\n';
+    if (q.short_answer_mode && q.type === 'short_answer')
+      out += '    short_answer_mode: ' + quoteYAML(q.short_answer_mode) + '\n';
     if (q.explanation) out += '    explanation: ' + quoteYAML(q.explanation) + '\n';
     if (q.knowledge_tag) out += '    knowledge_tag: ' + quoteYAML(q.knowledge_tag) + '\n';
     if (q.pool_tag) out += '    pool_tag: ' + quoteYAML(q.pool_tag) + '\n';
@@ -839,14 +843,16 @@ questions:
   # - id: q4
   #   type: short_answer
   #   stem: "请简述你的理解。"
+  #   short_answer_mode: text  # 回答方式：text / image / code / text_image（省略则自动检测）
   #   reference_answer: "参考答案内容"
   #   fixed_position: true
 
   # ── 可选字段说明 ──
-  # fixed_position: true      # 固定该题位置（不参与随机排序）
-  # shuffle_options: false     # 禁止打乱该题选项顺序（默认打乱）
-  # pool_tag: "pool_a"        # 题池标签（用于抽题）
-  # image: "filename.jpg"     # 题干图片文件名
+  # fixed_position: true           # 固定该题位置（不参与随机排序）
+  # shuffle_options: false          # 禁止打乱该题选项顺序（默认打乱）
+  # pool_tag: "pool_a"             # 题池标签（用于抽题）
+  # image: "filename.jpg"          # 题干图片文件名
+  # short_answer_mode: text        # 简答题回答方式：text=仅文字 / image=仅上传图片 / code=仅代码 / text_image=文字+图片
 `;
 
 /* ── Question model ──────────────────────────────────────── */
@@ -866,6 +872,7 @@ function normalizeQuestion(q) {
     allow_multiple: q.allow_multiple || false,
     fixed_position: q.fixed_position || false,
     shuffle_options: (so === true) ? true : (so === false) ? false : null,
+    short_answer_mode: q.short_answer_mode || '',
   };
 }
 
@@ -964,9 +971,17 @@ function buildQuestionCard(q, idx) {
   </div>`;
 
   // Flags row
+  const saMode = q.short_answer_mode || '';
   html += `<div class="q-flags">
     <label title="固定该题在列表中的位置，不参与随机排序"><input type="checkbox" ${fixedChecked?'checked':''} onchange="questions[${idx}].fixed_position=this.checked;"/> 固定位置</label>
     ${isChoice ? `<label title="是否打乱该题的选项顺序"><input type="checkbox" ${shuffleChecked?'checked':''} onchange="questions[${idx}].shuffle_options=this.checked?true:false;"/> 打乱选项</label>` : ''}
+    ${!isChoice ? `<label title="学生回答方式">回答方式 <select onchange="questions[${idx}].short_answer_mode=this.value;renderQuestions();" style="font-size:12px;padding:2px 6px;">
+      <option value="" ${saMode===''?'selected':''}>自动检测</option>
+      <option value="text" ${saMode==='text'?'selected':''}>仅文字</option>
+      <option value="image" ${saMode==='image'?'selected':''}>仅上传图片</option>
+      <option value="code" ${saMode==='code'?'selected':''}>仅代码</option>
+      <option value="text_image" ${saMode==='text_image'?'selected':''}>文字 + 图片</option>
+    </select></label>` : ''}
   </div>`;
 
   html += `<div class="q-stem">
@@ -1210,10 +1225,25 @@ function buildPreviewCard(q, idx) {
     });
     optionsHTML += '</div>';
   } else {
-    optionsHTML = `<div class="preview-short-answer">
-      <textarea placeholder="在此输入答案..."></textarea>
-      ${q.reference_answer ? `<div style="font-size:12px;color:var(--text-muted);">参考答案：${renderMathText(q.reference_answer)}</div>` : ''}
-    </div>`;
+    const saMode = String(q.short_answer_mode || '').trim();
+    let showText = true, showUpload = true, placeholder = '在此输入答案...';
+    if (saMode === 'text') { showUpload = false; }
+    else if (saMode === 'image') { showText = false; }
+    else if (saMode === 'code') { showUpload = false; placeholder = '请粘贴你的代码...'; }
+    else if (saMode === 'text_image') { /* both */ }
+    else {
+      const stem = q.stem || '';
+      const isUploadOnly = /上传|截图/.test(stem) && !/粘贴|代码|输入/.test(stem);
+      const isTextOnly = /粘贴|代码/.test(stem) && !/上传|截图/.test(stem);
+      showText = !isUploadOnly;
+      showUpload = !isTextOnly;
+      if (isTextOnly) placeholder = '请粘贴你的代码...';
+    }
+    optionsHTML = `<div class="preview-short-answer">`;
+    if (showText) optionsHTML += `<textarea placeholder="${placeholder}"></textarea>`;
+    if (showUpload) optionsHTML += `<button type="button" disabled style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px dashed var(--border);border-radius:8px;background:none;color:var(--text-muted);font-size:13px;cursor:default;margin-top:6px;">📷 上传图片</button>`;
+    if (q.reference_answer) optionsHTML += `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">参考答案：${renderMathText(q.reference_answer)}</div>`;
+    optionsHTML += `</div>`;
   }
 
   let submitHTML = '';

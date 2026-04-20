@@ -13,7 +13,7 @@
 - `multi_choice`：多选，**必须**有 `correct_answer`（如 `A,C,D`）
 - `yes_no`：是非题，**必须**有 `correct_answer`
 - `survey`：问卷题，默认单选；可加 `allow_multiple: true` 变成多选问卷（不判分）
-- `short_answer`：简答题，不判分，可选 `reference_answer`
+- `short_answer`：简答题，不判分，可选 `reference_answer`；可选 `short_answer_mode`：`text`（仅文字）/ `image`（仅上传图片）/ `code`（仅代码）/ `text_image`（文字+图片），省略则根据题干自动检测
 
 ## 2) 先写“自然语言需求”
 

@@ -61,9 +61,9 @@ func Validate(q *domain.Quiz) error {
 			}
 			mode := strings.TrimSpace(item.ShortAnswerMode)
 			switch mode {
-			case "", "text", "image", "code":
-			default:
-				return fmt.Errorf("题目 %s short_answer_mode 无效: %s（仅支持 text/image/code）", item.ID, mode)
+		case "", "text", "image", "code", "text_image":
+		default:
+			return fmt.Errorf("题目 %s short_answer_mode 无效: %s（仅支持 text/image/code/text_image）", item.ID, mode)
 			}
 			if tag := strings.TrimSpace(item.PoolTag); tag != "" {
 				return fmt.Errorf("题目 %s 简答题不能配置 pool_tag", item.ID)

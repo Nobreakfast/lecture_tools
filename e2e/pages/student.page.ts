@@ -41,9 +41,9 @@ export class StudentPage {
   readonly reportUploadBtn: Locator;
   readonly reportInput: Locator;
   readonly reportInfo: Locator;
-  readonly codeUploadBtn: Locator;
-  readonly hwCodeInput: Locator;
-  readonly codeInfo: Locator;
+  readonly othersUploadBtn: Locator;
+  readonly othersInput: Locator;
+  readonly othersFileList: Locator;
   readonly sessionMessage: Locator;
   readonly submissionMessage: Locator;
 
@@ -79,9 +79,9 @@ export class StudentPage {
     this.reportUploadBtn = page.locator("#reportUploadBtn");
     this.reportInput = page.locator("#reportInput");
     this.reportInfo = page.locator("#reportInfo");
-    this.codeUploadBtn = page.locator("#codeUploadBtn");
-    this.hwCodeInput = page.locator("#codeInput");
-    this.codeInfo = page.locator("#codeInfo");
+    this.othersUploadBtn = page.locator("#othersUploadBtn");
+    this.othersInput = page.locator("#othersInput");
+    this.othersFileList = page.locator("#othersFileList");
     this.sessionMessage = page.locator("#sessionMessage");
     this.submissionMessage = page.locator("#submissionMessage");
   }

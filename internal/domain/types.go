@@ -136,6 +136,7 @@ const (
 	HomeworkSlotReport HomeworkFileSlot = "report"
 	HomeworkSlotCode   HomeworkFileSlot = "code"
 	HomeworkSlotExtra  HomeworkFileSlot = "extra"
+	HomeworkSlotOthers HomeworkFileSlot = "others"
 )
 
 type HomeworkSubmission struct {

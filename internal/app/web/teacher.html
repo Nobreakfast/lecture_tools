@@ -291,7 +291,10 @@
           <div id="quizBankUploadResults" style="margin-top:6px;font-size:13px;color:var(--text-secondary);"></div>
         </div>
         <div class="card">
-          <p><strong>已上传题库</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">点击"加载"即可作为当前随堂测验</span></p>
+          <p style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+            <span><strong>已上传题库</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">点击"加载"即可作为当前随堂测验</span></span>
+            <button id="downloadAllQuizBankBtn" class="small btn-secondary" style="font-size:11px;padding:3px 10px;margin:0;display:none;" onclick="downloadAllQuizBanks()">下载全部</button>
+          </p>
           <div id="quizBankList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
         </div>
       </div>
@@ -840,6 +843,8 @@
     function refreshUploadTab() {
       if (!selectedCourseId) {
         document.getElementById('quizBankList').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
+        const dlAllBtn = document.getElementById('downloadAllQuizBankBtn');
+        if (dlAllBtn) dlAllBtn.style.display = 'none';
         document.getElementById('materialList').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
         document.getElementById('homeworkAssignmentsList').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
         return;
@@ -944,10 +949,13 @@
         const data = await r.json();
         const items = data.items || [];
         const root = document.getElementById('quizBankList');
+        const dlAllBtn = document.getElementById('downloadAllQuizBankBtn');
         if (!items.length) {
           root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无题库，请上传</p>';
+          if (dlAllBtn) dlAllBtn.style.display = 'none';
           return;
         }
+        if (dlAllBtn) dlAllBtn.style.display = '';
         let html = '';
         for (const bank of items) {
           const fileNames = (bank.files || []).map(f => f.name).join(', ');
@@ -961,6 +969,7 @@
             <span style="white-space:nowrap;">
               ${bank.has_yaml ? `<button class="small" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="loadQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">加载</button>` : '<span class="badge badge-warning" style="font-size:11px;">无YAML</span>'}
               <button class="small" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="openQuizEditor(decodeURIComponent('${jsArg(bank.quiz_id)}'))">编辑</button>
+              <button class="small btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="downloadQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">下载</button>
               <button class="small btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="renameQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">重命名</button>
               <button class="small btn-danger" style="font-size:11px;padding:3px 10px;margin-top:0;" onclick="deleteQuizBank(decodeURIComponent('${jsArg(bank.quiz_id)}'))">删除</button>
             </span>
@@ -1007,6 +1016,26 @@
         showToast('重命名成功');
         loadQuizBankList();
       } catch(e) { alert('重命名失败: ' + e.message); }
+    }
+
+    function downloadQuizBank(quizId) {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      const a = document.createElement('a');
+      a.href = '/api/teacher/courses/quiz-bank/download?course_id=' + selectedCourseId + '&quiz_id=' + encodeURIComponent(quizId);
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function downloadAllQuizBanks() {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      const a = document.createElement('a');
+      a.href = '/api/teacher/courses/quiz-bank/download-all?course_id=' + selectedCourseId;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     }
 
     function openQuizEditor(quizId) {
