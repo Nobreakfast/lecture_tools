@@ -1385,9 +1385,9 @@ func (s *Server) apiTeacherMCPDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	platform := r.URL.Query().Get("platform")
 	nameMap := map[string]string{
-		"darwin-arm64":  "mcp-darwin-arm64",
-		"darwin-amd64":  "mcp-darwin-amd64",
-		"windows-amd64": "mcp-windows-amd64.exe",
+		"darwin-arm64":  "lecture_tools-darwin-arm64",
+		"darwin-amd64":  "lecture_tools-darwin-amd64",
+		"windows-amd64": "lecture_tools-windows-amd64.exe",
 	}
 	fileName, ok := nameMap[platform]
 	if !ok {

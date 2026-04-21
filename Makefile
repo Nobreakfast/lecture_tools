@@ -19,9 +19,9 @@ build-qrgen:
 
 build-mcp:
 	@mkdir -p $(BIN_DIR)/mcp
-	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/mcp/mcp-darwin-arm64 ./cmd/mcp
-	GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/mcp/mcp-darwin-amd64 ./cmd/mcp
-	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/mcp/mcp-windows-amd64.exe ./cmd/mcp
+	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-arm64 ./cmd/mcp
+	GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-amd64 ./cmd/mcp
+	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-windows-amd64.exe ./cmd/mcp
 
 run: build-server
 	./$(BIN_DIR)/server
