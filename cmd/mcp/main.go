@@ -152,10 +152,25 @@ func login(client *http.Client, serverURL, id, password string) error {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	log.Printf("login response: status=%d cookies=%d", resp.StatusCode, len(resp.Cookies()))
+	for _, c := range resp.Cookies() {
+		log.Printf("  cookie: %s=%s (path=%s secure=%v)", c.Name, c.Value[:min(8, len(c.Value))]+"...", c.Path, c.Secure)
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
 	}
+	// Verify session by calling /api/auth/me
+	meResp, err := client.Get(serverURL + "/api/auth/me")
+	if err != nil {
+		return fmt.Errorf("session verify failed: %w", err)
+	}
+	defer meResp.Body.Close()
+	meBody, _ := io.ReadAll(meResp.Body)
+	if meResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("session invalid (status %d): %s", meResp.StatusCode, string(meBody))
+	}
+	log.Printf("session verified: %s", string(meBody))
 	return nil
 }
 
