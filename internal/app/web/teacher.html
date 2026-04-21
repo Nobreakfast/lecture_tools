@@ -1568,7 +1568,7 @@
       root.innerHTML = hwAssignmentsCache.map(item => {
         const hiddenBadge = item.hidden ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:6px;">已隐藏</span>' : '';
         const files = (item.files || []).map(f =>
-          `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;">${escapeHTML(f.name)} (${formatSize(f.size||0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a></div>`
+          `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px;">${escapeHTML(f.name)} (${formatSize(f.size||0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a> <a href="javascript:void(0)" style="color:#b91c1c;cursor:pointer;" onclick="deleteHwFile(decodeURIComponent('${jsArg(item.assignment_id)}'),decodeURIComponent('${jsArg(f.name)}'))">删除</a></div>`
         ).join('');
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -1688,6 +1688,16 @@
       if (!r.ok) { alert(await r.text()); return; }
       loadHomeworkAssignments();
       loadHomeworkSubmissions();
+    }
+
+    async function deleteHwFile(assignmentID, fileName) {
+      if (!await showConfirm('删除文件「' + fileName + '」，无法恢复。', { title: '删除文件', okLabel: '确认删除' })) return;
+      const r = await fetch('/api/teacher/courses/homework/assignments/delete-file?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ assignment_id: assignmentID, file_name: fileName })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadHomeworkAssignments();
     }
 
     function downloadHomeworkBulk() {

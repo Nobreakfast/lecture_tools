@@ -236,6 +236,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/assignments", s.apiTeacherCourseHomeworkAssignments)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/upload", s.apiTeacherCourseHomeworkAssignmentUpload)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete", s.apiTeacherCourseHomeworkAssignmentDelete)
+	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete-file", s.apiTeacherCourseHomeworkAssignmentDeleteFile)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/visibility", s.apiTeacherCourseHomeworkAssignmentVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/download", s.apiTeacherCourseHomeworkSubmissionDownload)
@@ -1861,7 +1862,7 @@ func (s *Server) apiTeacherCourseDelete(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) apiCourseByInviteCode(w http.ResponseWriter, r *http.Request) {
-	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("code")))
 	if code == "" {
 		http.Error(w, "缺少邀请码", http.StatusBadRequest)
 		return
@@ -3441,6 +3442,46 @@ func (s *Server) apiTeacherCourseHomeworkAssignmentDelete(w http.ResponseWriter,
 	_ = os.RemoveAll(s.metadataHomeworkAssignmentDir(course.TeacherID, course.Slug, assignmentID))
 	_ = os.RemoveAll(s.homeworkAssignmentDir(course.Slug, assignmentID))
 	_ = os.Remove(s.homeworkLegacyAssignmentPath(course.Slug, assignmentID))
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiTeacherCourseHomeworkAssignmentDeleteFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		AssignmentID string `json:"assignment_id"`
+		FileName     string `json:"file_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	fileName, err := normalizeHomeworkResourceFilename(req.FileName)
+	if err != nil {
+		http.Error(w, "文件名无效", http.StatusBadRequest)
+		return
+	}
+	metaDir := s.metadataHomeworkAssignmentDir(course.TeacherID, course.Slug, assignmentID)
+	_ = os.Remove(filepath.Join(metaDir, fileName))
+	dataDir := s.homeworkAssignmentDir(course.Slug, assignmentID)
+	_ = os.Remove(filepath.Join(dataDir, fileName))
 	writeJSON(w, map[string]any{"ok": true})
 }
 
