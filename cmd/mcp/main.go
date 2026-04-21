@@ -80,7 +80,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create cookie jar: %v", err)
 	}
-	client := &http.Client{Jar: jar}
+	client := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 
 	if err := login(client, serverURL, teacherID, teacherPwd); err != nil {
 		log.Fatalf("login failed: %v", err)
@@ -147,7 +152,7 @@ func login(client *http.Client, serverURL, id, password string) error {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
 	}
