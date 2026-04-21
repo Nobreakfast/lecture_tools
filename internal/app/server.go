@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -250,6 +251,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/shutdown", s.apiAdminShutdown)
 	mux.HandleFunc("/api/admin/ai-health", s.apiAdminAIHealth)
 	mux.HandleFunc("/api/admin/ai-config", s.apiAdminAIConfig)
+	mux.HandleFunc("/api/admin/update/check", s.apiAdminUpdateCheck)
+	mux.HandleFunc("/api/admin/update/pull", s.apiAdminUpdatePull)
+	mux.HandleFunc("/api/admin/update/restart", s.apiAdminUpdateRestart)
 	mux.HandleFunc("/api/retry", s.apiRetry)
 	mux.HandleFunc("/api/ai-summary", s.apiAISummary)
 	// Legacy teaching-level admin routes (entry/load-quiz/live/attempts/
@@ -1263,6 +1267,133 @@ func (s *Server) apiAdminAIHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.aiClient.Health())
+}
+
+func gitRepoRoot() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(exe)
+	// try the executable's directory first, then walk up
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d, nil
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+	}
+	// fallback: try current working directory
+	if wd, err := os.Getwd(); err == nil {
+		for d := wd; ; d = filepath.Dir(d) {
+			if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+				return d, nil
+			}
+			parent := filepath.Dir(d)
+			if parent == d {
+				break
+			}
+		}
+	}
+	return "", fmt.Errorf("git repository not found")
+}
+
+func runCmd(dir, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func (s *Server) apiAdminUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	dir, err := gitRepoRoot()
+	if err != nil {
+		writeJSON(w, map[string]any{"error": "无法定位项目目录: " + err.Error()})
+		return
+	}
+	// fetch latest from origin
+	if out, err := runCmd(dir, "git", "fetch", "origin"); err != nil {
+		writeJSON(w, map[string]any{"error": "git fetch 失败: " + err.Error(), "detail": out})
+		return
+	}
+	localHash, _ := runCmd(dir, "git", "rev-parse", "HEAD")
+	remoteHash, _ := runCmd(dir, "git", "rev-parse", "origin/main")
+	localHash = strings.TrimSpace(localHash)
+	remoteHash = strings.TrimSpace(remoteHash)
+	hasUpdate := localHash != remoteHash
+	// get log of new commits if any
+	var commits string
+	if hasUpdate {
+		commits, _ = runCmd(dir, "git", "log", "--oneline", "HEAD..origin/main")
+		commits = strings.TrimSpace(commits)
+	}
+	writeJSON(w, map[string]any{
+		"has_update":  hasUpdate,
+		"local_hash":  localHash,
+		"remote_hash": remoteHash,
+		"commits":     commits,
+	})
+}
+
+func (s *Server) apiAdminUpdatePull(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	dir, err := gitRepoRoot()
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": "无法定位项目目录: " + err.Error()})
+		return
+	}
+	// git pull
+	if out, err := runCmd(dir, "git", "pull", "origin", "main"); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "step": "git pull", "error": err.Error(), "detail": out})
+		return
+	}
+	// build
+	if out, err := runCmd(dir, "go", "build", "-o", "bin/server", "./cmd/server"); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "step": "go build", "error": err.Error(), "detail": out})
+		return
+	}
+	hash, _ := runCmd(dir, "git", "rev-parse", "HEAD")
+	writeJSON(w, map[string]any{"ok": true, "hash": strings.TrimSpace(hash)})
+}
+
+func (s *Server) apiAdminUpdateRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "message": "服务即将重启"})
+	// flush response before shutting down
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.mu.RLock()
+		fn := s.shutdownFn
+		s.mu.RUnlock()
+		if fn != nil {
+			fn()
+		} else {
+			os.Exit(0)
+		}
+	}()
 }
 
 func (s *Server) apiAdminAttempts(w http.ResponseWriter, r *http.Request) {

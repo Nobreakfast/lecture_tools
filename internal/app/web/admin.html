@@ -54,6 +54,7 @@
       <button class="tab-btn active" data-tab="overview">系统概览</button>
       <button class="tab-btn" data-tab="teachers">教师管理</button>
       <button class="tab-btn" data-tab="ai">AI 配置</button>
+      <button class="tab-btn" data-tab="update">系统更新</button>
     </div>
 
     <!-- Tab: Overview --------------------------------------- -->
@@ -140,6 +141,28 @@
         <div class="small muted mt-8">
           配置即时生效，无需重启；变更仅对后续 AI 调用生效。
         </div>
+      </div>
+    </div>
+
+    <!-- Tab: Update ----------------------------------------- -->
+    <div class="tab-page hidden" data-tab="update">
+      <div class="card">
+        <h3 class="section-title">检查更新</h3>
+        <div class="row">
+          <button class="btn btn-secondary" id="updateCheckBtn">检查上游更新</button>
+          <span id="updateCheckResult" class="small muted">未检查</span>
+        </div>
+        <pre id="updateCommits" class="small" style="display:none;margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);white-space:pre-wrap;max-height:200px;overflow:auto;"></pre>
+      </div>
+      <div class="card">
+        <h3 class="section-title">拉取并编译</h3>
+        <button class="btn" id="updatePullBtn" disabled>拉取代码并编译</button>
+        <div id="updatePullResult" class="small muted mt-8"></div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">重启服务</h3>
+        <p class="small muted" style="margin-bottom:10px;">重启后页面将短暂断开，请稍等几秒后刷新。</p>
+        <button class="btn btn-danger" id="updateRestartBtn" disabled>重启服务</button>
       </div>
     </div>
   </div>
@@ -391,6 +414,83 @@
       } catch (e) {
         App.toast('保存失败: ' + e.message, 'error');
       }
+    });
+
+    // ── Update ─────────────────────────────────────────────
+    $('#updateCheckBtn').addEventListener('click', async () => {
+      const el = $('#updateCheckResult');
+      const commits = $('#updateCommits');
+      el.textContent = '检查中…';
+      el.style.color = '';
+      commits.style.display = 'none';
+      try {
+        const r = await App.fetchJSON('/api/admin/update/check');
+        if (r.error) {
+          el.textContent = '✗ ' + r.error;
+          el.style.color = 'var(--danger)';
+          return;
+        }
+        if (r.has_update) {
+          el.textContent = '✓ 发现新版本';
+          el.style.color = 'var(--success)';
+          if (r.commits) {
+            commits.textContent = r.commits;
+            commits.style.display = 'block';
+          }
+          $('#updatePullBtn').disabled = false;
+        } else {
+          el.textContent = '已是最新版本（' + (r.local_hash || '').slice(0, 7) + '）';
+          el.style.color = 'var(--text-muted)';
+          $('#updatePullBtn').disabled = true;
+        }
+      } catch (e) {
+        el.textContent = '✗ ' + e.message;
+        el.style.color = 'var(--danger)';
+      }
+    });
+
+    $('#updatePullBtn').addEventListener('click', async () => {
+      const el = $('#updatePullResult');
+      const btn = $('#updatePullBtn');
+      btn.disabled = true;
+      el.textContent = '正在拉取代码并编译，请稍候…';
+      el.style.color = '';
+      try {
+        const r = await App.fetchJSON('/api/admin/update/pull', { method: 'POST' });
+        if (r.ok) {
+          el.textContent = '✓ 编译完成（' + (r.hash || '').slice(0, 7) + '），可以重启服务';
+          el.style.color = 'var(--success)';
+          $('#updateRestartBtn').disabled = false;
+        } else {
+          el.textContent = '✗ ' + (r.step || '') + ' 失败: ' + (r.error || '') + (r.detail ? '\n' + r.detail : '');
+          el.style.color = 'var(--danger)';
+          btn.disabled = false;
+        }
+      } catch (e) {
+        el.textContent = '✗ ' + e.message;
+        el.style.color = 'var(--danger)';
+        btn.disabled = false;
+      }
+    });
+
+    $('#updateRestartBtn').addEventListener('click', async () => {
+      const ok = await App.confirmModal('确认重启？', '服务将短暂中断，页面会自动尝试重连。');
+      if (!ok) return;
+      try {
+        await App.fetchJSON('/api/admin/update/restart', { method: 'POST' });
+      } catch (_) {}
+      App.toast('服务正在重启…', 'success');
+      // poll until server comes back
+      setTimeout(async () => {
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const resp = await fetch('/api/auth/me', { credentials: 'include' });
+            if (resp.ok) { location.reload(); return; }
+          } catch (_) {}
+        }
+        App.toast('服务未能在 60 秒内恢复，请手动检查', 'error');
+      }, 1000);
     });
 
     // Boot

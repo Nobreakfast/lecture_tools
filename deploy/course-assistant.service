@@ -1,0 +1,13 @@
+[Unit]
+Description=课程助手 Web 服务
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/course-assistant
+ExecStart=/opt/course-assistant/bin/server
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

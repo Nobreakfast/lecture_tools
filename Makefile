@@ -17,6 +17,9 @@ build-qrgen:
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/qrgen ./cmd/qrgen
 
+run: build-server
+	./$(BIN_DIR)/server
+
 clean:
 	rm -rf $(BIN_DIR)
 
