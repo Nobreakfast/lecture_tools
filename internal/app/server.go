@@ -245,6 +245,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/delete", s.apiTeacherCourseHomeworkSubmissionDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/invite-qr", s.apiTeacherCourseInviteQR)
+	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
 	// System-level admin APIs (teachers, AI config, system status).
 	mux.HandleFunc("/api/admin/login", s.apiAdminLogin)
@@ -1365,8 +1366,45 @@ func (s *Server) apiAdminUpdatePull(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": false, "step": "go build", "error": err.Error(), "detail": out})
 		return
 	}
+	// build mcp binaries
+	if out, err := runCmd(dir, "make", "build-mcp"); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "step": "make build-mcp", "error": err.Error(), "detail": out})
+		return
+	}
 	hash, _ := runCmd(dir, "git", "rev-parse", "HEAD")
 	writeJSON(w, map[string]any{"ok": true, "hash": strings.TrimSpace(hash)})
+}
+
+func (s *Server) apiTeacherMCPDownload(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	platform := r.URL.Query().Get("platform")
+	nameMap := map[string]string{
+		"darwin-arm64":  "mcp-darwin-arm64",
+		"darwin-amd64":  "mcp-darwin-amd64",
+		"windows-amd64": "mcp-windows-amd64.exe",
+	}
+	fileName, ok := nameMap[platform]
+	if !ok {
+		http.Error(w, "不支持的平台，可选: darwin-arm64, darwin-amd64, windows-amd64", http.StatusBadRequest)
+		return
+	}
+	dir, err := gitRepoRoot()
+	if err != nil {
+		http.Error(w, "无法定位项目目录", http.StatusInternalServerError)
+		return
+	}
+	filePath := filepath.Join(dir, "bin", "mcp", fileName)
+	if _, err := os.Stat(filePath); err != nil {
+		http.Error(w, "MCP 二进制文件不存在，请先在系统更新中编译", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, filePath)
 }
 
 func (s *Server) apiAdminUpdateRestart(w http.ResponseWriter, r *http.Request) {

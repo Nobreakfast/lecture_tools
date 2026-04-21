@@ -1,6 +1,6 @@
 BIN_DIR := bin
 
-.PHONY: build build-server build-migrate build-qrgen clean \
+.PHONY: build build-server build-migrate build-qrgen build-mcp clean \
         test test-go test-e2e test-e2e-ui e2e-install
 
 build: build-server build-migrate build-qrgen
@@ -16,6 +16,12 @@ build-migrate:
 build-qrgen:
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/qrgen ./cmd/qrgen
+
+build-mcp:
+	@mkdir -p $(BIN_DIR)/mcp
+	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/mcp/mcp-darwin-arm64 ./cmd/mcp
+	GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/mcp/mcp-darwin-amd64 ./cmd/mcp
+	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/mcp/mcp-windows-amd64.exe ./cmd/mcp
 
 run: build-server
 	./$(BIN_DIR)/server
