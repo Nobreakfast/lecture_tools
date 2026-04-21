@@ -1366,10 +1366,12 @@ func (s *Server) apiAdminUpdatePull(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": false, "step": "go build", "error": err.Error(), "detail": out})
 		return
 	}
-	// build mcp binaries
-	if out, err := runCmd(dir, "make", "build-mcp"); err != nil {
-		writeJSON(w, map[string]any{"ok": false, "step": "make build-mcp", "error": err.Error(), "detail": out})
-		return
+	// build mcp binaries only if cmd/mcp/ changed
+	if diff, _ := runCmd(dir, "git", "diff", "--name-only", "HEAD~1", "--", "cmd/mcp/"); strings.TrimSpace(diff) != "" {
+		if out, err := runCmd(dir, "make", "build-mcp"); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "step": "make build-mcp", "error": err.Error(), "detail": out})
+			return
+		}
 	}
 	hash, _ := runCmd(dir, "git", "rev-parse", "HEAD")
 	writeJSON(w, map[string]any{"ok": true, "hash": strings.TrimSpace(hash)})
