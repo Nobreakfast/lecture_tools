@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/root/lecture_tools
 ExecStart=/root/lecture_tools/bin/server
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Restart=always
 RestartSec=3
 
