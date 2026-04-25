@@ -1,7 +1,7 @@
 BIN_DIR := bin
 
 .PHONY: build build-server build-migrate build-qrgen build-mcp clean \
-        test test-go test-e2e test-e2e-ui e2e-install
+        test test-go test-e2e test-e2e-ui e2e-install docs-screenshots
 
 build: build-server build-migrate build-qrgen
 
@@ -48,3 +48,6 @@ test-e2e: build-server build-migrate e2e-install
 
 test-e2e-ui: build-server build-migrate e2e-install
 	+cd e2e && npx playwright test --ui
+
+docs-screenshots: build-server build-migrate e2e-install
+	+cd e2e && npm run docs:screenshots

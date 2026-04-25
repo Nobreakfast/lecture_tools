@@ -178,6 +178,7 @@
       </div>
       <div class="row" id="headerRight">
         <span class="muted" id="teacherName"></span>
+        <button class="btn btn-secondary small" onclick="openTeacherDocs()">使用文档</button>
         <button class="btn btn-secondary small" onclick="showChangePasswordModal()">修改密码</button>
         <button class="btn btn-danger small" onclick="doLogout()">退出登录</button>
       </div>
@@ -862,6 +863,10 @@
     function copyJoinLink(inviteCode) {
       const link = buildJoinURL(inviteCode);
       navigator.clipboard.writeText(link).then(() => showToast('答题链接已复制'));
+    }
+
+    function openTeacherDocs() {
+      window.open('/teacher/docs', '_blank', 'noopener');
     }
 
     function downloadInviteQR(courseId, courseName) {

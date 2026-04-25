@@ -23,6 +23,14 @@ test.describe("Teacher panel", () => {
     await expect(teacherPage.courseList).toContainText("E2E测试课程");
   });
 
+  test("opens teacher docs in a new page", async () => {
+    const popup = await teacherPage.openDocsPage();
+    await expect(popup).toHaveURL(/\/teacher\/docs$/);
+    await expect(popup.getByRole("heading", { name: "教师使用文档" })).toBeVisible();
+    await expect(popup.locator("#docContent")).toContainText("课程助手教师使用说明");
+    await popup.close();
+  });
+
   test("create a new course", async () => {
     const slug = `e2e-new-${Date.now()}`;
     await teacherPage.createCourse("新建测试课程", slug);

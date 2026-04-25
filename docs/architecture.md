@@ -53,6 +53,8 @@
 - `/quiz`：答题页
 - `/result`：结果页
 - `/admin`：管理后台
+- `/teacher`、`/t`：教师面板
+- `/teacher/docs`、`/t/docs`：教师图文文档页（Markdown 渲染）
 - `/materials`：课程材料页（PDF 可预览，其他文件仅下载）
 - `/pdf`：旧课件页入口，当前复用材料页
 
@@ -60,6 +62,7 @@
 - `/assets/<path>`：题库图片资源。按顺序查找：
   - `QUIZ_ASSETS_DIR`（默认 `./quiz/assets`）
   - `${DATA_DIR}/assets`（默认 `./data/assets`）
+- `/static/docs/<path>`：内嵌教师文档 Markdown 与说明截图
 - `/ppt/<folder>/<file>.pdf`：课程材料中的 PDF 预览路径，根目录为 `../ppt`
 - `/materials-files/<folder>/<file>`：课程材料下载路径（PDF 也可通过该路径强制下载）
 - `/uploads/<...>`：学生简答题图片上传后的访问路径，文件写入 `${DATA_DIR}/quiz/...`

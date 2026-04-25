@@ -15,6 +15,7 @@ import (
 	"io"
 	"log"
 	mrand "math/rand/v2"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -161,6 +162,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin", s.pageAdmin)
 	mux.HandleFunc("/teacher", s.pageTeacher)
 	mux.HandleFunc("/t", s.pageTeacher) // short alias
+	mux.HandleFunc("/teacher/docs", s.pageTeacherDocs)
+	mux.HandleFunc("/t/docs", s.pageTeacherDocs)
 	mux.HandleFunc("/student", s.redirectStudentToRoot)
 	mux.HandleFunc("/assets/", s.serveAsset)
 	mux.HandleFunc("/static/", s.serveStatic)
@@ -388,6 +391,14 @@ func (s *Server) pageTeacher(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/teacher.html")
 }
 
+func (s *Server) pageTeacherDocs(w http.ResponseWriter, r *http.Request) {
+	if s.requireTeacherOrAdmin(r) == nil {
+		http.Redirect(w, r, s.pathPrefix()+"/teacher", http.StatusFound)
+		return
+	}
+	s.servePage(w, "web/teacher-docs.html")
+}
+
 func (s *Server) servePage(w http.ResponseWriter, path string) {
 	f, err := webFS.ReadFile(path)
 	if err != nil {
@@ -422,11 +433,15 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	switch {
-	case strings.HasSuffix(rel, ".css"):
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	case strings.HasSuffix(rel, ".js"):
-		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	if contentType := mime.TypeByExtension(filepath.Ext(rel)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	} else {
+		switch {
+		case strings.HasSuffix(rel, ".css"):
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case strings.HasSuffix(rel, ".js"):
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		}
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_, _ = w.Write(data)

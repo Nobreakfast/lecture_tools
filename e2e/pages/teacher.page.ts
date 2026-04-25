@@ -12,6 +12,7 @@ export class TeacherPage {
   readonly viewMain: Locator;
   readonly teacherName: Locator;
   readonly coursePills: Locator;
+  readonly docsButton: Locator;
 
   // Course tab
   readonly newCourseName: Locator;
@@ -81,6 +82,7 @@ export class TeacherPage {
     this.viewMain = page.locator("#view-main");
     this.teacherName = page.locator("#teacherName");
     this.coursePills = page.locator("#coursePills");
+    this.docsButton = page.getByRole("button", { name: "使用文档" });
 
     this.newCourseName = page.locator("#newCourseName");
     this.newCourseSlug = page.locator("#newCourseSlug");
@@ -216,6 +218,14 @@ export class TeacherPage {
     await this.page.locator("#confirmPassword").fill(newPwd);
     await this.page.locator("#changePwdBtn").click();
     await this.page.waitForTimeout(500);
+  }
+
+  async openDocsPage() {
+    const popupPromise = this.page.waitForEvent("popup");
+    await this.docsButton.click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState("domcontentloaded");
+    return popup;
   }
 
   async switchSubTab(subtab: "sub-quiz" | "sub-materials" | "sub-homework") {

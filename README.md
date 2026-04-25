@@ -1,6 +1,6 @@
 # 课程助手
 
-面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交、AI 学习建议与系统快照恢复。Go + SQLite 单机运行，单个二进制部署。
+面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交、AI 学习建议、教师独立文档页与系统快照恢复。Go + SQLite 单机运行，单个二进制部署。
 
 ## 设计原则
 
@@ -17,7 +17,7 @@
 | 角色       | 入口               | 说明                                                |
 | ---------- | ------------------ | --------------------------------------------------- |
 | 学生       | `/`                | 输入 6 位邀请码进入课程，做测验 / 看资料 / 提交作业 |
-| 教师       | `/t` 或 `/teacher` | 登录后管理自己的课程                                |
+| 教师       | `/t` 或 `/teacher` | 登录后管理自己的课程；右上角可新开使用文档页        |
 | 系统管理员 | `/admin`           | 仅负责教师账号、AI 配置、系统概览                   |
 
 短链：`/s/ABC123` → 自动跳转到 `/?code=ABC123`。
@@ -128,6 +128,7 @@ snapshots/
 | `/s/:code`                                                             | 301 → `/?code=:code`                                                      | 无          |
 | `/join`                                                                | 301 → `/`（旧 QR 码兼容）                                                 | 无          |
 | `/t` 或 `/teacher`                                                     | 教师面板                                                                  | 教师 cookie |
+| `/teacher/docs` 或 `/t/docs`                                           | 教师使用文档页（Markdown 渲染，适合单独打开对照操作）                     | 教师 cookie |
 | `/admin`                                                               | 系统管理                                                                  | role=admin  |
 | `/static/*`                                                            | 共享 CSS/JS                                                               | 无          |
 | `/api/auth/*`                                                          | 统一登录 / 登出 / me                                                      | —           |
@@ -185,6 +186,14 @@ snapshots/
 go test ./...
 ```
 
+### 维护教师文档截图
+
+```bash
+make docs-screenshots
+```
+
+该命令会调用项目内置的教师文档截图脚本，重新生成 `internal/app/web/static/docs/screenshots/` 下的说明图片，适合在更新 `teacher-guide.md` 后重新产出配套截图。
+
 ### 目录
 
 ```
@@ -215,3 +224,4 @@ internal/
 - [docs/migration-from-main.md](docs/migration-from-main.md) — 从 main 分支升级的完整指南
 - [docs/quiz-prep-step-by-step.md](docs/quiz-prep-step-by-step.md) — 题库准备流程
 - [docs/adr/0001-tech-stack.md](docs/adr/0001-tech-stack.md) — 技术栈决策
+- [teacher-guide.md](internal/app/web/static/docs/teacher-guide.md) — 教师端图文使用说明，对应页面 `/teacher/docs`

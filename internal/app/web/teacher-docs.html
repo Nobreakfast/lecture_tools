@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>教师使用文档</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    body {
+      margin: 0;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .docs-shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+    }
+    .docs-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .docs-topbar h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+    .docs-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 20px;
+      align-items: start;
+    }
+    .docs-card,
+    .toc-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+    }
+    .docs-card {
+      padding: 28px;
+      min-width: 0;
+    }
+    .toc-card {
+      position: sticky;
+      top: 20px;
+      padding: 18px 18px 14px;
+    }
+    .toc-title {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .toc-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toc-list a {
+      text-decoration: none;
+      color: #334155;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .toc-list a.toc-h3 {
+      padding-left: 14px;
+      font-size: 13px;
+      color: #64748b;
+    }
+    .docs-meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      color: #64748b;
+      font-size: 14px;
+    }
+    .doc-content {
+      font-size: 15px;
+      line-height: 1.8;
+    }
+    .doc-content h1,
+    .doc-content h2,
+    .doc-content h3 {
+      scroll-margin-top: 24px;
+      line-height: 1.3;
+      color: #0f172a;
+    }
+    .doc-content h1 {
+      margin: 0 0 18px;
+      font-size: 34px;
+    }
+    .doc-content h2 {
+      margin: 34px 0 14px;
+      padding-top: 6px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 24px;
+    }
+    .doc-content h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+    }
+    .doc-content p,
+    .doc-content ul,
+    .doc-content ol,
+    .doc-content blockquote,
+    .doc-content pre,
+    .doc-content figure {
+      margin: 0 0 16px;
+    }
+    .doc-content ul,
+    .doc-content ol {
+      padding-left: 24px;
+    }
+    .doc-content li {
+      margin: 6px 0;
+    }
+    .doc-content a {
+      color: var(--primary);
+    }
+    .doc-content code {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 13px;
+      font-family: var(--mono);
+    }
+    .doc-content pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 14px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+    .doc-content pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      font-size: 13px;
+    }
+    .doc-content blockquote {
+      border-left: 4px solid var(--primary);
+      padding: 10px 14px;
+      background: #eef2ff;
+      border-radius: 8px;
+      color: #334155;
+    }
+    .doc-content img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      border: 1px solid #dbeafe;
+      border-radius: 14px;
+      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+      background: #fff;
+    }
+    .doc-content figure {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 14px;
+    }
+    .doc-content figcaption {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #64748b;
+      text-align: center;
+    }
+    .doc-empty {
+      color: #64748b;
+      font-size: 14px;
+    }
+    @media (max-width: 980px) {
+      .docs-layout {
+        grid-template-columns: 1fr;
+      }
+      .toc-card {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <script src="/static/app.js"></script>
+  <div class="docs-shell">
+    <div class="docs-topbar">
+      <div>
+        <h1>教师使用文档</h1>
+        <div class="docs-meta">
+          <span>适用角色：教师 / 管理员</span>
+          <span>页面入口：`/teacher/docs`</span>
+        </div>
+      </div>
+      <div class="row" style="margin:0;">
+        <a class="btn btn-secondary" href="/teacher">返回教师面板</a>
+        <a class="btn" href="/static/docs/teacher-guide.md" target="_blank" rel="noopener">查看 Markdown 原文</a>
+      </div>
+    </div>
+
+    <div class="docs-layout">
+      <main class="docs-card">
+        <article id="docContent" class="doc-content">
+          <p class="doc-empty">正在加载文档...</p>
+        </article>
+      </main>
+      <aside class="toc-card">
+        <p class="toc-title">目录</p>
+        <nav id="tocList" class="toc-list">
+          <span class="doc-empty">文档加载后显示</span>
+        </nav>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const docContent = document.getElementById('docContent');
+      const tocList = document.getElementById('tocList');
+      const prefix = (typeof window.__PREFIX === 'string' && window.__PREFIX) ? window.__PREFIX : '';
+
+      function escapeHTML(s) {
+        if (window.App && typeof window.App.escapeHTML === 'function') return window.App.escapeHTML(s);
+        return String(s || '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+
+      function abs(url) {
+        if (!url) return '';
+        if (/^(https?:)?\/\//.test(url)) return url;
+        if (url.startsWith('/')) return prefix + url;
+        return prefix + '/' + url.replace(/^\.?\//, '');
+      }
+
+      function slugify(text, used) {
+        let slug = String(text || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
+          .replace(/\s+/g, '-');
+        if (!slug) slug = 'section';
+        let finalSlug = slug;
+        let seq = 2;
+        while (used.has(finalSlug)) {
+          finalSlug = slug + '-' + seq++;
+        }
+        used.add(finalSlug);
+        return finalSlug;
+      }
+
+      function renderInline(text) {
+        let html = escapeHTML(text);
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_, label, url) {
+          return '<a href="' + escapeHTML(abs(url)) + '" target="_blank" rel="noopener">' + label + '</a>';
+        });
+        return html;
+      }
+
+      function isSpecialLine(line) {
+        return /^(#{1,3})\s+/.test(line)
+          || /^```/.test(line)
+          || /^-\s+/.test(line)
+          || /^\d+\.\s+/.test(line)
+          || /^>\s?/.test(line)
+          || /^!\[[^\]]*]\([^)]+\)\s*$/.test(line);
+      }
+
+      function renderMarkdown(markdown) {
+        const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+        const html = [];
+        const toc = [];
+        const usedSlugs = new Set();
+        let i = 0;
+
+        while (i < lines.length) {
+          const line = lines[i];
+          const trimmed = line.trim();
+
+          if (!trimmed) {
+            i += 1;
+            continue;
+          }
+
+          if (/^```/.test(trimmed)) {
+            const lang = trimmed.slice(3).trim();
+            const chunk = [];
+            i += 1;
+            while (i < lines.length && !/^```/.test(lines[i].trim())) {
+              chunk.push(lines[i]);
+              i += 1;
+            }
+            if (i < lines.length) i += 1;
+            html.push('<pre><code' + (lang ? ' class="language-' + escapeHTML(lang) + '"' : '') + '>' + escapeHTML(chunk.join('\n')) + '</code></pre>');
+            continue;
+          }
+
+          const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
+          if (heading) {
+            const level = heading[1].length;
+            const text = heading[2].trim();
+            const id = slugify(text, usedSlugs);
+            html.push('<h' + level + ' id="' + id + '">' + renderInline(text) + '</h' + level + '>');
+            toc.push({ level, text, id });
+            i += 1;
+            continue;
+          }
+
+          const image = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+          if (image) {
+            const alt = image[1].trim();
+            const src = abs(image[2].trim());
+            html.push(
+              '<figure><img src="' + escapeHTML(src) + '" alt="' + escapeHTML(alt) + '" loading="lazy" />'
+              + (alt ? '<figcaption>' + escapeHTML(alt) + '</figcaption>' : '')
+              + '</figure>'
+            );
+            i += 1;
+            continue;
+          }
+
+          if (/^>\s?/.test(trimmed)) {
+            const quote = [];
+            while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+              quote.push(lines[i].trim().replace(/^>\s?/, ''));
+              i += 1;
+            }
+            html.push('<blockquote>' + quote.map(renderInline).join('<br />') + '</blockquote>');
+            continue;
+          }
+
+          if (/^-\s+/.test(trimmed)) {
+            const items = [];
+            while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+              items.push('<li>' + renderInline(lines[i].trim().replace(/^-\s+/, '')) + '</li>');
+              i += 1;
+            }
+            html.push('<ul>' + items.join('') + '</ul>');
+            continue;
+          }
+
+          if (/^\d+\.\s+/.test(trimmed)) {
+            const items = [];
+            while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+              items.push('<li>' + renderInline(lines[i].trim().replace(/^\d+\.\s+/, '')) + '</li>');
+              i += 1;
+            }
+            html.push('<ol>' + items.join('') + '</ol>');
+            continue;
+          }
+
+          const paragraph = [];
+          while (i < lines.length && lines[i].trim() && !isSpecialLine(lines[i].trim())) {
+            paragraph.push(lines[i].trim());
+            i += 1;
+          }
+          html.push('<p>' + paragraph.map(renderInline).join('<br />') + '</p>');
+        }
+
+        return { html: html.join('\n'), toc };
+      }
+
+      async function loadDoc() {
+        try {
+          const auth = await fetch(prefix + '/api/auth/me', { credentials: 'include' });
+          if (!auth.ok) {
+            window.location.href = prefix + '/teacher';
+            return;
+          }
+
+          const res = await fetch(prefix + '/static/docs/teacher-guide.md', { credentials: 'include' });
+          if (!res.ok) throw new Error('文档读取失败');
+          const markdown = await res.text();
+          const rendered = renderMarkdown(markdown);
+          docContent.innerHTML = rendered.html || '<p class="doc-empty">文档暂无内容</p>';
+          if (!rendered.toc.length) {
+            tocList.innerHTML = '<span class="doc-empty">暂无目录</span>';
+            return;
+          }
+          tocList.innerHTML = rendered.toc.map(function (item) {
+            const cls = item.level >= 3 ? ' class="toc-h3"' : '';
+            return '<a' + cls + ' href="#' + escapeHTML(item.id) + '">' + escapeHTML(item.text) + '</a>';
+          }).join('');
+        } catch (err) {
+          docContent.innerHTML = '<p class="doc-empty">文档加载失败：' + escapeHTML(String(err && err.message ? err.message : err)) + '</p>';
+          tocList.innerHTML = '<span class="doc-empty">加载失败</span>';
+        }
+      }
+
+      loadDoc();
+    })();
+  </script>
+</body>
+</html>
