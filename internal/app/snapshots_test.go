@@ -202,6 +202,65 @@ func TestSystemSnapshotsEndpoints(t *testing.T) {
 	}
 }
 
+// TestListSnapshotsHidesUploadStaging guards the listSnapshots filter that
+// keeps in-flight upload-restore archives (snapshotUploadPrefix) out of the
+// snapshot list, so admins do not see ghost "snapshots" while a restore is
+// queued but not yet applied.
+func TestListSnapshotsHidesUploadStaging(t *testing.T) {
+	t.Parallel()
+
+	cfg := snapshotTestConfig(t)
+	ctx := context.Background()
+
+	st, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	srv := New(cfg, st)
+	real, err := srv.createStoredSnapshot(ctx, snapshotKindManual, snapshotModeLite, "admin:test")
+	if err != nil {
+		t.Fatalf("createStoredSnapshot: %v", err)
+	}
+
+	// Stage a fake upload-restore archive that should NOT show up in the
+	// snapshot list. We reuse the real archive bytes so its manifest is
+	// valid; the filter is purely name-based.
+	realPath, err := srv.snapshotPath(real.ID)
+	if err != nil {
+		t.Fatalf("snapshotPath: %v", err)
+	}
+	realBytes, err := os.ReadFile(realPath)
+	if err != nil {
+		t.Fatalf("ReadFile real snapshot: %v", err)
+	}
+	stagingName := snapshotUploadPrefix + "2026-04-25_153646.tar.gz"
+	stagingPath := filepath.Join(cfg.SnapshotDir, stagingName)
+	if err := os.WriteFile(stagingPath, realBytes, 0o644); err != nil {
+		t.Fatalf("WriteFile staging: %v", err)
+	}
+
+	items, err := srv.listSnapshots()
+	if err != nil {
+		t.Fatalf("listSnapshots: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 visible snapshot, got %d: %+v", len(items), items)
+	}
+	if items[0].ID != real.ID {
+		t.Fatalf("unexpected visible snapshot id: %s (staging leaked into list)", items[0].ID)
+	}
+	for _, item := range items {
+		if strings.HasPrefix(item.ID, snapshotUploadPrefix) {
+			t.Fatalf("upload staging file leaked into snapshot list: %+v", item)
+		}
+	}
+}
+
 func snapshotTestConfig(t *testing.T) Config {
 	t.Helper()
 	root := t.TempDir()

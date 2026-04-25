@@ -32,6 +32,17 @@ const (
 	snapshotModeFull = "full"
 
 	snapshotRetentionDays = 14
+
+	// snapshotUploadMaxBytes caps the size of an uploaded restore archive
+	// (request body, not just multipart memory). Anything larger is
+	// rejected before being streamed to disk so an attacker cannot fill
+	// the snapshot volume by sending a TB-sized request body.
+	snapshotUploadMaxBytes = 4 << 30 // 4 GiB
+
+	// snapshotUploadPrefix marks files staged by upload-restore in the
+	// SnapshotDir. listSnapshots skips these so they do not appear as
+	// real snapshots until they are committed by a successful restart.
+	snapshotUploadPrefix = "restore_upload_"
 )
 
 type snapshotManifest struct {
@@ -224,7 +235,7 @@ func (s *Server) apiSystemSnapshotsRestore(w http.ResponseWriter, r *http.Reques
 	}
 	log.Printf("snapshot restore queued by %s from %s", sess.TeacherID, path)
 	s.setMaintenanceMode(true)
-	writeJSON(w, map[string]any{"ok": true, "message": "恢复任务已写入，服务正在重启"})
+	writeJSON(w, map[string]any{"ok": true, "message": "恢复任务已写入，服务即将停止；请等待外部进程管理器（systemd / docker / supervisor）拉起服务以应用快照"})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -241,8 +252,13 @@ func (s *Server) apiSystemSnapshotsUploadRestore(w http.ResponseWriter, r *http.
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		http.Error(w, "读取上传文件失败", http.StatusBadRequest)
+	// Cap the entire request body. ParseMultipartForm only bounds the
+	// in-memory portion; without MaxBytesReader an attacker (or an admin
+	// with a slip of the finger) can stream an arbitrarily large body
+	// straight to disk and fill the snapshot volume.
+	r.Body = http.MaxBytesReader(w, r.Body, snapshotUploadMaxBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "读取上传文件失败（可能超过 4GB 上限）", http.StatusBadRequest)
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -256,7 +272,7 @@ func (s *Server) apiSystemSnapshotsUploadRestore(w http.ResponseWriter, r *http.
 		http.Error(w, "仅支持 .tar.gz 快照文件", http.StatusBadRequest)
 		return
 	}
-	tmpName := fmt.Sprintf("restore_upload_%s.tar.gz", time.Now().Format("2006-01-02_150405"))
+	tmpName := fmt.Sprintf("%s%s.tar.gz", snapshotUploadPrefix, time.Now().Format("2006-01-02_150405"))
 	tmpPath := filepath.Join(s.cfg.SnapshotDir, tmpName)
 	out, err := os.Create(tmpPath)
 	if err != nil {
@@ -291,7 +307,7 @@ func (s *Server) apiSystemSnapshotsUploadRestore(w http.ResponseWriter, r *http.
 	}
 	log.Printf("uploaded snapshot restore queued by %s from %s", sess.TeacherID, header.Filename)
 	s.setMaintenanceMode(true)
-	writeJSON(w, map[string]any{"ok": true, "message": "上传快照已接收，服务正在重启恢复"})
+	writeJSON(w, map[string]any{"ok": true, "message": "上传快照已接收，服务即将停止；请等待外部进程管理器（systemd / docker / supervisor）拉起服务以应用快照"})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -404,6 +420,12 @@ func (s *Server) listSnapshots() ([]snapshotItem, error) {
 	items := make([]snapshotItem, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tar.gz") {
+			continue
+		}
+		// Skip staged upload-restore files: they are not real snapshots
+		// until the server restarts and ApplyPendingSnapshotRestore
+		// either consumes (and removes) or fails them.
+		if strings.HasPrefix(entry.Name(), snapshotUploadPrefix) {
 			continue
 		}
 		path := filepath.Join(s.cfg.SnapshotDir, entry.Name())

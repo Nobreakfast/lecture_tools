@@ -653,6 +653,10 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiStudentSignout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "student_token",
 		Value:    "",
@@ -2044,10 +2048,27 @@ func (s *Server) apiTeacherCourses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
-		displayName, internalName := domain.NormalizeCourseEnglishName(req.Slug)
-		if strings.TrimSpace(req.DisplayName) != "" || strings.TrimSpace(req.InternalName) != "" {
-			displayName = strings.TrimSpace(req.DisplayName)
-			internalName = strings.TrimSpace(req.InternalName)
+		// Independently honour any caller-provided override; fall back to
+		// deriving from req.Slug for whichever field is missing. This
+		// avoids the previous bug where supplying only display_name (or
+		// only internal_name) blanked the other field and triggered a
+		// confusing 400 even though enough information was provided.
+		derivedDisplay, derivedInternal := domain.NormalizeCourseEnglishName(req.Slug)
+		displayName := strings.TrimSpace(req.DisplayName)
+		internalName := strings.TrimSpace(req.InternalName)
+		if displayName == "" {
+			displayName = derivedDisplay
+		}
+		if internalName == "" {
+			internalName = derivedInternal
+		}
+		// If only one side was supplied, derive the missing counterpart
+		// from it so callers can pass either field alone.
+		if displayName != "" && internalName == "" {
+			_, internalName = domain.NormalizeCourseEnglishName(displayName)
+		}
+		if internalName != "" && displayName == "" {
+			displayName, _ = domain.NormalizeCourseEnglishName(internalName)
 		}
 		if req.Name == "" || displayName == "" || internalName == "" {
 			http.Error(w, "课程名称和标识不能为空", http.StatusBadRequest)

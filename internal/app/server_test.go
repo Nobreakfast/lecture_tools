@@ -911,3 +911,114 @@ func TestBuildHomeworkBulkArchiveUsesStructuredNames(t *testing.T) {
 		t.Fatalf("unexpected zip entry name: %s", got)
 	}
 }
+
+// TestAPIStudentSignoutRejectsGet documents the CSRF / accidental-trigger
+// guard added so a stray GET (link prefetch, address-bar typo, hostile
+// <img src>, etc.) cannot quietly clear an in-progress student session.
+func TestAPIStudentSignoutRejectsGet(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/student-signout", nil)
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for GET, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "student_token" && c.MaxAge == -1 {
+			t.Fatalf("GET should not clear student_token cookie")
+		}
+	}
+}
+
+func TestAPIStudentSignoutAcceptsPost(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/student-signout", nil)
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for POST, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	found := false
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "student_token" && c.MaxAge == -1 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("POST should clear student_token cookie via Set-Cookie")
+	}
+}
+
+// TestAPITeacherCoursesAcceptsDisplayNameOnly guards against a regression
+// where supplying only display_name (or only internal_name) blanked the
+// counterpart and produced a confusing 400.
+func TestAPITeacherCoursesAcceptsDisplayNameOnly(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "T01",
+		Role:      domain.RoleTeacher,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/courses", strings.NewReader(`{
+		"name":"机器学习导论",
+		"display_name":"Machine Learning Intro"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.apiTeacherCourses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(st.courses) != 1 {
+		t.Fatalf("expected 1 stored course, got %d", len(st.courses))
+	}
+	if st.courses[0].DisplayName != "Machine Learning Intro" {
+		t.Fatalf("unexpected display_name: %q", st.courses[0].DisplayName)
+	}
+	if st.courses[0].InternalName != "Machine_Learning_Intro" {
+		t.Fatalf("internal_name should be derived from display_name, got %q", st.courses[0].InternalName)
+	}
+}
+
+func TestAPITeacherCoursesAcceptsInternalNameOnly(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "T01",
+		Role:      domain.RoleTeacher,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/courses", strings.NewReader(`{
+		"name":"机器学习导论",
+		"internal_name":"Machine_Learning_Intro"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.apiTeacherCourses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(st.courses) != 1 {
+		t.Fatalf("expected 1 stored course, got %d", len(st.courses))
+	}
+	if st.courses[0].InternalName != "Machine_Learning_Intro" {
+		t.Fatalf("unexpected internal_name: %q", st.courses[0].InternalName)
+	}
+	if st.courses[0].DisplayName == "" {
+		t.Fatalf("display_name should be derived from internal_name, got empty")
+	}
+}
