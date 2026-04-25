@@ -3,7 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,36 +19,96 @@ type memStore struct {
 	answers             map[string]map[string]string
 	settings            map[string]string
 	homeworkSubmissions []domain.HomeworkSubmission
+	courses             []domain.Course
+	nextCourseID        int
 }
 
-func (m *memStore) Init(context.Context) error  { return nil }
-func (m *memStore) Close() error                { return nil }
+func (m *memStore) Init(context.Context) error { return nil }
+func (m *memStore) Close() error               { return nil }
 
 // Teacher stubs
-func (m *memStore) CreateTeacher(context.Context, *domain.Teacher) error          { return nil }
-func (m *memStore) GetTeacher(context.Context, string) (*domain.Teacher, error)   { return nil, errors.New("not found") }
-func (m *memStore) ListTeachers(context.Context) ([]domain.Teacher, error)        { return nil, nil }
-func (m *memStore) UpdateTeacherPassword(context.Context, string, string) error   { return nil }
-func (m *memStore) UpdateTeacherRole(_ context.Context, _ string, _ domain.UserRole) error { return nil }
-func (m *memStore) DeleteTeacher(context.Context, string) error                   { return nil }
+func (m *memStore) CreateTeacher(context.Context, *domain.Teacher) error { return nil }
+func (m *memStore) GetTeacher(context.Context, string) (*domain.Teacher, error) {
+	return nil, errors.New("not found")
+}
+func (m *memStore) ListTeachers(context.Context) ([]domain.Teacher, error)      { return nil, nil }
+func (m *memStore) UpdateTeacherPassword(context.Context, string, string) error { return nil }
+func (m *memStore) UpdateTeacherRole(_ context.Context, _ string, _ domain.UserRole) error {
+	return nil
+}
+func (m *memStore) DeleteTeacher(context.Context, string) error { return nil }
 
 // Course stubs
-func (m *memStore) CreateCourse(context.Context, *domain.Course) error                 { return nil }
-func (m *memStore) GetCourse(context.Context, int) (*domain.Course, error)              { return nil, errors.New("not found") }
-func (m *memStore) GetCourseByInviteCode(context.Context, string) (*domain.Course, error) { return nil, errors.New("not found") }
-func (m *memStore) ListCoursesByTeacher(context.Context, string) ([]domain.Course, error) { return nil, nil }
-func (m *memStore) ListAllCourses(context.Context) ([]domain.Course, error)             { return nil, nil }
-func (m *memStore) UpdateCourse(context.Context, *domain.Course) error                  { return nil }
-func (m *memStore) DeleteCourse(context.Context, int) error                             { return nil }
+func (m *memStore) CreateCourse(_ context.Context, c *domain.Course) error {
+	if m.nextCourseID == 0 {
+		m.nextCourseID = 1
+	}
+	c.ID = m.nextCourseID
+	m.nextCourseID++
+	m.courses = append(m.courses, *c)
+	return nil
+}
+func (m *memStore) GetCourse(_ context.Context, id int) (*domain.Course, error) {
+	for i := range m.courses {
+		if m.courses[i].ID == id {
+			item := m.courses[i]
+			return &item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+func (m *memStore) GetCourseByInviteCode(_ context.Context, code string) (*domain.Course, error) {
+	for i := range m.courses {
+		if m.courses[i].InviteCode == code {
+			item := m.courses[i]
+			return &item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+func (m *memStore) ListCoursesByTeacher(_ context.Context, teacherID string) ([]domain.Course, error) {
+	items := make([]domain.Course, 0)
+	for _, item := range m.courses {
+		if item.TeacherID == teacherID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+func (m *memStore) ListAllCourses(context.Context) ([]domain.Course, error) { return m.courses, nil }
+func (m *memStore) UpdateCourse(_ context.Context, c *domain.Course) error {
+	for i := range m.courses {
+		if m.courses[i].ID == c.ID {
+			m.courses[i] = *c
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+func (m *memStore) DeleteCourse(_ context.Context, id int) error {
+	for i := range m.courses {
+		if m.courses[i].ID == id {
+			m.courses = append(m.courses[:i], m.courses[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 
 // Course state stubs
-func (m *memStore) GetCourseState(context.Context, int) (*domain.CourseState, error)    { return nil, errors.New("not found") }
-func (m *memStore) SetCourseState(context.Context, *domain.CourseState) error           { return nil }
+func (m *memStore) GetCourseState(context.Context, int) (*domain.CourseState, error) {
+	return nil, errors.New("not found")
+}
+func (m *memStore) SetCourseState(context.Context, *domain.CourseState) error { return nil }
 
 // Course-scoped attempt stubs
-func (m *memStore) ListAttemptsByCourse(context.Context, int) ([]domain.Attempt, error) { return nil, nil }
-func (m *memStore) GetLiveStatsByCourse(context.Context, int) (int, int, error)         { return 0, 0, nil }
-func (m *memStore) GetLiveStatsByCourseQuiz(context.Context, int, string) (int, int, error) { return 0, 0, nil }
+func (m *memStore) ListAttemptsByCourse(context.Context, int) ([]domain.Attempt, error) {
+	return nil, nil
+}
+func (m *memStore) GetLiveStatsByCourse(context.Context, int) (int, int, error) { return 0, 0, nil }
+func (m *memStore) GetLiveStatsByCourseQuiz(context.Context, int, string) (int, int, error) {
+	return 0, 0, nil
+}
 func (m *memStore) GetSetting(_ context.Context, key string) (string, error) {
 	if m.settings == nil {
 		return "", errors.New("not implemented")
@@ -113,8 +177,10 @@ func (m *memStore) GetAdminSummary(context.Context, int, string) (string, error)
 func (m *memStore) DeleteAdminSummary(context.Context, int, string) error {
 	return errors.New("not implemented")
 }
-func (m *memStore) ClearAttempts(context.Context, string) error          { return errors.New("not implemented") }
-func (m *memStore) ClearAttemptsByCourse(context.Context, int, string) error { return errors.New("not implemented") }
+func (m *memStore) ClearAttempts(context.Context, string) error { return errors.New("not implemented") }
+func (m *memStore) ClearAttemptsByCourse(context.Context, int, string) error {
+	return errors.New("not implemented")
+}
 func (m *memStore) FixLegacyAttemptsCourse(context.Context, string, int) (int, error) {
 	return 0, errors.New("not implemented")
 }
@@ -489,5 +555,94 @@ func TestBuildAdminSummaryInputAvgTotalExcludesSurveyAndShortAnswer(t *testing.T
 	}
 	if len(in.QuestionStats) != 2 {
 		t.Fatalf("unexpected QuestionStats count: %d", len(in.QuestionStats))
+	}
+}
+
+func TestAPITeacherCoursesNormalizesEnglishName(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "T01",
+		Role:      domain.RoleTeacher,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/courses", strings.NewReader(`{
+		"name":"机器学习导论",
+		"slug":"  Machine   Learning Intro  "
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+
+	s.apiTeacherCourses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		OK     bool `json:"ok"`
+		Course struct {
+			DisplayName  string `json:"display_name"`
+			InternalName string `json:"internal_name"`
+			Slug         string `json:"slug"`
+		} `json:"course"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected ok response")
+	}
+	if resp.Course.DisplayName != "Machine Learning Intro" {
+		t.Fatalf("display_name mismatch: %q", resp.Course.DisplayName)
+	}
+	if resp.Course.InternalName != "Machine_Learning_Intro" {
+		t.Fatalf("internal_name mismatch: %q", resp.Course.InternalName)
+	}
+	if resp.Course.Slug != resp.Course.InternalName {
+		t.Fatalf("legacy slug should mirror internal_name: %q", resp.Course.Slug)
+	}
+	if len(st.courses) != 1 {
+		t.Fatalf("expected 1 stored course, got %d", len(st.courses))
+	}
+	if st.courses[0].DisplayName != "Machine Learning Intro" || st.courses[0].InternalName != "Machine_Learning_Intro" {
+		t.Fatalf("stored course mismatch: %+v", st.courses[0])
+	}
+}
+
+func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{{
+			ID:           1,
+			TeacherID:    "T01",
+			Name:         "机器学习导论",
+			DisplayName:  "Machine Learning Intro",
+			InternalName: "Machine_Learning_Intro",
+			Slug:         "Machine_Learning_Intro",
+			InviteCode:   "ABC123",
+		}},
+	}
+	s := New(Config{}, st)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/course?code=ABC123", nil)
+	rr := httptest.NewRecorder()
+	s.apiCourseByInviteCode(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp["display_name"] != "Machine Learning Intro" {
+		t.Fatalf("unexpected display_name: %#v", resp["display_name"])
+	}
+	if resp["internal_name"] != "Machine_Learning_Intro" {
+		t.Fatalf("unexpected internal_name: %#v", resp["internal_name"])
+	}
+	if resp["slug"] != "Machine_Learning_Intro" {
+		t.Fatalf("unexpected legacy slug: %#v", resp["slug"])
 	}
 }

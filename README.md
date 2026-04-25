@@ -111,6 +111,8 @@ metadata/
 - `SubmitAttempt` 按 `(course_id, quiz_id, student_no)` 计算 `attempt_no`，两门课共用 YAML 不再串号
 - `admin_summaries` 主键 = `(course_id, quiz_id)` 复合；不同课程的同一 YAML 有独立总结
 - `homework_submissions.course_id` 为权威字段；`course` 列保留 slug 仅用于展示
+- `courses.display_name` 保存教师输入的英文展示名（空格版）；`courses.internal_name` 保存自动转换后的内部名（空格转下划线）；`courses.slug` 继续兼容旧逻辑并镜像 `internal_name`
+- 建课接口会对英文名做 `trim + collapse spaces + replace spaces with "_"` 处理；历史课程不会被强制改写展示名
 
 ## 路由表
 
@@ -125,9 +127,14 @@ metadata/
 | `/api/auth/*` | 统一登录 / 登出 / me | — |
 | `/api/system/*` | 系统管理 API（教师、AI、统计） | role=admin |
 | `/api/teacher/courses/*` | 教师课程 API | 教师 cookie |
-| `/api/course?code=` | 邀请码解析（返回 `id/name/slug/teacher_name`） | 无 |
+| `/api/course?code=` | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无 |
 | `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话 | — |
 | `/api/admin/*`（教学类） | 410 Gone + 指向新路由 | — |
+
+教师课程 API 约定：
+- `POST /api/teacher/courses`：请求体中的 `slug` 字段可直接填写带空格英文名，例如 `Machine Learning Intro`
+- 服务端自动生成 `internal_name=Machine_Learning_Intro`，并同时返回 `display_name`、`internal_name` 与兼容字段 `slug`
+- 文件路径、课程目录、作业目录等内部引用统一使用 `internal_name`
 
 ## 题库 YAML
 

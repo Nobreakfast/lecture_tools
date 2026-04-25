@@ -151,6 +151,13 @@ func TestUpgrade_FreshDB(t *testing.T) {
 	if n != 1 {
 		t.Errorf("courses=%d want 1", n)
 	}
+	var displayName, internalName, slug string
+	if err := db.QueryRow(`SELECT display_name, internal_name, slug FROM courses LIMIT 1`).Scan(&displayName, &internalName, &slug); err != nil {
+		t.Fatalf("query course naming columns failed: %v", err)
+	}
+	if displayName == "" || internalName == "" || slug == "" {
+		t.Fatalf("expected course naming columns to be populated, got display=%q internal=%q slug=%q", displayName, internalName, slug)
+	}
 }
 
 func TestUpgrade_MainBranch_BackfillsCourseIDs(t *testing.T) {

@@ -31,8 +31,8 @@ import (
 	"course-assistant/internal/store"
 
 	qrcode "github.com/skip2/go-qrcode"
-	"gopkg.in/yaml.v3"
 	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed web/*
@@ -1774,10 +1774,9 @@ func (s *Server) apiAdminOverview(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		courseItems = append(courseItems, map[string]any{
-			"id": c.ID, "teacher_id": c.TeacherID, "teacher_name": teacherName,
-			"name": c.Name, "slug": c.Slug, "invite_code": c.InviteCode,
-		})
+		item := coursePayload(c)
+		item["teacher_name"] = teacherName
+		courseItems = append(courseItems, item)
 	}
 
 	// Aggregate student + attempt counts by scanning attempts once.
@@ -1945,40 +1944,44 @@ func (s *Server) apiTeacherCourses(w http.ResponseWriter, r *http.Request) {
 		}
 		items := make([]map[string]any, 0, len(courses))
 		for _, c := range courses {
-			items = append(items, map[string]any{
-				"id": c.ID, "teacher_id": c.TeacherID, "name": c.Name,
-				"slug": c.Slug, "invite_code": c.InviteCode,
-				"created_at": c.CreatedAt, "updated_at": c.UpdatedAt,
-			})
+			items = append(items, coursePayload(c))
 		}
 		writeJSON(w, map[string]any{"items": items})
 	case http.MethodPost:
 		var req struct {
-			Name string `json:"name"`
-			Slug string `json:"slug"`
+			Name         string `json:"name"`
+			Slug         string `json:"slug"`
+			DisplayName  string `json:"display_name"`
+			InternalName string `json:"internal_name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
 		req.Name = strings.TrimSpace(req.Name)
-		req.Slug = strings.TrimSpace(req.Slug)
-		if req.Name == "" || req.Slug == "" {
+		displayName, internalName := domain.NormalizeCourseEnglishName(req.Slug)
+		if strings.TrimSpace(req.DisplayName) != "" || strings.TrimSpace(req.InternalName) != "" {
+			displayName = strings.TrimSpace(req.DisplayName)
+			internalName = strings.TrimSpace(req.InternalName)
+		}
+		if req.Name == "" || displayName == "" || internalName == "" {
 			http.Error(w, "课程名称和标识不能为空", http.StatusBadRequest)
 			return
 		}
-		if _, err := validateMaterialFolder(req.Slug); err != nil {
+		if _, err := validateMaterialFolder(internalName); err != nil {
 			http.Error(w, "课程标识不合法（不能包含 / \\ .. 等特殊字符）", http.StatusBadRequest)
 			return
 		}
 		now := time.Now()
 		c := &domain.Course{
-			TeacherID:  sess.TeacherID,
-			Name:       req.Name,
-			Slug:       req.Slug,
-			InviteCode: generateInviteCode(),
-			CreatedAt:  now,
-			UpdatedAt:  now,
+			TeacherID:    sess.TeacherID,
+			Name:         req.Name,
+			DisplayName:  displayName,
+			InternalName: internalName,
+			Slug:         internalName,
+			InviteCode:   generateInviteCode(),
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		}
 		if err := s.store.CreateCourse(r.Context(), c); err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
@@ -1988,9 +1991,7 @@ func (s *Server) apiTeacherCourses(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "创建失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "course": map[string]any{
-			"id": c.ID, "name": c.Name, "slug": c.Slug, "invite_code": c.InviteCode,
-		}})
+		writeJSON(w, map[string]any{"ok": true, "course": coursePayload(*c)})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -2049,9 +2050,24 @@ func (s *Server) apiCourseByInviteCode(w http.ResponseWriter, r *http.Request) {
 		teacherName = teacher.Name
 	}
 	writeJSON(w, map[string]any{
-		"id": course.ID, "name": course.Name, "slug": course.Slug,
+		"id": course.ID, "name": course.Name, "display_name": course.DisplayName,
+		"internal_name": course.InternalName, "slug": course.Slug,
 		"teacher_name": teacherName, "invite_code": course.InviteCode,
 	})
+}
+
+func coursePayload(c domain.Course) map[string]any {
+	return map[string]any{
+		"id":            c.ID,
+		"teacher_id":    c.TeacherID,
+		"name":          c.Name,
+		"display_name":  c.DisplayName,
+		"internal_name": c.InternalName,
+		"slug":          c.Slug,
+		"invite_code":   c.InviteCode,
+		"created_at":    c.CreatedAt,
+		"updated_at":    c.UpdatedAt,
+	}
 }
 
 // ── Course-scoped quiz APIs ──

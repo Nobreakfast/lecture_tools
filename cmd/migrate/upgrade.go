@@ -4,8 +4,8 @@
 package main
 
 import (
-	crand "crypto/rand"
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -144,7 +144,11 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	ensureColumn(db, ctx, "attempts", "quiz_id", `TEXT NOT NULL DEFAULT ''`)
 	ensureColumn(db, ctx, "attempts", "attempt_no", `INTEGER NOT NULL DEFAULT 0`)
 	ensureColumn(db, ctx, "attempts", "course_id", `INTEGER NOT NULL DEFAULT 0`)
+	ensureColumn(db, ctx, "courses", "display_name", `TEXT NOT NULL DEFAULT ''`)
+	ensureColumn(db, ctx, "courses", "internal_name", `TEXT NOT NULL DEFAULT ''`)
 	db.ExecContext(ctx, `UPDATE attempts SET course_id = 0 WHERE typeof(course_id) = 'text' OR course_id = ''`)
+	db.ExecContext(ctx, `UPDATE courses SET internal_name = slug WHERE internal_name = '' OR internal_name IS NULL`)
+	db.ExecContext(ctx, `UPDATE courses SET display_name = internal_name WHERE display_name = '' OR display_name IS NULL`)
 	if err := ensureHomeworkSchema(ctx, db); err != nil {
 		return fmt.Errorf("homework schema: %w", err)
 	}
@@ -352,6 +356,8 @@ func ensureCoreTables(ctx context.Context, db *sql.DB) error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			teacher_id TEXT NOT NULL,
 			name TEXT NOT NULL,
+			display_name TEXT NOT NULL DEFAULT '',
+			internal_name TEXT NOT NULL DEFAULT '',
 			slug TEXT NOT NULL DEFAULT '',
 			invite_code TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT '',
@@ -485,8 +491,8 @@ func ensureDefaultCourse(ctx context.Context, db *sql.DB, teacherID, slug, name 
 	code := randomInviteCode()
 	now := time.Now().Format(time.RFC3339Nano)
 	res, err := db.ExecContext(ctx,
-		`INSERT INTO courses(teacher_id,name,slug,invite_code,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
-		teacherID, name, slug, code, now, now)
+		`INSERT INTO courses(teacher_id,name,display_name,internal_name,slug,invite_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+		teacherID, name, slug, slug, slug, code, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -723,8 +729,8 @@ func recomputeAttemptNo(ctx context.Context, db *sql.DB) (int64, error) {
 		return 0, err
 	}
 	type key struct {
-		course   int
-		quizID   string
+		course    int
+		quizID    string
 		studentNo string
 	}
 	counters := map[key]int{}
@@ -847,6 +853,8 @@ func migrateCourseIDsToInt(ctx context.Context, db *sql.DB, adminTeacherID strin
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		teacher_id TEXT NOT NULL,
 		name TEXT NOT NULL,
+		display_name TEXT NOT NULL DEFAULT '',
+		internal_name TEXT NOT NULL DEFAULT '',
 		slug TEXT NOT NULL DEFAULT '',
 		invite_code TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT '',
@@ -877,8 +885,8 @@ func migrateCourseIDsToInt(ctx context.Context, db *sql.DB, adminTeacherID strin
 			invCode = randomInviteCode()
 		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO courses_new(teacher_id,name,slug,invite_code,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
-			teacher, name, slug, invCode, createdAt, updatedAt)
+			`INSERT INTO courses_new(teacher_id,name,display_name,internal_name,slug,invite_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+			teacher, name, slug, slug, slug, invCode, createdAt, updatedAt)
 		if err != nil {
 			rows.Close()
 			return err

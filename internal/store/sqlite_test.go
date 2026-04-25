@@ -238,6 +238,94 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateCoursePersistsDisplayAndInternalName(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-course-names?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	if err := st.CreateTeacher(ctx, &domain.Teacher{
+		ID:           "T01",
+		Name:         "测试教师",
+		PasswordHash: "hash",
+		Role:         domain.RoleTeacher,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("CreateTeacher failed: %v", err)
+	}
+	course := &domain.Course{
+		TeacherID:    "T01",
+		Name:         "机器学习导论",
+		DisplayName:  "Machine Learning Intro",
+		InternalName: "Machine_Learning_Intro",
+		Slug:         "Machine_Learning_Intro",
+		InviteCode:   "ABC123",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := st.CreateCourse(ctx, course); err != nil {
+		t.Fatalf("CreateCourse failed: %v", err)
+	}
+
+	got, err := st.GetCourse(ctx, course.ID)
+	if err != nil {
+		t.Fatalf("GetCourse failed: %v", err)
+	}
+	if got.DisplayName != "Machine Learning Intro" {
+		t.Fatalf("display_name = %q", got.DisplayName)
+	}
+	if got.InternalName != "Machine_Learning_Intro" {
+		t.Fatalf("internal_name = %q", got.InternalName)
+	}
+	if got.Slug != got.InternalName {
+		t.Fatalf("legacy slug mismatch: %q vs %q", got.Slug, got.InternalName)
+	}
+}
+
+func TestGetCourseFallsBackToLegacySlugWhenDualNamesMissing(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-course-names-legacy?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339Nano)
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO teachers(id, name, password_hash, role, created_at, updated_at)
+		VALUES(?, ?, ?, ?, ?, ?)`,
+		"T01", "测试教师", "hash", string(domain.RoleTeacher), now, now); err != nil {
+		t.Fatalf("insert teacher failed: %v", err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO courses(teacher_id, name, display_name, internal_name, slug, invite_code, created_at, updated_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		"T01", "旧课程", "", "", "legacy_slug", "XYZ789", now, now); err != nil {
+		t.Fatalf("insert legacy-like course failed: %v", err)
+	}
+
+	got, err := st.GetCourseByInviteCode(ctx, "XYZ789")
+	if err != nil {
+		t.Fatalf("GetCourseByInviteCode failed: %v", err)
+	}
+	if got.DisplayName != "legacy_slug" {
+		t.Fatalf("display_name fallback = %q", got.DisplayName)
+	}
+	if got.InternalName != "legacy_slug" {
+		t.Fatalf("internal_name fallback = %q", got.InternalName)
+	}
+}
+
 func TestHomeworkSubmissionSchemaCutoverDropsLegacyColumns(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-homework-schema-cutover?mode=memory&cache=shared")

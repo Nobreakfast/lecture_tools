@@ -22,13 +22,15 @@ type Teacher struct {
 }
 
 type Course struct {
-	ID         int
-	TeacherID  string
-	Name       string
-	Slug       string
-	InviteCode string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID           int
+	TeacherID    string
+	Name         string
+	DisplayName  string
+	InternalName string
+	Slug         string
+	InviteCode   string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type CourseState struct {

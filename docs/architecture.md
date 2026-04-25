@@ -94,6 +94,12 @@
 - `POST /api/homework/upload`：上传或替换作业文件槽位（`report` / `code`）
 - `POST /api/homework/delete`：删除某个作业文件槽位
 
+教师课程接口（均需教师登录）：
+- `GET /api/teacher/courses`：列出教师课程，返回 `name/display_name/internal_name/slug/invite_code`
+- `POST /api/teacher/courses`：创建课程；当请求里的英文名包含空格时，服务端自动规范化为 `display_name`（空格展示）与 `internal_name`（下划线路径）
+- 自动转换规则：先去掉首尾空格，再把连续空白折叠为单个分隔符；前端展示保留空格版，文件路径与内部引用统一使用下划线版
+- 历史课程不做强制转换；若旧数据没有 `display_name/internal_name`，运行时回退到原 `slug`
+
 管理员接口（均需登录）：
 - `POST /api/admin/login`：登录
 - `GET /api/admin/state`：入口状态、人数统计、当前题库信息
@@ -151,6 +157,7 @@
 - 答题唯一约束索引：`idx_attempts_one_active`
 - 作业提交索引：`idx_homework_submissions_lookup`、`idx_homework_submissions_assignment`
 - 作业提交唯一键：`UNIQUE(course, assignment_id, student_no)`
+- 课程命名字段：`courses.display_name` 存展示英文名，`courses.internal_name` 存内部英文名，`courses.slug` 保留为兼容别名并镜像 `internal_name`
 
 ## 数据流
 答题数据流：

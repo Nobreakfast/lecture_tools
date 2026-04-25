@@ -56,6 +56,8 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			teacher_id TEXT NOT NULL REFERENCES teachers(id),
 			name TEXT NOT NULL,
+			display_name TEXT NOT NULL DEFAULT '',
+			internal_name TEXT NOT NULL DEFAULT '',
 			slug TEXT NOT NULL,
 			invite_code TEXT UNIQUE NOT NULL,
 			created_at TEXT NOT NULL,
@@ -116,7 +118,13 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 	if err := s.ensureCourseIntID(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureCourseNamingColumns(ctx); err != nil {
+		return err
+	}
 	if err := s.backfillCourseSlugs(ctx); err != nil {
+		return err
+	}
+	if err := s.backfillCourseNames(ctx); err != nil {
 		return err
 	}
 	if err := s.ensureAdminSummariesCourseID(ctx); err != nil {
@@ -580,9 +588,18 @@ func (s *SQLiteStore) DeleteTeacher(ctx context.Context, id string) error {
 // ── Courses ──
 
 func (s *SQLiteStore) CreateCourse(ctx context.Context, c *domain.Course) error {
+	if c.InternalName == "" {
+		c.InternalName = c.Slug
+	}
+	if c.Slug == "" {
+		c.Slug = c.InternalName
+	}
+	if c.DisplayName == "" {
+		c.DisplayName = c.InternalName
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO courses(teacher_id, name, slug, invite_code, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)`,
-		c.TeacherID, c.Name, c.Slug, c.InviteCode,
+		`INSERT INTO courses(teacher_id, name, display_name, internal_name, slug, invite_code, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.TeacherID, c.Name, c.DisplayName, c.InternalName, c.Slug, c.InviteCode,
 		c.CreatedAt.Format(time.RFC3339Nano), c.UpdatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		return err
@@ -594,29 +611,38 @@ func (s *SQLiteStore) CreateCourse(ctx context.Context, c *domain.Course) error 
 
 func (s *SQLiteStore) GetCourse(ctx context.Context, id int) (*domain.Course, error) {
 	return s.scanCourse(s.db.QueryRowContext(ctx,
-		`SELECT id, teacher_id, name, slug, invite_code, created_at, updated_at FROM courses WHERE id = ?`, id))
+		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses WHERE id = ?`, id))
 }
 
 func (s *SQLiteStore) GetCourseByInviteCode(ctx context.Context, code string) (*domain.Course, error) {
 	return s.scanCourse(s.db.QueryRowContext(ctx,
-		`SELECT id, teacher_id, name, slug, invite_code, created_at, updated_at FROM courses WHERE invite_code = ?`, code))
+		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses WHERE invite_code = ?`, code))
 }
 
 func (s *SQLiteStore) ListCoursesByTeacher(ctx context.Context, teacherID string) ([]domain.Course, error) {
 	return s.listCourses(ctx,
-		`SELECT id, teacher_id, name, slug, invite_code, created_at, updated_at FROM courses WHERE teacher_id = ? ORDER BY created_at`, teacherID)
+		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses WHERE teacher_id = ? ORDER BY created_at`, teacherID)
 }
 
 func (s *SQLiteStore) ListAllCourses(ctx context.Context) ([]domain.Course, error) {
 	return s.listCourses(ctx,
-		`SELECT id, teacher_id, name, slug, invite_code, created_at, updated_at FROM courses ORDER BY teacher_id, created_at`)
+		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses ORDER BY teacher_id, created_at`)
 }
 
 func (s *SQLiteStore) UpdateCourse(ctx context.Context, c *domain.Course) error {
+	if c.InternalName == "" {
+		c.InternalName = c.Slug
+	}
+	if c.Slug == "" {
+		c.Slug = c.InternalName
+	}
+	if c.DisplayName == "" {
+		c.DisplayName = c.InternalName
+	}
 	now := time.Now().Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE courses SET name = ?, slug = ?, updated_at = ? WHERE id = ?`,
-		c.Name, c.Slug, now, c.ID)
+		`UPDATE courses SET name = ?, display_name = ?, internal_name = ?, slug = ?, updated_at = ? WHERE id = ?`,
+		c.Name, c.DisplayName, c.InternalName, c.Slug, now, c.ID)
 	return err
 }
 
@@ -660,9 +686,10 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 func (s *SQLiteStore) scanCourse(row *sql.Row) (*domain.Course, error) {
 	var c domain.Course
 	var created, updated string
-	if err := row.Scan(&c.ID, &c.TeacherID, &c.Name, &c.Slug, &c.InviteCode, &created, &updated); err != nil {
+	if err := row.Scan(&c.ID, &c.TeacherID, &c.Name, &c.DisplayName, &c.InternalName, &c.Slug, &c.InviteCode, &created, &updated); err != nil {
 		return nil, err
 	}
+	normalizeCourseRecord(&c)
 	c.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 	return &c, nil
@@ -678,9 +705,10 @@ func (s *SQLiteStore) listCourses(ctx context.Context, query string, args ...any
 	for rows.Next() {
 		var c domain.Course
 		var created, updated string
-		if err := rows.Scan(&c.ID, &c.TeacherID, &c.Name, &c.Slug, &c.InviteCode, &created, &updated); err != nil {
+		if err := rows.Scan(&c.ID, &c.TeacherID, &c.Name, &c.DisplayName, &c.InternalName, &c.Slug, &c.InviteCode, &created, &updated); err != nil {
 			return nil, err
 		}
+		normalizeCourseRecord(&c)
 		c.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 		c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
 		items = append(items, c)
@@ -1184,6 +1212,8 @@ func (s *SQLiteStore) ensureCourseIntID(ctx context.Context) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		teacher_id TEXT NOT NULL,
 		name TEXT NOT NULL,
+		display_name TEXT NOT NULL DEFAULT '',
+		internal_name TEXT NOT NULL DEFAULT '',
 		slug TEXT NOT NULL DEFAULT '',
 		invite_code TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT '',
@@ -1213,8 +1243,8 @@ func (s *SQLiteStore) ensureCourseIntID(ctx context.Context) error {
 			invCode = migrationInviteCode()
 		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO courses_new(teacher_id, name, slug, invite_code, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
-			teacherID, name, slug, invCode, createdAt, updatedAt)
+			`INSERT INTO courses_new(teacher_id, name, display_name, internal_name, slug, invite_code, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+			teacherID, name, slug, slug, slug, invCode, createdAt, updatedAt)
 		if err != nil {
 			oldRows.Close()
 			return fmt.Errorf("ensureCourseIntID: insert: %w", err)
@@ -1247,6 +1277,36 @@ func (s *SQLiteStore) backfillCourseSlugs(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE courses SET slug = name WHERE slug = '' OR slug IS NULL`)
 	return err
+}
+
+func (s *SQLiteStore) ensureCourseNamingColumns(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE courses ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE courses ADD COLUMN internal_name TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		return err
+	}
+	return nil
+}
+
+func (s *SQLiteStore) backfillCourseNames(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE courses SET internal_name = slug WHERE internal_name = '' OR internal_name IS NULL`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE courses SET display_name = internal_name WHERE display_name = '' OR display_name IS NULL`)
+	return err
+}
+
+func normalizeCourseRecord(c *domain.Course) {
+	if c.InternalName == "" {
+		c.InternalName = c.Slug
+	}
+	if c.Slug == "" {
+		c.Slug = c.InternalName
+	}
+	if c.DisplayName == "" {
+		c.DisplayName = c.InternalName
+	}
 }
 
 // ensureAdminSummariesCourseID adds the course_id column to admin_summaries
