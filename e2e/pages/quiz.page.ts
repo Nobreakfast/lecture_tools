@@ -7,6 +7,7 @@ export class QuizPage {
   readonly page: Page;
   readonly title: Locator;
   readonly exitBtn: Locator;
+  readonly quitBtn: Locator;
   readonly questions: Locator;
   readonly submitBtn: Locator;
 
@@ -14,6 +15,7 @@ export class QuizPage {
     this.page = page;
     this.title = page.locator("#title");
     this.exitBtn = page.locator("#exitBtn");
+    this.quitBtn = page.locator("#quitBtn");
     this.questions = page.locator("#questions");
     this.submitBtn = page.locator("#submit");
   }
@@ -57,5 +59,16 @@ export class QuizPage {
   async submit() {
     await this.submitBtn.click();
     await this.page.waitForURL("**/result", { timeout: 10_000 });
+  }
+
+  async returnToCoursePage() {
+    await this.exitBtn.click();
+    await this.page.waitForURL("**/?stay=quiz", { timeout: 10_000 });
+  }
+
+  async quitQuiz() {
+    await this.quitBtn.click();
+    await this.page.locator(".modal .btn").filter({ hasText: "退出答题" }).click();
+    await this.page.waitForURL("**/", { timeout: 10_000 });
   }
 }

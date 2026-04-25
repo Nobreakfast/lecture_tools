@@ -19,6 +19,9 @@ export class StudentPage {
 
   // Quiz tab
   readonly quizLoading: Locator;
+  readonly quizResume: Locator;
+  readonly quizResumeBtn: Locator;
+  readonly quizSignoutBtn: Locator;
   readonly quizWait: Locator;
   readonly quizForm: Locator;
   readonly quizTitle: Locator;
@@ -59,6 +62,9 @@ export class StudentPage {
     this.hdrTeacher = page.locator("#hdrTeacher");
 
     this.quizLoading = page.locator("#quizLoading");
+    this.quizResume = page.locator("#quizResume");
+    this.quizResumeBtn = page.locator("#quizResumeBtn");
+    this.quizSignoutBtn = page.locator("#quizSignoutBtn");
     this.quizWait = page.locator("#quizWait");
     this.quizForm = page.locator("#quizForm");
     this.quizTitle = page.locator("#quizTitle");
@@ -105,6 +111,11 @@ export class StudentPage {
   async waitForQuizOpen() {
     await this.switchTab("tab-quiz");
     await this.quizForm.waitFor({ state: "visible", timeout: 15_000 });
+  }
+
+  async waitForQuizResume() {
+    await this.switchTab("tab-quiz");
+    await this.quizResume.waitFor({ state: "visible", timeout: 15_000 });
   }
 
   async joinQuiz(name: string, studentNo: string, className: string) {

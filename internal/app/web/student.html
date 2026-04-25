@@ -73,6 +73,29 @@
     .form-submit:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(79,70,229,0.2); }
     .form-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
     .quiz-hint { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 14px; }
+    .resume-box {
+      display: none;
+      text-align: center;
+      padding: 8px 0;
+    }
+    .resume-box.show { display: block; }
+    .resume-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .resume-meta {
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.8;
+      margin-bottom: 16px;
+    }
+    .resume-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
 
     /* ── Materials ── */
     .folder-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; color: var(--text-muted); }
@@ -171,6 +194,15 @@
     <div class="tab-page active" id="tab-quiz">
       <div class="card">
         <div id="quizLoading" class="empty">正在检查状态…</div>
+
+        <div id="quizResume" class="resume-box">
+          <div class="resume-title">检测到你有未提交的答题记录</div>
+          <div id="quizResumeMeta" class="resume-meta"></div>
+          <div class="resume-actions">
+            <button id="quizResumeBtn">继续答题</button>
+            <button id="quizSignoutBtn" class="secondary">退出答题</button>
+          </div>
+        </div>
 
         <div id="quizWait" style="display:none;">
           <div class="waiting">
@@ -363,6 +395,16 @@
       loadMaterials();
       loadAssignmentList();
     }
+    function shouldStayOnCoursePage() {
+      var params = new URLSearchParams(window.location.search);
+      return params.get('stay') === 'quiz';
+    }
+    function clearStayFlag() {
+      var url = new URL(window.location.href);
+      if (url.searchParams.get('stay') !== 'quiz') return;
+      url.searchParams.delete('stay');
+      history.replaceState(null, '', url.pathname + (url.search ? url.search : '') + url.hash);
+    }
 
     function showPanel() {
       document.getElementById('landing').style.display = 'none';
@@ -395,9 +437,11 @@
 
     async function initQuizTab() {
       var loadingEl = document.getElementById('quizLoading');
+      var resumeEl = document.getElementById('quizResume');
       var waitEl = document.getElementById('quizWait');
       var formEl = document.getElementById('quizForm');
       loadingEl.style.display = '';
+      resumeEl.classList.remove('show');
       waitEl.style.display = 'none';
       formEl.style.display = 'none';
       stopPoll();
@@ -408,7 +452,14 @@
         if (r.ok) {
           var data = await r.json();
           var st = data.attempt && data.attempt.status;
-          if (st === 'in_progress') { location.href = '/quiz'; return; }
+          if (st === 'in_progress') {
+            if (shouldStayOnCoursePage()) {
+              showQuizResume(data);
+              return;
+            }
+            location.href = '/quiz';
+            return;
+          }
           if (st === 'submitted')   { location.href = '/result'; return; }
         }
       } catch (_) {}
@@ -416,11 +467,29 @@
       prefillQuizForm();
       checkQuizEntry();
     }
+    function showQuizResume(data) {
+      var loadingEl = document.getElementById('quizLoading');
+      var resumeEl = document.getElementById('quizResume');
+      var waitEl = document.getElementById('quizWait');
+      var formEl = document.getElementById('quizForm');
+      var attempt = data && data.attempt ? data.attempt : {};
+      var quiz = data && data.quiz ? data.quiz : {};
+      loadingEl.style.display = 'none';
+      waitEl.style.display = 'none';
+      formEl.style.display = 'none';
+      document.getElementById('quizResumeMeta').innerHTML =
+        '测验：<strong>' + escapeHTML(quiz.title || '当前测验') + '</strong><br/>' +
+        '学生：<strong>' + escapeHTML(attempt.name || '') + '</strong> / ' +
+        escapeHTML(attempt.student_no || '') + ' / ' + escapeHTML(attempt.class_name || '');
+      resumeEl.classList.add('show');
+    }
 
     async function checkQuizEntry() {
       var loadingEl = document.getElementById('quizLoading');
+      var resumeEl = document.getElementById('quizResume');
       var waitEl = document.getElementById('quizWait');
       var formEl = document.getElementById('quizForm');
+      resumeEl.classList.remove('show');
       try {
         var r = await fetch('/api/entry-status?course_id=' + course.id, { credentials: 'include' });
         if (!r.ok) {
@@ -494,12 +563,44 @@
         localStorage.setItem(STUDENT_KEY, JSON.stringify({
           name: body.name, student_no: body.student_no, class_name: body.class_name
         }));
+        clearStayFlag();
         location.href = '/quiz';
       } catch (_) {
         if (window.App) App.toast('网络异常，请重试', 'error'); else alert('网络异常，请重试');
       } finally {
         btn.disabled = false;
         btn.textContent = '开始答题';
+      }
+    };
+    document.getElementById('quizResumeBtn').onclick = function() {
+      clearStayFlag();
+      location.href = '/quiz';
+    };
+    document.getElementById('quizSignoutBtn').onclick = async function() {
+      var btn = this;
+      var ok = false;
+      if (window.App && App.confirmModal) {
+        ok = await App.confirmModal('退出当前答题？', '退出后会清除本浏览器中的答题会话，你可以稍后重新进入。', {
+          confirm: '退出答题',
+          cancel: '继续保留'
+        });
+      } else {
+        ok = confirm('确认退出当前答题吗？');
+      }
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        var r = await fetch('/api/student-signout', { method: 'POST', credentials: 'include' });
+        if (!r.ok) {
+          throw new Error((await r.text()) || '退出失败');
+        }
+        clearStayFlag();
+        setMessage('sessionMessage', '', '');
+        initQuizTab();
+      } catch (_) {
+        if (window.App) App.toast('退出答题失败，请重试', 'error'); else alert('退出答题失败，请重试');
+      } finally {
+        btn.disabled = false;
       }
     };
 

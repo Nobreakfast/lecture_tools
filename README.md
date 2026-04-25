@@ -6,6 +6,7 @@
 
 - 教室里最需要的是"稳定 + 可控"：邀请码即可进入，教师随时开关测验入口
 - 学生无需注册；会话用 cookie 自动恢复，简答题图片、作业文件本地持久化
+- 学生在答题页可返回课程主页且保留进度，也可主动退出当前答题会话
 - 题库用 YAML 管理；图片与 YAML 同目录
 - 每个教师的每门课数据完全隔离在 `metadata/{teacher}/{course}/` 下
 - 单二进制 + SQLite；没有前端构建、没有外部依赖
@@ -125,7 +126,7 @@ metadata/
 | `/api/system/*` | 系统管理 API（教师、AI、统计） | role=admin |
 | `/api/teacher/courses/*` | 教师课程 API | 教师 cookie |
 | `/api/course?code=` | 邀请码解析（返回 `id/name/slug/teacher_name`） | 无 |
-| `/api/join` / `/api/entry-status?course_id=N` | 学生入场 | — |
+| `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话 | — |
 | `/api/admin/*`（教学类） | 410 Gone + 指向新路由 | — |
 
 ## 题库 YAML

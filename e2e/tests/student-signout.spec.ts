@@ -3,7 +3,10 @@
 
 import { test, expect } from "@playwright/test";
 import { StudentPage } from "../pages/student.page";
+import { QuizPage } from "../pages/quiz.page";
 import { getSeedResult } from "../helpers/seed";
+import { TEACHER_ID, TEACHER_PASSWORD } from "../helpers/seed";
+import { TeacherPage } from "../pages/teacher.page";
 
 test.describe("Student sign-out and redirects", () => {
   test("POST /api/student-signout clears session", async ({ page }) => {
@@ -73,5 +76,46 @@ test.describe("Student sign-out and redirects", () => {
     await s2.joinQuiz("重复学生", "2024DUP", "测试班级");
     expect(s2.page.url()).toContain("/quiz");
     await ctx2.close();
+  });
+
+  test("student can return to course page and choose whether to resume or quit quiz", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+
+    const teacherCtx = await browser.newContext();
+    const teacherPage = new TeacherPage(await teacherCtx.newPage());
+    await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+    await teacherPage.selectCourse(seed.courseId);
+    await teacherPage.uploadQuizYAML();
+    await teacherPage.openEntry();
+    await teacherCtx.close();
+
+    const studentCtx = await browser.newContext();
+    const student = new StudentPage(await studentCtx.newPage());
+    await student.enterCode(seed.inviteCode);
+    await student.waitForQuizOpen();
+    await student.joinQuiz("返回测试", "2024BACK", "测试班级");
+
+    const quizPage = new QuizPage(student.page);
+    await quizPage.waitForLoad();
+    await quizPage.returnToCoursePage();
+
+    await student.panel.waitFor({ state: "visible", timeout: 10_000 });
+    await student.waitForQuizResume();
+    await expect(student.quizResume).toBeVisible();
+    await expect(student.quizResumeBtn).toBeVisible();
+    await expect(student.quizSignoutBtn).toBeVisible();
+
+    await student.quizResumeBtn.click();
+    await student.page.waitForURL("**/quiz", { timeout: 10_000 });
+    await quizPage.waitForLoad();
+
+    await quizPage.quitQuiz();
+    await student.panel.waitFor({ state: "visible", timeout: 10_000 });
+    await student.waitForQuizOpen();
+    await expect(student.quizResume).toBeHidden();
+
+    await studentCtx.close();
   });
 });

@@ -45,6 +45,30 @@
       font-weight: 700;
       margin-bottom: 16px;
     }
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    #exitBtn,
+    #quitBtn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+      transition: all 0.2s ease;
+    }
+    #exitBtn {
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+    }
+    #quitBtn {
+      background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%);
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.22);
+    }
     .card {
       background: var(--card-bg);
       backdrop-filter: blur(16px);
@@ -182,12 +206,18 @@
       box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
     }
     #submit:active { transform: scale(.98); }
-    #exitBtn:hover {
-      background: transparent;
+    #exitBtn:hover,
+    #quitBtn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
     }
-    #exitBtn:active { transform: translateY(0); box-shadow: none; }
+    #quitBtn:hover {
+      box-shadow: 0 6px 16px rgba(220, 38, 38, 0.3);
+    }
+    #exitBtn:active,
+    #quitBtn:active {
+      transform: scale(.98);
+    }
     .upload-area {
       margin-top: 10px;
     }
@@ -274,14 +304,46 @@
 <body>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
     <h2 id="title" style="margin:0;">加载中...</h2>
-    <button class="btn btn-ghost small" id="exitBtn" style="margin-top:0;">返回课程主页</button>
+    <div class="top-actions">
+      <button class="btn btn-ghost small" id="exitBtn" style="margin-top:0;">返回课程主页</button>
+      <button class="btn btn-ghost small" id="quitBtn" style="margin-top:0;">退出答题</button>
+    </div>
   </div>
   <script>
-    // Let students leave the quiz page without signing out. Their
-    // in-progress attempt is preserved and can be resumed from the landing.
     document.addEventListener('DOMContentLoaded', function () {
-      var b = document.getElementById('exitBtn');
-      if (b) b.onclick = function () { location.href = '/'; };
+      var exitBtn = document.getElementById('exitBtn');
+      var quitBtn = document.getElementById('quitBtn');
+
+      if (exitBtn) {
+        exitBtn.onclick = function () {
+          location.href = '/?stay=quiz';
+        };
+      }
+      if (quitBtn) {
+        quitBtn.onclick = async function () {
+          var ok = false;
+          if (window.App && App.confirmModal) {
+            ok = await App.confirmModal('退出当前答题？', '退出后会清除本次浏览器答题会话，但已保存的作答内容仍会保留，可重新进入。', {
+              confirm: '退出答题',
+              cancel: '继续作答'
+            });
+          } else {
+            ok = confirm('确认退出当前答题吗？');
+          }
+          if (!ok) return;
+          quitBtn.disabled = true;
+          try {
+            var r = await fetch('/api/student-signout', { method: 'POST', credentials: 'include' });
+            if (!r.ok) {
+              throw new Error((await r.text()) || '退出失败');
+            }
+            location.href = '/';
+          } catch (e) {
+            alert('退出答题失败：' + (e && e.message ? e.message : '请稍后重试'));
+            quitBtn.disabled = false;
+          }
+        };
+      }
     });
   </script>
   <div id="questions"></div>
