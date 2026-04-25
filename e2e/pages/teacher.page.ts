@@ -28,9 +28,7 @@ export class TeacherPage {
   readonly openEntryBtn: Locator;
   readonly closeEntryBtn: Locator;
   readonly exportCsvBtn: Locator;
-  readonly checkAttemptsBtn: Locator;
   readonly clearAttemptsBtn: Locator;
-  readonly attemptsCheckResult: Locator;
   readonly attemptsList: Locator;
   readonly attemptsQuizFilter: Locator;
 
@@ -99,9 +97,7 @@ export class TeacherPage {
     this.openEntryBtn = page.locator("#openEntryBtn");
     this.closeEntryBtn = page.locator("#closeEntryBtn");
     this.exportCsvBtn = page.locator("#exportCsvBtn");
-    this.checkAttemptsBtn = page.locator("#checkAttemptsBtn");
     this.clearAttemptsBtn = page.locator("#clearAttemptsBtn");
-    this.attemptsCheckResult = page.locator("#attemptsCheckResult");
     this.attemptsList = page.locator("#attemptsList");
     this.attemptsQuizFilter = page.locator("#attemptsQuizFilter");
 
@@ -214,12 +210,6 @@ export class TeacherPage {
     // Subtract header row if present
     const headerCount = await this.attemptsList.locator("thead tr").count();
     return Math.max(0, count - headerCount);
-  }
-
-  async checkAttemptDuplicates() {
-    await this.switchTab("tab-attempts");
-    await this.checkAttemptsBtn.click();
-    await this.attemptsCheckResult.waitFor({ state: "visible", timeout: 10_000 });
   }
 
   async changePassword(oldPwd: string, newPwd: string) {

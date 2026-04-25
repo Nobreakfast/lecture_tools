@@ -574,8 +574,8 @@ func TestBuildAdminSummaryInputAvgTotalExcludesSurveyAndShortAnswer(t *testing.T
 
 	st := &memStore{
 		attempts: []domain.Attempt{
-			{ID: "a1", QuizID: quiz.QuizID, StudentNo: "s1", Status: domain.StatusSubmitted, AttemptNo: 1},
-			{ID: "a2", QuizID: quiz.QuizID, StudentNo: "s2", Status: domain.StatusSubmitted, AttemptNo: 1},
+			{ID: "a1", QuizID: quiz.QuizID, Name: "张三", StudentNo: "s1", Status: domain.StatusSubmitted, AttemptNo: 1},
+			{ID: "a2", QuizID: quiz.QuizID, Name: "李四", StudentNo: "s2", Status: domain.StatusSubmitted, AttemptNo: 1},
 		},
 		answers: map[string]map[string]string{
 			"a1": {"q1": "A", "q2": "反馈1", "q3": "A", "q4": "A"},
@@ -750,71 +750,6 @@ func TestAPIAdminOverviewIncludesOnlineCount(t *testing.T) {
 	}
 	if got := int(resp["online_window_minutes"].(float64)); got != 15 {
 		t.Fatalf("unexpected online_window_minutes: %d", got)
-	}
-}
-
-func TestAPITeacherCourseAttemptsCheckKeepsHighestScore(t *testing.T) {
-	now := time.Now()
-	st := &memStore{
-		teachers: []domain.Teacher{
-			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
-		},
-		courses: []domain.Course{
-			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
-		},
-		attempts: []domain.Attempt{
-			{ID: "a1", CourseID: 1, QuizID: "quiz_1", Name: "张三", StudentNo: "2023001", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 1, UpdatedAt: now.Add(-2 * time.Minute)},
-			{ID: "a2", CourseID: 1, QuizID: "quiz_1", Name: "张三", StudentNo: "2023001", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 2, UpdatedAt: now.Add(-time.Minute)},
-			{ID: "a3", CourseID: 1, QuizID: "quiz_1", Name: "李四", StudentNo: "2023002", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 1, UpdatedAt: now.Add(-30 * time.Second)},
-		},
-		answers: map[string]map[string]string{
-			"a1": {"q1": "A", "q2": "B"},
-			"a2": {"q1": "A", "q2": "A"},
-			"a3": {"q1": "B", "q2": "A"},
-		},
-	}
-	s := New(Config{}, st)
-	s.authTokens["teacher-token"] = authSession{
-		TeacherID: "t1",
-		Role:      domain.RoleTeacher,
-		Expiry:    now.Add(time.Hour),
-	}
-	s.courseQuizzes[1] = &domain.Quiz{
-		QuizID: "quiz_1",
-		Questions: []domain.Question{
-			{ID: "q1", Type: domain.QuestionSingleChoice, CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
-			{ID: "q2", Type: domain.QuestionSingleChoice, CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
-		},
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/teacher/courses/attempts-check?course_id=1", nil)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
-	rr := httptest.NewRecorder()
-	s.Routes().ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response failed: %v", err)
-	}
-	if got := int(resp["duplicate_count"].(float64)); got != 1 {
-		t.Fatalf("unexpected duplicate_count: %d", got)
-	}
-	if got := int(resp["discarded_count"].(float64)); got != 1 {
-		t.Fatalf("unexpected discarded_count: %d", got)
-	}
-	items := resp["items"].([]any)
-	if len(items) != 1 {
-		t.Fatalf("unexpected duplicate items len: %d", len(items))
-	}
-	item := items[0].(map[string]any)
-	if got := item["kept_attempt_id"].(string); got != "a2" {
-		t.Fatalf("unexpected kept attempt id: %s", got)
-	}
-	if got := int(item["kept_correct"].(float64)); got != 2 {
-		t.Fatalf("unexpected kept_correct: %d", got)
 	}
 }
 

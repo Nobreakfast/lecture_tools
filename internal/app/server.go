@@ -237,7 +237,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/download-all", s.apiTeacherCourseQuizBankDownloadAll)
 	mux.HandleFunc("/quiz-editor", s.pageQuizEditor)
 	mux.HandleFunc("/api/teacher/courses/attempts", s.apiTeacherCourseAttempts)
-	mux.HandleFunc("/api/teacher/courses/attempts-check", s.apiTeacherCourseAttemptsCheck)
 	mux.HandleFunc("/api/teacher/courses/attempt-detail", s.apiTeacherCourseAttemptDetail)
 	mux.HandleFunc("/api/teacher/courses/live", s.apiTeacherCourseLive)
 	mux.HandleFunc("/api/teacher/courses/clear-attempts", s.apiTeacherCourseClearAttempts)
@@ -3081,7 +3080,7 @@ func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request
 		currentQuizID = q.QuizID
 	}
 
-	bestItems, _ := s.teacherCourseBestAttempts(r.Context(), course, q, items)
+	bestItems := s.teacherCourseBestAttempts(r.Context(), course, q, items)
 	result := make([]map[string]any, 0, len(bestItems))
 	for _, item := range bestItems {
 		a := item.Attempt
@@ -3093,51 +3092,6 @@ func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request
 		})
 	}
 	writeJSON(w, map[string]any{"items": result, "current_quiz_id": currentQuizID})
-}
-
-func (s *Server) apiTeacherCourseAttemptsCheck(w http.ResponseWriter, r *http.Request) {
-	sess := s.requireTeacherOrAdmin(r)
-	if sess == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	courseID, course, err := s.resolveTeacherCourse(r, sess)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-	items, err := s.store.ListAttemptsByCourse(r.Context(), courseID)
-	if err != nil {
-		http.Error(w, "读取失败", http.StatusInternalServerError)
-		return
-	}
-	s.mu.RLock()
-	q := s.courseQuizzes[courseID]
-	s.mu.RUnlock()
-	_, duplicates := s.teacherCourseBestAttempts(r.Context(), course, q, items)
-	respItems := make([]map[string]any, 0, len(duplicates))
-	discarded := 0
-	for _, item := range duplicates {
-		discarded += item.AttemptCount - 1
-		respItems = append(respItems, map[string]any{
-			"name":             item.Name,
-			"student_no":       item.StudentNo,
-			"class_name":       item.ClassName,
-			"quiz_id":          item.QuizID,
-			"attempt_count":    item.AttemptCount,
-			"kept_attempt_id":  item.Kept.Attempt.ID,
-			"kept_attempt_no":  item.Kept.Attempt.AttemptNo,
-			"kept_status":      item.Kept.Attempt.Status,
-			"kept_correct":     item.Kept.Correct,
-			"kept_total":       item.Kept.Total,
-			"kept_quiz_loaded": item.Kept.QuizLoaded,
-		})
-	}
-	writeJSON(w, map[string]any{
-		"duplicate_count": len(respItems),
-		"discarded_count": discarded,
-		"items":           respItems,
-	})
 }
 
 func (s *Server) apiTeacherCourseAttemptDetail(w http.ResponseWriter, r *http.Request) {
@@ -3344,7 +3298,7 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "读取失败", http.StatusInternalServerError)
 		return
 	}
-	bestItems, _ := s.teacherCourseBestAttempts(r.Context(), course, q, items)
+	bestItems := s.teacherCourseBestAttempts(r.Context(), course, q, items)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="class_report.csv"`)
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
@@ -3387,26 +3341,13 @@ type teacherCourseBestAttempt struct {
 	QuizLoaded bool
 }
 
-type teacherCourseDuplicateAttempt struct {
-	Name         string
-	StudentNo    string
-	ClassName    string
-	QuizID       string
-	AttemptCount int
-	Kept         teacherCourseBestAttempt
-}
-
-func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) ([]teacherCourseBestAttempt, []teacherCourseDuplicateAttempt) {
+func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) []teacherCourseBestAttempt {
 	type attemptKey struct {
-		studentNo string
-		quizID    string
-	}
-	type groupedAttempt struct {
-		best  teacherCourseBestAttempt
-		count int
+		name   string
+		quizID string
 	}
 	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
-	bestMap := map[attemptKey]groupedAttempt{}
+	bestMap := map[attemptKey]teacherCourseBestAttempt{}
 	for _, attempt := range attempts {
 		item := teacherCourseBestAttempt{Attempt: attempt}
 		if attempt.Status == domain.StatusSubmitted {
@@ -3415,28 +3356,14 @@ func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.C
 				item.QuizLoaded = true
 			}
 		}
-		key := attemptKey{studentNo: attempt.StudentNo, quizID: attempt.QuizID}
-		group := bestMap[key]
-		group.count++
-		if group.count == 1 || teacherCourseAttemptBetter(item, group.best) {
-			group.best = item
+		key := attemptKey{name: attempt.Name, quizID: attempt.QuizID}
+		if existing, ok := bestMap[key]; !ok || teacherCourseAttemptBetter(item, existing) {
+			bestMap[key] = item
 		}
-		bestMap[key] = group
 	}
 	bestItems := make([]teacherCourseBestAttempt, 0, len(bestMap))
-	duplicates := make([]teacherCourseDuplicateAttempt, 0)
-	for _, group := range bestMap {
-		bestItems = append(bestItems, group.best)
-		if group.count > 1 {
-			duplicates = append(duplicates, teacherCourseDuplicateAttempt{
-				Name:         group.best.Attempt.Name,
-				StudentNo:    group.best.Attempt.StudentNo,
-				ClassName:    group.best.Attempt.ClassName,
-				QuizID:       group.best.Attempt.QuizID,
-				AttemptCount: group.count,
-				Kept:         group.best,
-			})
-		}
+	for _, item := range bestMap {
+		bestItems = append(bestItems, item)
 	}
 	sort.Slice(bestItems, func(i, j int) bool {
 		if !bestItems[i].Attempt.UpdatedAt.Equal(bestItems[j].Attempt.UpdatedAt) {
@@ -3445,18 +3372,9 @@ func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.C
 		if bestItems[i].Attempt.QuizID != bestItems[j].Attempt.QuizID {
 			return bestItems[i].Attempt.QuizID < bestItems[j].Attempt.QuizID
 		}
-		return bestItems[i].Attempt.StudentNo < bestItems[j].Attempt.StudentNo
+		return bestItems[i].Attempt.Name < bestItems[j].Attempt.Name
 	})
-	sort.Slice(duplicates, func(i, j int) bool {
-		if duplicates[i].QuizID != duplicates[j].QuizID {
-			return duplicates[i].QuizID < duplicates[j].QuizID
-		}
-		if duplicates[i].ClassName != duplicates[j].ClassName {
-			return duplicates[i].ClassName < duplicates[j].ClassName
-		}
-		return duplicates[i].StudentNo < duplicates[j].StudentNo
-	})
-	return bestItems, duplicates
+	return bestItems
 }
 
 func (s *Server) teacherCourseQuizMap(course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) map[string]*domain.Quiz {

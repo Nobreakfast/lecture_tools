@@ -100,11 +100,11 @@ test.describe("Teacher panel", () => {
     await expect(teacherPage.quizTitle).toContainText("第一周课堂反馈");
   });
 
-  test("duplicate check keeps highest score for the same student", async ({
+  test("dedup by name keeps highest score for the same student", async ({
     browser,
   }) => {
     const seed = getSeedResult();
-    const studentName = `重复检查学生${Date.now().toString().slice(-4)}`;
+    const studentName = `去重学生${Date.now().toString().slice(-4)}`;
     const studentNo = `E2EDUP${Date.now().toString().slice(-6)}`;
 
     await teacherPage.selectCourse(seed.courseId);
@@ -152,14 +152,8 @@ test.describe("Teacher panel", () => {
     await teacherPage.switchTab("tab-attempts");
     await expect(teacherPage.attemptsList).toContainText(studentName);
     await expect(
-      teacherPage.attemptsList.locator("tbody tr").filter({ hasText: studentNo })
+      teacherPage.attemptsList.locator("tbody tr").filter({ hasText: studentName })
     ).toHaveCount(1);
-
-    await teacherPage.checkAttemptDuplicates();
-    await expect(teacherPage.attemptsCheckResult).toContainText("检测到 1 组重复记录");
-    await expect(teacherPage.attemptsCheckResult).toContainText(studentName);
-    await expect(teacherPage.attemptsCheckResult).toContainText(studentNo);
-    await expect(teacherPage.attemptsCheckResult).toContainText("3/3");
   });
 
   test("toggle entry open and closed", async () => {

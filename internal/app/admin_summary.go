@@ -561,7 +561,7 @@ func (s *Server) buildQuizRawStats(ctx context.Context, q *domain.Quiz, courseID
 	}
 }
 
-// latestAttempts picks the attempt with the highest attempt_no per student (fallback when no quiz available for scoring).
+// latestAttempts picks the attempt with the highest attempt_no per student, grouped by name.
 func latestAttempts(all []domain.Attempt) []domain.Attempt {
 	best := map[string]*domain.Attempt{}
 	for i := range all {
@@ -569,9 +569,9 @@ func latestAttempts(all []domain.Attempt) []domain.Attempt {
 		if a.Status != domain.StatusSubmitted {
 			continue
 		}
-		existing, ok := best[a.StudentNo]
+		existing, ok := best[a.Name]
 		if !ok || a.AttemptNo > existing.AttemptNo {
-			best[a.StudentNo] = a
+			best[a.Name] = a
 		}
 	}
 	result := make([]domain.Attempt, 0, len(best))
@@ -581,7 +581,7 @@ func latestAttempts(all []domain.Attempt) []domain.Attempt {
 	return result
 }
 
-// bestScoringAttempts picks the highest-scoring attempt per student.
+// bestScoringAttempts picks the highest-scoring attempt per student (grouped by name).
 // scoreFn returns (correct, total) for a given attempt ID.
 func bestScoringAttempts(all []domain.Attempt, scoreFn func(attemptID string) (int, int)) []domain.Attempt {
 	type scored struct {
@@ -595,9 +595,9 @@ func bestScoringAttempts(all []domain.Attempt, scoreFn func(attemptID string) (i
 			continue
 		}
 		c, _ := scoreFn(a.ID)
-		existing, ok := best[a.StudentNo]
+		existing, ok := best[a.Name]
 		if !ok || c > existing.correct || (c == existing.correct && a.AttemptNo > existing.attempt.AttemptNo) {
-			best[a.StudentNo] = &scored{attempt: a, correct: c}
+			best[a.Name] = &scored{attempt: a, correct: c}
 		}
 	}
 	result := make([]domain.Attempt, 0, len(best))
