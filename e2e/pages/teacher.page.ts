@@ -28,7 +28,9 @@ export class TeacherPage {
   readonly openEntryBtn: Locator;
   readonly closeEntryBtn: Locator;
   readonly exportCsvBtn: Locator;
+  readonly checkAttemptsBtn: Locator;
   readonly clearAttemptsBtn: Locator;
+  readonly attemptsCheckResult: Locator;
   readonly attemptsList: Locator;
   readonly attemptsQuizFilter: Locator;
 
@@ -56,6 +58,7 @@ export class TeacherPage {
   readonly homeworkAssignmentsList: Locator;
   readonly homeworkSubmissionsList: Locator;
   readonly homeworkAssignmentFilter: Locator;
+  readonly refreshHomeworkBtn: Locator;
 
   // Summary tab
   readonly genSummaryBtn: Locator;
@@ -96,7 +99,9 @@ export class TeacherPage {
     this.openEntryBtn = page.locator("#openEntryBtn");
     this.closeEntryBtn = page.locator("#closeEntryBtn");
     this.exportCsvBtn = page.locator("#exportCsvBtn");
+    this.checkAttemptsBtn = page.locator("#checkAttemptsBtn");
     this.clearAttemptsBtn = page.locator("#clearAttemptsBtn");
+    this.attemptsCheckResult = page.locator("#attemptsCheckResult");
     this.attemptsList = page.locator("#attemptsList");
     this.attemptsQuizFilter = page.locator("#attemptsQuizFilter");
 
@@ -120,6 +125,7 @@ export class TeacherPage {
     this.homeworkAssignmentsList = page.locator("#homeworkAssignmentsList");
     this.homeworkSubmissionsList = page.locator("#homeworkSubmissionsList");
     this.homeworkAssignmentFilter = page.locator("#homeworkAssignmentFilter");
+    this.refreshHomeworkBtn = page.locator("#refreshHomeworkBtn");
 
     this.genSummaryBtn = page.locator("#genSummaryBtn");
     this.summaryContent = page.locator("#summaryContent");
@@ -210,6 +216,12 @@ export class TeacherPage {
     return Math.max(0, count - headerCount);
   }
 
+  async checkAttemptDuplicates() {
+    await this.switchTab("tab-attempts");
+    await this.checkAttemptsBtn.click();
+    await this.attemptsCheckResult.waitFor({ state: "visible", timeout: 10_000 });
+  }
+
   async changePassword(oldPwd: string, newPwd: string) {
     await this.page.getByRole("button", { name: "修改密码" }).click();
     await this.changePwdModal.waitFor({ state: "visible" });
@@ -265,7 +277,7 @@ export class TeacherPage {
     await this.page.waitForTimeout(300);
   }
 
-  async deleteCourse(courseId: number, courseName: string) {
+  async deleteCourse(courseId: number, _courseName: string) {
     await this.switchTab("tab-courses");
     const card = this.page.locator(`#courseCard_${courseId}`);
     await card.locator("button", { hasText: "删除" }).click();

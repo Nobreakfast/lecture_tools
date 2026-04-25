@@ -237,6 +237,7 @@
           <button class="small" id="openEntryBtn">开启入口</button>
           <button class="small btn-danger" id="closeEntryBtn">关闭入口</button>
           <button class="small btn-secondary" id="exportCsvBtn">导出 CSV</button>
+          <button class="small" id="checkAttemptsBtn">重复检查</button>
           <button class="small btn-danger" id="clearAttemptsBtn">清空答题</button>
         </div>
       </div>
@@ -252,6 +253,7 @@
             </select>
           </div>
         </div>
+        <div id="attemptsCheckResult" style="display:none;margin-bottom:8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:13px;"></div>
         <div id="attemptsList"></div>
       </div>
     </div>
@@ -927,6 +929,8 @@
     function refreshAttemptsTab() {
       if (!selectedCourseId) {
         document.getElementById('attemptsList').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
+        document.getElementById('attemptsCheckResult').style.display = 'none';
+        document.getElementById('attemptsCheckResult').innerHTML = '';
         document.getElementById('quizTitle').textContent = '-';
         updateEntryBadge(false);
         document.getElementById('liveStarted').textContent = '0';
@@ -1259,6 +1263,11 @@
 
     async function loadAttempts() {
       if (!selectedCourseId) return;
+      const checkBox = document.getElementById('attemptsCheckResult');
+      if (checkBox) {
+        checkBox.style.display = 'none';
+        checkBox.innerHTML = '';
+      }
       await fetch('/api/teacher/courses/fix-legacy-attempts?course_id=' + selectedCourseId, {
         method: 'POST', credentials: 'include'
       }).catch(() => {});
@@ -1268,6 +1277,52 @@
       attemptsCache = data.items || [];
       if (data.current_quiz_id) currentLoadedQuizId = data.current_quiz_id;
       renderAttempts();
+    }
+
+    async function checkAttemptDuplicates() {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      const box = document.getElementById('attemptsCheckResult');
+      box.style.display = 'block';
+      box.style.color = 'var(--text-secondary)';
+      box.innerHTML = '检查中...';
+      const r = await fetch('/api/teacher/courses/attempts-check?course_id=' + selectedCourseId, { credentials: 'include' });
+      if (!r.ok) {
+        box.style.color = 'var(--danger)';
+        box.textContent = await r.text();
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (!items.length) {
+        box.style.color = 'var(--success)';
+        box.innerHTML = '未发现重复姓名/学号记录，当前成绩列表已按每位学生每套题库保留一条最佳结果。';
+        showToast('未发现重复记录');
+        return;
+      }
+      box.style.color = 'inherit';
+      const rows = items.map(item => {
+        const keptScore = Number(item.kept_total || 0) > 0
+          ? `${Number(item.kept_correct || 0)}/${Number(item.kept_total || 0)}`
+          : '未加载';
+        return `<tr>
+          <td>${escapeHTML(item.name || '-')}</td>
+          <td>${escapeHTML(item.student_no || '-')}</td>
+          <td>${escapeHTML(item.class_name || '-')}</td>
+          <td>${escapeHTML(item.quiz_id || '-')}</td>
+          <td>${Number(item.attempt_count || 0)}</td>
+          <td>${item.kept_attempt_no ? '第' + Number(item.kept_attempt_no) + '次' : '-'}</td>
+          <td>${escapeHTML(keptScore)}</td>
+        </tr>`;
+      }).join('');
+      box.innerHTML = `
+        <div style="margin-bottom:8px;color:var(--danger);">
+          检测到 ${Number(data.duplicate_count || 0)} 组重复记录，已在成绩列表和 CSV 导出中自动保留最高分；共忽略 ${Number(data.discarded_count || 0)} 条较低分/重复记录。
+        </div>
+        <table>
+          <thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>题库</th><th>记录数</th><th>保留尝试</th><th>保留得分</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      showToast(`发现 ${Number(data.duplicate_count || 0)} 组重复记录，已保留最高分`);
     }
 
     function renderAttempts() {
@@ -1910,6 +1965,7 @@
     document.getElementById('openEntryBtn').onclick = () => toggleEntry(true);
     document.getElementById('closeEntryBtn').onclick = () => toggleEntry(false);
     document.getElementById('exportCsvBtn').onclick = exportCsv;
+    document.getElementById('checkAttemptsBtn').onclick = checkAttemptDuplicates;
     document.getElementById('clearAttemptsBtn').onclick = clearAttempts;
     document.getElementById('genSummaryBtn').onclick = generateSummary;
     document.getElementById('refreshSummaryBtn').onclick = refreshSummaryTab;

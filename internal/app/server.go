@@ -76,6 +76,8 @@ type Server struct {
 	currentQuiz *domain.Quiz
 }
 
+const systemOverviewOnlineWindow = 15 * time.Minute
+
 func New(cfg Config, st store.Store) *Server {
 	return &Server{
 		cfg:                 cfg,
@@ -235,6 +237,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/download-all", s.apiTeacherCourseQuizBankDownloadAll)
 	mux.HandleFunc("/quiz-editor", s.pageQuizEditor)
 	mux.HandleFunc("/api/teacher/courses/attempts", s.apiTeacherCourseAttempts)
+	mux.HandleFunc("/api/teacher/courses/attempts-check", s.apiTeacherCourseAttemptsCheck)
 	mux.HandleFunc("/api/teacher/courses/attempt-detail", s.apiTeacherCourseAttemptDetail)
 	mux.HandleFunc("/api/teacher/courses/live", s.apiTeacherCourseLive)
 	mux.HandleFunc("/api/teacher/courses/clear-attempts", s.apiTeacherCourseClearAttempts)
@@ -1817,15 +1820,67 @@ func (s *Server) apiAdminOverview(w http.ResponseWriter, r *http.Request) {
 			students[a.StudentNo] = struct{}{}
 		}
 	}
+	onlineCount, onlineStudents, onlineTeachers := s.systemOverviewOnlineCounts(r.Context(), allAttempts)
 
 	writeJSON(w, map[string]any{
-		"teacher_count": len(teachers),
-		"course_count":  len(allCourses),
-		"student_count": len(students),
-		"attempt_count": len(allAttempts),
-		"teachers":      teacherItems,
-		"courses":       courseItems,
+		"teacher_count":          len(teachers),
+		"course_count":           len(allCourses),
+		"student_count":          len(students),
+		"attempt_count":          len(allAttempts),
+		"online_count":           onlineCount,
+		"online_student_count":   onlineStudents,
+		"online_teacher_count":   onlineTeachers,
+		"online_window_minutes":  int(systemOverviewOnlineWindow / time.Minute),
+		"teachers":               teacherItems,
+		"courses":                courseItems,
 	})
+}
+
+func (s *Server) systemOverviewOnlineCounts(ctx context.Context, attempts []domain.Attempt) (total, students, teachers int) {
+	now := time.Now()
+	cutoff := now.Add(-systemOverviewOnlineWindow)
+	studentKeys := map[string]struct{}{}
+
+	for _, a := range attempts {
+		if a.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		key := strings.TrimSpace(a.StudentNo)
+		if key == "" {
+			key = "attempt:" + a.ID
+		}
+		studentKeys[key] = struct{}{}
+	}
+
+	homeworkSubs, err := s.store.ListHomeworkSubmissions(ctx, 0, "", "")
+	if err == nil {
+		for _, sub := range homeworkSubs {
+			if sub.UpdatedAt.Before(cutoff) {
+				continue
+			}
+			key := strings.TrimSpace(sub.StudentNo)
+			if key == "" {
+				key = "homework:" + sub.ID
+			}
+			studentKeys[key] = struct{}{}
+		}
+	}
+
+	teacherKeys := map[string]struct{}{}
+	s.mu.RLock()
+	for token, sess := range s.authTokens {
+		if now.After(sess.Expiry) {
+			continue
+		}
+		key := strings.TrimSpace(sess.TeacherID)
+		if key == "" {
+			key = "auth:" + token
+		}
+		teacherKeys[key] = struct{}{}
+	}
+	s.mu.RUnlock()
+
+	return len(studentKeys) + len(teacherKeys), len(studentKeys), len(teacherKeys)
 }
 
 // ── Admin teacher management ──
@@ -2117,8 +2172,6 @@ func (s *Server) apiTeacherCourseLoadQuiz(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	_ = course
-
 	var raw []byte
 	var quizSourcePath string
 	contentType := r.Header.Get("Content-Type")
@@ -2999,89 +3052,71 @@ func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build a quiz map: in-memory loaded quiz + on-disk quiz bank YAMLs for scoring.
+	currentQuizID := ""
 	s.mu.RLock()
 	q := s.courseQuizzes[courseID]
 	s.mu.RUnlock()
-	quizMap := map[string]*domain.Quiz{}
-	if q != nil {
-		quizMap[q.QuizID] = q
-	}
-	// Collect distinct quiz_ids from attempts that aren't already in the map.
-	needed := map[string]struct{}{}
-	for _, a := range items {
-		if _, ok := quizMap[a.QuizID]; !ok {
-			needed[a.QuizID] = struct{}{}
-		}
-	}
-	if len(needed) > 0 {
-		quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
-		for qid := range needed {
-			subDir := filepath.Join(quizRoot, safePathPart(qid))
-			files, _ := os.ReadDir(subDir)
-			for _, f := range files {
-				name := strings.ToLower(f.Name())
-				if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-					continue
-				}
-				data, _ := os.ReadFile(filepath.Join(subDir, f.Name()))
-				if parsed, err := quiz.Parse(data); err == nil {
-					quizMap[qid] = parsed
-				}
-				break
-			}
-		}
-	}
-
-	// Score all submitted attempts and keep only the best per (student_no, quiz_id).
-	type key struct{ studentNo, quizID string }
-	type scored struct {
-		attempt domain.Attempt
-		correct int
-		total   int
-		loaded  bool
-	}
-	bestMap := map[key]*scored{}
-	var inProgress []map[string]any
-
-	for _, a := range items {
-		if a.Status != domain.StatusSubmitted {
-			inProgress = append(inProgress, map[string]any{
-				"id": a.ID, "name": a.Name, "student_no": a.StudentNo,
-				"class_name": a.ClassName, "attempt_no": a.AttemptNo,
-				"status": a.Status, "correct": 0, "total": 0,
-				"quiz_id": a.QuizID, "quiz_loaded": false, "updated_at": a.UpdatedAt,
-			})
-			continue
-		}
-		var correct, total int
-		loaded := false
-		if qForAttempt, ok := quizMap[a.QuizID]; ok {
-			correct, total = s.calcScore(r.Context(), qForAttempt, a.ID)
-			loaded = true
-		}
-		k := key{a.StudentNo, a.QuizID}
-		if prev, ok := bestMap[k]; !ok || correct > prev.correct || (correct == prev.correct && a.AttemptNo > prev.attempt.AttemptNo) {
-			bestMap[k] = &scored{attempt: a, correct: correct, total: total, loaded: loaded}
-		}
-	}
-
-	currentQuizID := ""
 	if q != nil {
 		currentQuizID = q.QuizID
 	}
-	result := make([]map[string]any, 0, len(bestMap)+len(inProgress))
-	for _, s := range bestMap {
-		a := s.attempt
+
+	bestItems, _ := s.teacherCourseBestAttempts(r.Context(), course, q, items)
+	result := make([]map[string]any, 0, len(bestItems))
+	for _, item := range bestItems {
+		a := item.Attempt
 		result = append(result, map[string]any{
 			"id": a.ID, "name": a.Name, "student_no": a.StudentNo,
 			"class_name": a.ClassName, "attempt_no": a.AttemptNo,
-			"status": a.Status, "correct": s.correct, "total": s.total,
-			"quiz_id": a.QuizID, "quiz_loaded": s.loaded, "updated_at": a.UpdatedAt,
+			"status": a.Status, "correct": item.Correct, "total": item.Total,
+			"quiz_id": a.QuizID, "quiz_loaded": item.QuizLoaded, "updated_at": a.UpdatedAt,
 		})
 	}
-	result = append(result, inProgress...)
 	writeJSON(w, map[string]any{"items": result, "current_quiz_id": currentQuizID})
+}
+
+func (s *Server) apiTeacherCourseAttemptsCheck(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	items, err := s.store.ListAttemptsByCourse(r.Context(), courseID)
+	if err != nil {
+		http.Error(w, "读取失败", http.StatusInternalServerError)
+		return
+	}
+	s.mu.RLock()
+	q := s.courseQuizzes[courseID]
+	s.mu.RUnlock()
+	_, duplicates := s.teacherCourseBestAttempts(r.Context(), course, q, items)
+	respItems := make([]map[string]any, 0, len(duplicates))
+	discarded := 0
+	for _, item := range duplicates {
+		discarded += item.AttemptCount - 1
+		respItems = append(respItems, map[string]any{
+			"name":             item.Name,
+			"student_no":       item.StudentNo,
+			"class_name":       item.ClassName,
+			"quiz_id":          item.QuizID,
+			"attempt_count":    item.AttemptCount,
+			"kept_attempt_id":  item.Kept.Attempt.ID,
+			"kept_attempt_no":  item.Kept.Attempt.AttemptNo,
+			"kept_status":      item.Kept.Attempt.Status,
+			"kept_correct":     item.Kept.Correct,
+			"kept_total":       item.Kept.Total,
+			"kept_quiz_loaded": item.Kept.QuizLoaded,
+		})
+	}
+	writeJSON(w, map[string]any{
+		"duplicate_count": len(respItems),
+		"discarded_count": discarded,
+		"items":           respItems,
+	})
 }
 
 func (s *Server) apiTeacherCourseAttemptDetail(w http.ResponseWriter, r *http.Request) {
@@ -3271,7 +3306,7 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -3288,6 +3323,7 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "读取失败", http.StatusInternalServerError)
 		return
 	}
+	bestItems, _ := s.teacherCourseBestAttempts(r.Context(), course, q, items)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="class_report.csv"`)
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
@@ -3297,13 +3333,16 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		header = append(header, fmt.Sprintf("第%d题", idx+1))
 	}
 	_ = cw.Write(header)
-	for _, a := range items {
-		correct, total := s.calcScore(r.Context(), q, a.ID)
+	for _, item := range bestItems {
+		a := item.Attempt
+		if a.QuizID != q.QuizID {
+			continue
+		}
 		attemptNo := ""
 		if a.AttemptNo > 0 {
 			attemptNo = fmt.Sprintf("%d", a.AttemptNo)
 		}
-		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)}
+		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, fmt.Sprintf("%d", item.Correct), fmt.Sprintf("%d", item.Total)}
 		answers, aErr := s.store.GetAnswers(r.Context(), a.ID)
 		if aErr != nil {
 			continue
@@ -3318,6 +3357,138 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		_ = cw.Write(row)
 	}
 	cw.Flush()
+}
+
+type teacherCourseBestAttempt struct {
+	Attempt    domain.Attempt
+	Correct    int
+	Total      int
+	QuizLoaded bool
+}
+
+type teacherCourseDuplicateAttempt struct {
+	Name         string
+	StudentNo    string
+	ClassName    string
+	QuizID       string
+	AttemptCount int
+	Kept         teacherCourseBestAttempt
+}
+
+func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) ([]teacherCourseBestAttempt, []teacherCourseDuplicateAttempt) {
+	type attemptKey struct {
+		studentNo string
+		quizID    string
+	}
+	type groupedAttempt struct {
+		best  teacherCourseBestAttempt
+		count int
+	}
+	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
+	bestMap := map[attemptKey]groupedAttempt{}
+	for _, attempt := range attempts {
+		item := teacherCourseBestAttempt{Attempt: attempt}
+		if attempt.Status == domain.StatusSubmitted {
+			if q, ok := quizMap[attempt.QuizID]; ok {
+				item.Correct, item.Total = s.calcScore(ctx, q, attempt.ID)
+				item.QuizLoaded = true
+			}
+		}
+		key := attemptKey{studentNo: attempt.StudentNo, quizID: attempt.QuizID}
+		group := bestMap[key]
+		group.count++
+		if group.count == 1 || teacherCourseAttemptBetter(item, group.best) {
+			group.best = item
+		}
+		bestMap[key] = group
+	}
+	bestItems := make([]teacherCourseBestAttempt, 0, len(bestMap))
+	duplicates := make([]teacherCourseDuplicateAttempt, 0)
+	for _, group := range bestMap {
+		bestItems = append(bestItems, group.best)
+		if group.count > 1 {
+			duplicates = append(duplicates, teacherCourseDuplicateAttempt{
+				Name:         group.best.Attempt.Name,
+				StudentNo:    group.best.Attempt.StudentNo,
+				ClassName:    group.best.Attempt.ClassName,
+				QuizID:       group.best.Attempt.QuizID,
+				AttemptCount: group.count,
+				Kept:         group.best,
+			})
+		}
+	}
+	sort.Slice(bestItems, func(i, j int) bool {
+		if !bestItems[i].Attempt.UpdatedAt.Equal(bestItems[j].Attempt.UpdatedAt) {
+			return bestItems[i].Attempt.UpdatedAt.After(bestItems[j].Attempt.UpdatedAt)
+		}
+		if bestItems[i].Attempt.QuizID != bestItems[j].Attempt.QuizID {
+			return bestItems[i].Attempt.QuizID < bestItems[j].Attempt.QuizID
+		}
+		return bestItems[i].Attempt.StudentNo < bestItems[j].Attempt.StudentNo
+	})
+	sort.Slice(duplicates, func(i, j int) bool {
+		if duplicates[i].QuizID != duplicates[j].QuizID {
+			return duplicates[i].QuizID < duplicates[j].QuizID
+		}
+		if duplicates[i].ClassName != duplicates[j].ClassName {
+			return duplicates[i].ClassName < duplicates[j].ClassName
+		}
+		return duplicates[i].StudentNo < duplicates[j].StudentNo
+	})
+	return bestItems, duplicates
+}
+
+func (s *Server) teacherCourseQuizMap(course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) map[string]*domain.Quiz {
+	quizMap := map[string]*domain.Quiz{}
+	if loadedQuiz != nil {
+		quizMap[loadedQuiz.QuizID] = loadedQuiz
+	}
+	needed := map[string]struct{}{}
+	for _, attempt := range attempts {
+		if _, ok := quizMap[attempt.QuizID]; !ok {
+			needed[attempt.QuizID] = struct{}{}
+		}
+	}
+	if len(needed) == 0 {
+		return quizMap
+	}
+	quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
+	for quizID := range needed {
+		subDir := filepath.Join(quizRoot, safePathPart(quizID))
+		files, _ := os.ReadDir(subDir)
+		for _, file := range files {
+			name := strings.ToLower(file.Name())
+			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+				continue
+			}
+			data, _ := os.ReadFile(filepath.Join(subDir, file.Name()))
+			if parsed, err := quiz.Parse(data); err == nil {
+				quizMap[quizID] = parsed
+			}
+			break
+		}
+	}
+	return quizMap
+}
+
+func teacherCourseAttemptBetter(candidate, current teacherCourseBestAttempt) bool {
+	candidateSubmitted := candidate.Attempt.Status == domain.StatusSubmitted
+	currentSubmitted := current.Attempt.Status == domain.StatusSubmitted
+	if candidateSubmitted != currentSubmitted {
+		return candidateSubmitted
+	}
+	if candidateSubmitted {
+		if candidate.Correct != current.Correct {
+			return candidate.Correct > current.Correct
+		}
+		if candidate.Total != current.Total {
+			return candidate.Total > current.Total
+		}
+	}
+	if candidate.Attempt.AttemptNo != current.Attempt.AttemptNo {
+		return candidate.Attempt.AttemptNo > current.Attempt.AttemptNo
+	}
+	return candidate.Attempt.UpdatedAt.After(current.Attempt.UpdatedAt)
 }
 
 // ── Teacher course-scoped materials ──
@@ -3800,7 +3971,7 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if r.URL.Query().Get("download") == "1" {
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.ReportOriginalName, "report.pdf")))
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotReport)))
 		}
 		http.ServeFile(w, r, fp)
 	case domain.HomeworkSlotCode:
@@ -3814,7 +3985,7 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-ipynb+json")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb")))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotCode)))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, fp)
 	case domain.HomeworkSlotExtra:
@@ -3828,7 +3999,7 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 			return
 		}
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip")))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotExtra)))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, fp)
 	default:
@@ -3866,7 +4037,7 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionArchive(w http.ResponseWriter
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	archiveName := fmt.Sprintf("homework_%s_%s.zip", safePathPart(submission.StudentNo), safePathPart(submission.AssignmentID))
+	archiveName := homeworkSubmissionArchiveFilename(submission)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -3941,7 +4112,7 @@ func (s *Server) apiTeacherCourseHomeworkArchiveAll(w http.ResponseWriter, r *ht
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	archiveName := fmt.Sprintf("homework_%s_%s_all.zip", safePathPart(course.Slug), safePathPart(assignmentID))
+	archiveName := homeworkBulkArchiveFilename(course, assignmentID)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

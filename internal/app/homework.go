@@ -1727,6 +1727,35 @@ func sanitizeHomeworkMetadataFilename(name, fallback string) string {
 	return cleaned
 }
 
+func homeworkSubmissionFileBase(submission *domain.HomeworkSubmission) string {
+	return strings.Join([]string{
+		safePathPart(submission.ClassName),
+		safePathPart(submission.AssignmentID),
+		safePathPart(submission.Name),
+		safePathPart(submission.StudentNo),
+	}, "_")
+}
+
+func homeworkSubmissionDownloadFilename(submission *domain.HomeworkSubmission, slot domain.HomeworkFileSlot) string {
+	ext := strings.ToLower(filepath.Ext(homeworkDiskFilename(slot)))
+	if ext == "" {
+		ext = ".bin"
+	}
+	return homeworkSubmissionFileBase(submission) + ext
+}
+
+func homeworkSubmissionArchiveFilename(submission *domain.HomeworkSubmission) string {
+	return homeworkSubmissionFileBase(submission) + ".zip"
+}
+
+func homeworkBulkArchiveFilename(course *domain.Course, assignmentID string) string {
+	courseName := course.InternalName
+	if strings.TrimSpace(courseName) == "" {
+		courseName = course.Slug
+	}
+	return fmt.Sprintf("%s_%s_all.zip", safePathPart(courseName), safePathPart(assignmentID))
+}
+
 func looksLikeNotebook(data []byte) bool {
 	if len(bytes.TrimSpace(data)) == 0 || !stdjson.Valid(data) {
 		return false
@@ -1764,19 +1793,19 @@ func (s *Server) buildHomeworkArchive(submission *domain.HomeworkSubmission) ([]
 	entries := []archiveFile{}
 	if submission.ReportOriginalName != "" {
 		entries = append(entries, archiveFile{
-			Name: sanitizeHomeworkMetadataFilename(submission.ReportOriginalName, "report.pdf"),
+			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotReport),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "report.pdf"),
 		})
 	}
 	if submission.CodeOriginalName != "" {
 		entries = append(entries, archiveFile{
-			Name: sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb"),
+			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotCode),
 			Path: s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode),
 		})
 	}
 	if submission.ExtraOriginalName != "" {
 		entries = append(entries, archiveFile{
-			Name: sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip"),
+			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotExtra),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "extra.zip"),
 		})
 	}
@@ -1842,21 +1871,21 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 		entries := []archiveEntry{}
 		if submission.ReportOriginalName != "" {
 			entries = append(entries, archiveEntry{
-				Name: sanitizeHomeworkMetadataFilename(submission.ReportOriginalName, "report.pdf"),
+				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotReport),
 				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "report.pdf"),
 				Slot: domain.HomeworkSlotReport,
 			})
 		}
 		if submission.CodeOriginalName != "" {
 			entries = append(entries, archiveEntry{
-				Name: sanitizeHomeworkMetadataFilename(submission.CodeOriginalName, "notebook.ipynb"),
+				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotCode),
 				Path: s.homeworkStoredFilePath(&submission, domain.HomeworkSlotCode),
 				Slot: domain.HomeworkSlotCode,
 			})
 		}
 		if submission.ExtraOriginalName != "" {
 			entries = append(entries, archiveEntry{
-				Name: sanitizeHomeworkMetadataFilename(submission.ExtraOriginalName, "extra.zip"),
+				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotExtra),
 				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "extra.zip"),
 				Slot: domain.HomeworkSlotExtra,
 			})
@@ -1878,10 +1907,10 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 			continue
 		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-		baseFolder := safePathPart(submission.StudentNo) + "_" + safePathPart(submission.Name)
+		baseFolder := homeworkSubmissionFileBase(&submission)
 		folder := baseFolder
 		if usedFolders[baseFolder] > 0 {
-			folder = fmt.Sprintf("%s__%s", baseFolder, safePathPart(submission.ID))
+			folder = fmt.Sprintf("%s__%d", baseFolder, usedFolders[baseFolder]+1)
 		}
 		usedFolders[baseFolder]++
 		bundles = append(bundles, submissionBundle{folder: folder, entries: entries})
@@ -1903,13 +1932,7 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 				_ = zw.Close()
 				return nil, err
 			}
-			archiveName := entry.Name
-			if entry.Slot == domain.HomeworkSlotReport {
-				archiveName = "report__" + archiveName
-			} else if entry.Slot == domain.HomeworkSlotCode {
-				archiveName = "notebook__" + archiveName
-			}
-			w, err := zw.Create(bundle.folder + "/" + archiveName)
+			w, err := zw.Create(bundle.folder + "/" + entry.Name)
 			if err != nil {
 				_ = zw.Close()
 				return nil, err

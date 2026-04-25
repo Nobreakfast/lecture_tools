@@ -150,6 +150,67 @@ test.describe("Homework lifecycle", () => {
     await studentCtx.close();
   });
 
+  test("teacher sees structured filename for homework PDF download", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+    const assignmentId = `e2e_hw_name_${Date.now()}`;
+    const studentName = "下载命名学生";
+    const studentNo = "2024DLNAME";
+    const className = "下载命名班";
+
+    const teacherCtx = await browser.newContext();
+    const teacherPage = new TeacherPage(await teacherCtx.newPage());
+    await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+    await teacherPage.selectCourse(seed.courseId);
+
+    const fixturePath = path.resolve(__dirname, "../fixtures/sample.txt");
+    await teacherPage.uploadHomeworkAssignment(assignmentId, fixturePath);
+
+    const studentCtx = await browser.newContext();
+    const studentPage = new StudentPage(await studentCtx.newPage());
+    await studentPage.enterCode(seed.inviteCode);
+    await studentPage.switchTab("tab-homework");
+    await studentPage.page.waitForTimeout(1000);
+    await studentPage.startHomeworkSession(
+      assignmentId,
+      studentName,
+      studentNo,
+      className,
+      "dl-file-secret"
+    );
+
+    const pdfPath = path.resolve(__dirname, "../fixtures/sample.pdf");
+    await studentPage.reportInput.setInputFiles(pdfPath);
+    await expect(studentPage.reportInfo).not.toContainText("暂未上传");
+
+    await teacherPage.switchSubTab("sub-homework");
+    await teacherPage.homeworkAssignmentFilter.selectOption(assignmentId);
+    await teacherPage.refreshHomeworkBtn.click();
+    await expect(teacherPage.homeworkSubmissionsList).toContainText(studentName);
+
+    const row = teacherPage.homeworkSubmissionsList
+      .locator("tr")
+      .filter({ hasText: studentNo });
+    const pdfLink = row.getByRole("link", { name: "PDF" });
+    const href = await pdfLink.getAttribute("href");
+    expect(href).toBeTruthy();
+
+    const response = await teacherPage.page.context().request.get(href!, {
+      failOnStatusCode: true,
+    });
+    const disposition = Buffer.from(
+      response.headers()["content-disposition"] || "",
+      "latin1"
+    ).toString("utf8");
+    expect(disposition).toContain(
+      `filename="${className}_${assignmentId}_${studentName}_${studentNo}.pdf"`
+    );
+
+    await teacherCtx.close();
+    await studentCtx.close();
+  });
+
   test("student can upload, list, rename, delete files in others/ via API", async ({
     browser,
   }) => {

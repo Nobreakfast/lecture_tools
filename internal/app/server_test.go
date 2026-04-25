@@ -1,12 +1,16 @@
 package app
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +23,7 @@ type memStore struct {
 	answers             map[string]map[string]string
 	settings            map[string]string
 	homeworkSubmissions []domain.HomeworkSubmission
+	teachers            []domain.Teacher
 	courses             []domain.Course
 	nextCourseID        int
 }
@@ -27,16 +32,49 @@ func (m *memStore) Init(context.Context) error { return nil }
 func (m *memStore) Close() error               { return nil }
 
 // Teacher stubs
-func (m *memStore) CreateTeacher(context.Context, *domain.Teacher) error { return nil }
-func (m *memStore) GetTeacher(context.Context, string) (*domain.Teacher, error) {
-	return nil, errors.New("not found")
-}
-func (m *memStore) ListTeachers(context.Context) ([]domain.Teacher, error)      { return nil, nil }
-func (m *memStore) UpdateTeacherPassword(context.Context, string, string) error { return nil }
-func (m *memStore) UpdateTeacherRole(_ context.Context, _ string, _ domain.UserRole) error {
+func (m *memStore) CreateTeacher(_ context.Context, t *domain.Teacher) error {
+	m.teachers = append(m.teachers, *t)
 	return nil
 }
-func (m *memStore) DeleteTeacher(context.Context, string) error { return nil }
+func (m *memStore) GetTeacher(_ context.Context, id string) (*domain.Teacher, error) {
+	for i := range m.teachers {
+		if m.teachers[i].ID == id {
+			item := m.teachers[i]
+			return &item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+func (m *memStore) ListTeachers(context.Context) ([]domain.Teacher, error) { return m.teachers, nil }
+func (m *memStore) UpdateTeacherPassword(_ context.Context, id, passwordHash string) error {
+	for i := range m.teachers {
+		if m.teachers[i].ID == id {
+			m.teachers[i].PasswordHash = passwordHash
+			m.teachers[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+func (m *memStore) UpdateTeacherRole(_ context.Context, id string, role domain.UserRole) error {
+	for i := range m.teachers {
+		if m.teachers[i].ID == id {
+			m.teachers[i].Role = role
+			m.teachers[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+func (m *memStore) DeleteTeacher(_ context.Context, id string) error {
+	for i := range m.teachers {
+		if m.teachers[i].ID == id {
+			m.teachers = append(m.teachers[:i], m.teachers[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 
 // Course stubs
 func (m *memStore) CreateCourse(_ context.Context, c *domain.Course) error {
@@ -102,8 +140,14 @@ func (m *memStore) GetCourseState(context.Context, int) (*domain.CourseState, er
 func (m *memStore) SetCourseState(context.Context, *domain.CourseState) error { return nil }
 
 // Course-scoped attempt stubs
-func (m *memStore) ListAttemptsByCourse(context.Context, int) ([]domain.Attempt, error) {
-	return nil, nil
+func (m *memStore) ListAttemptsByCourse(_ context.Context, courseID int) ([]domain.Attempt, error) {
+	items := make([]domain.Attempt, 0)
+	for _, item := range m.attempts {
+		if item.CourseID == courseID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
 }
 func (m *memStore) GetLiveStatsByCourse(context.Context, int) (int, int, error) { return 0, 0, nil }
 func (m *memStore) GetLiveStatsByCourseQuiz(context.Context, int, string) (int, int, error) {
@@ -644,5 +688,226 @@ func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
 	}
 	if resp["slug"] != "Machine_Learning_Intro" {
 		t.Fatalf("unexpected legacy slug: %#v", resp["slug"])
+	}
+}
+
+func TestAPIAdminOverviewIncludesOnlineCount(t *testing.T) {
+	now := time.Now()
+	st := &memStore{
+		teachers: []domain.Teacher{
+			{ID: "admin", Name: "管理员", Role: domain.RoleAdmin},
+			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
+		},
+		attempts: []domain.Attempt{
+			{ID: "a1", StudentNo: "S001", UpdatedAt: now.Add(-5 * time.Minute)},
+			{ID: "a2", StudentNo: "S001", UpdatedAt: now.Add(-3 * time.Minute)},
+			{ID: "a3", StudentNo: "S002", UpdatedAt: now.Add(-20 * time.Minute)},
+		},
+		homeworkSubmissions: []domain.HomeworkSubmission{
+			{ID: "h1", StudentNo: "S003", UpdatedAt: now.Add(-4 * time.Minute)},
+			{ID: "h2", StudentNo: "S002", UpdatedAt: now.Add(-2 * time.Minute)},
+			{ID: "h3", StudentNo: "S004", UpdatedAt: now.Add(-16 * time.Minute)},
+		},
+	}
+	s := New(Config{}, st)
+	s.authTokens["admin-token"] = authSession{
+		TeacherID: "admin",
+		Role:      domain.RoleAdmin,
+		Expiry:    now.Add(time.Hour),
+	}
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "t1",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(time.Hour),
+	}
+	s.authTokens["expired-token"] = authSession{
+		TeacherID: "t-expired",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(-time.Minute),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/overview", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "admin-token"})
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if got := int(resp["online_student_count"].(float64)); got != 3 {
+		t.Fatalf("unexpected online_student_count: %d", got)
+	}
+	if got := int(resp["online_teacher_count"].(float64)); got != 2 {
+		t.Fatalf("unexpected online_teacher_count: %d", got)
+	}
+	if got := int(resp["online_count"].(float64)); got != 5 {
+		t.Fatalf("unexpected online_count: %d", got)
+	}
+	if got := int(resp["online_window_minutes"].(float64)); got != 15 {
+		t.Fatalf("unexpected online_window_minutes: %d", got)
+	}
+}
+
+func TestAPITeacherCourseAttemptsCheckKeepsHighestScore(t *testing.T) {
+	now := time.Now()
+	st := &memStore{
+		teachers: []domain.Teacher{
+			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
+		},
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
+		},
+		attempts: []domain.Attempt{
+			{ID: "a1", CourseID: 1, QuizID: "quiz_1", Name: "张三", StudentNo: "2023001", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 1, UpdatedAt: now.Add(-2 * time.Minute)},
+			{ID: "a2", CourseID: 1, QuizID: "quiz_1", Name: "张三", StudentNo: "2023001", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 2, UpdatedAt: now.Add(-time.Minute)},
+			{ID: "a3", CourseID: 1, QuizID: "quiz_1", Name: "李四", StudentNo: "2023002", ClassName: "计科1班", Status: domain.StatusSubmitted, AttemptNo: 1, UpdatedAt: now.Add(-30 * time.Second)},
+		},
+		answers: map[string]map[string]string{
+			"a1": {"q1": "A", "q2": "B"},
+			"a2": {"q1": "A", "q2": "A"},
+			"a3": {"q1": "B", "q2": "A"},
+		},
+	}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "t1",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(time.Hour),
+	}
+	s.courseQuizzes[1] = &domain.Quiz{
+		QuizID: "quiz_1",
+		Questions: []domain.Question{
+			{ID: "q1", Type: domain.QuestionSingleChoice, CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
+			{ID: "q2", Type: domain.QuestionSingleChoice, CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "1"}, {Key: "B", Text: "2"}}},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teacher/courses/attempts-check?course_id=1", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if got := int(resp["duplicate_count"].(float64)); got != 1 {
+		t.Fatalf("unexpected duplicate_count: %d", got)
+	}
+	if got := int(resp["discarded_count"].(float64)); got != 1 {
+		t.Fatalf("unexpected discarded_count: %d", got)
+	}
+	items := resp["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("unexpected duplicate items len: %d", len(items))
+	}
+	item := items[0].(map[string]any)
+	if got := item["kept_attempt_id"].(string); got != "a2" {
+		t.Fatalf("unexpected kept attempt id: %s", got)
+	}
+	if got := int(item["kept_correct"].(float64)); got != 2 {
+		t.Fatalf("unexpected kept_correct: %d", got)
+	}
+}
+
+func TestTeacherHomeworkDownloadUsesStructuredFilename(t *testing.T) {
+	now := time.Now()
+	st := &memStore{
+		teachers: []domain.Teacher{
+			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
+		},
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
+		},
+		homeworkSubmissions: []domain.HomeworkSubmission{
+			{
+				ID:                 "sub-1",
+				CourseID:           1,
+				Course:             "course_a",
+				AssignmentID:       "task_1",
+				Name:               "张三",
+				StudentNo:          "2023001",
+				ClassName:          "计科1班",
+				ReportOriginalName: "原始文件.pdf",
+				UpdatedAt:          now,
+			},
+		},
+	}
+	tmpDir := t.TempDir()
+	s := New(Config{MetadataDir: tmpDir}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "t1",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(time.Hour),
+	}
+	submission := &st.homeworkSubmissions[0]
+	dir := s.homeworkSubmissionDir(submission)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("%PDF-1.4 test"), 0o644); err != nil {
+		t.Fatalf("write report failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/teacher/courses/homework/submissions/download?course_id=1&id=sub-1&slot=report&download=1", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="计科1班_task_1_张三_2023001.pdf"`) {
+		t.Fatalf("unexpected content disposition: %s", got)
+	}
+}
+
+func TestBuildHomeworkBulkArchiveUsesStructuredNames(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
+		},
+	}
+	tmpDir := t.TempDir()
+	s := New(Config{MetadataDir: tmpDir}, st)
+	submission := domain.HomeworkSubmission{
+		ID:                 "sub-1",
+		CourseID:           1,
+		Course:             "course_a",
+		AssignmentID:       "task_1",
+		Name:               "张三",
+		StudentNo:          "2023001",
+		ClassName:          "计科1班",
+		ReportOriginalName: "原始文件.pdf",
+	}
+	dir := s.homeworkSubmissionDir(&submission)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("%PDF-1.4 test"), 0o644); err != nil {
+		t.Fatalf("write report failed: %v", err)
+	}
+
+	data, err := s.buildHomeworkBulkArchive([]domain.HomeworkSubmission{submission})
+	if err != nil {
+		t.Fatalf("build archive failed: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open zip failed: %v", err)
+	}
+	if len(reader.File) != 1 {
+		t.Fatalf("unexpected zip file count: %d", len(reader.File))
+	}
+	if got := reader.File[0].Name; got != "计科1班_task_1_张三_2023001/计科1班_task_1_张三_2023001.pdf" {
+		t.Fatalf("unexpected zip entry name: %s", got)
 	}
 }

@@ -18,6 +18,11 @@
     .pill.muted { background: #e5e7eb; color: var(--text-muted); }
     .snapshot-actions { display:flex; flex-wrap:wrap; gap:10px; }
     .snapshot-note { margin-top: 8px; color: var(--text-muted); font-size: 12px; }
+    .status-panel { margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: rgba(255,255,255,0.7); }
+    .status-panel.safe { border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.08); }
+    .status-panel.caution { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
+    .status-panel.busy { border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.08); }
+    .status-title { font-weight: 700; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -69,6 +74,7 @@
           <div class="stat"><div class="num" id="numCourses">-</div><div class="lbl">课程</div></div>
           <div class="stat"><div class="num" id="numStudents">-</div><div class="lbl">累计学生</div></div>
           <div class="stat"><div class="num" id="numAttempts">-</div><div class="lbl">答题记录</div></div>
+          <div class="stat"><div class="num" id="numOnline">-</div><div class="lbl" id="numOnlineLabel">在线人数</div></div>
         </div>
       </div>
       <div class="card">
@@ -185,6 +191,10 @@
       </div>
       <div class="card">
         <h3 class="section-title">拉取并编译</h3>
+        <div id="updateSafetyHint" class="status-panel">
+          <div class="status-title">升级窗口判断</div>
+          <div id="updateSafetyHintText" class="small muted">请先读取系统概览…</div>
+        </div>
         <button class="btn" id="updatePullBtn" disabled>拉取代码并编译</button>
         <div id="updatePullResult" class="small muted mt-8"></div>
       </div>
@@ -258,6 +268,47 @@
       loadOverview();
     }
 
+    function setStatusPanel(id, level, title, text) {
+      const panel = $(id);
+      if (!panel) return;
+      panel.className = 'status-panel ' + level;
+      const titleEl = panel.querySelector('.status-title');
+      const textEl = panel.querySelector('.small');
+      if (titleEl) titleEl.textContent = title;
+      if (textEl) textEl.textContent = text;
+    }
+
+    function buildMaintenanceAdvice(overview) {
+      const total = Number(overview.online_count || 0);
+      const students = Number(overview.online_student_count || 0);
+      const teachers = Number(overview.online_teacher_count || 0);
+      const minutes = Number(overview.online_window_minutes || 15);
+      if (students === 0 && total === 0) {
+        return {
+          level: 'safe',
+          title: '适合维护',
+          text: '近 ' + minutes + ' 分钟无人在线，当前适合执行代码更新、恢复快照或重启服务。',
+        };
+      }
+      if (students === 0 && total <= 2) {
+        return {
+          level: 'caution',
+          title: '可谨慎维护',
+          text: '近 ' + minutes + ' 分钟仅检测到 ' + teachers + ' 位教师/管理员在线，若已沟通确认，可安排短时维护。',
+        };
+      }
+      return {
+        level: 'busy',
+        title: '暂不建议维护',
+        text: '近 ' + minutes + ' 分钟检测到学生 ' + students + ' 人、教师/管理员 ' + teachers + ' 人在线，当前不建议拉取更新、恢复快照或重启服务。',
+      };
+    }
+
+    function renderMaintenanceAdvice(overview) {
+      const advice = buildMaintenanceAdvice(overview || {});
+      setStatusPanel('#updateSafetyHint', advice.level, '升级窗口判断', advice.text);
+    }
+
     // ── Overview ───────────────────────────────────────────
     async function loadOverview() {
       try {
@@ -266,9 +317,16 @@
         $('#numCourses').textContent   = r.course_count ?? 0;
         $('#numStudents').textContent  = r.student_count ?? 0;
         $('#numAttempts').textContent  = r.attempt_count ?? 0;
+        $('#numOnline').textContent    = r.online_count ?? 0;
+        const minutes = r.online_window_minutes ?? 15;
+        $('#numOnlineLabel').textContent = '在线人数（近 ' + minutes + ' 分钟）';
+        $('#numOnline').title = '学生 ' + (r.online_student_count ?? 0) + '，教师 ' + (r.online_teacher_count ?? 0);
+        window.__overviewStats = r || {};
         window.__overviewCourses = r.courses || [];
+        renderMaintenanceAdvice(r || {});
         renderOverviewTeachers(r.teachers || []);
       } catch (e) {
+        setStatusPanel('#updateSafetyHint', 'busy', '升级窗口判断', '系统概览读取失败，暂时无法判断升级窗口，建议先刷新概览。');
         App.toast('加载概览失败', 'error');
       }
     }
@@ -625,6 +683,7 @@
     $('#updateCheckBtn').addEventListener('click', async () => {
       const el = $('#updateCheckResult');
       const commits = $('#updateCommits');
+      renderMaintenanceAdvice(window.__overviewStats || {});
       el.textContent = '检查中…';
       el.style.color = '';
       commits.style.display = 'none';

@@ -3,6 +3,9 @@
 
 import { test, expect } from "@playwright/test";
 import { TeacherPage } from "../pages/teacher.page";
+import { StudentPage } from "../pages/student.page";
+import { QuizPage } from "../pages/quiz.page";
+import { ResultPage } from "../pages/result.page";
 import { TEACHER_ID, TEACHER_PASSWORD, getSeedResult } from "../helpers/seed";
 
 test.describe("Teacher panel", () => {
@@ -95,6 +98,68 @@ test.describe("Teacher panel", () => {
     await teacherPage.uploadQuizYAML();
     await teacherPage.switchTab("tab-attempts");
     await expect(teacherPage.quizTitle).toContainText("第一周课堂反馈");
+  });
+
+  test("duplicate check keeps highest score for the same student", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+    const studentName = `重复检查学生${Date.now().toString().slice(-4)}`;
+    const studentNo = `E2EDUP${Date.now().toString().slice(-6)}`;
+
+    await teacherPage.selectCourse(seed.courseId);
+    await teacherPage.uploadQuizYAML();
+    await teacherPage.openEntry();
+
+    const submitAttempt = async (answers: Record<string, string>) => {
+      const studentCtx = await browser.newContext();
+      const studentPage = new StudentPage(await studentCtx.newPage());
+      await studentPage.enterCode(seed.inviteCode);
+      await studentPage.waitForQuizOpen();
+      await studentPage.joinQuiz(studentName, studentNo, "测试班级");
+
+      const quizPage = new QuizPage(studentPage.page);
+      await quizPage.waitForLoad();
+      await quizPage.answerAllViaAPI(answers);
+      await quizPage.submit();
+
+      const resultPage = new ResultPage(studentPage.page);
+      await resultPage.waitForLoad();
+      const score = await resultPage.getScore();
+      await studentCtx.close();
+      return score;
+    };
+
+    const lowScore = await submitAttempt({
+      q1: "A",
+      q2: "N",
+      q3: "D",
+      q4: "B",
+      q5: "第一次较低分",
+    });
+    expect(lowScore.correct).toBe(0);
+
+    const highScore = await submitAttempt({
+      q1: "B",
+      q2: "Y",
+      q3: "A,B,C",
+      q4: "A",
+      q5: "第二次较高分",
+    });
+    expect(highScore.correct).toBe(3);
+    expect(highScore.total).toBe(3);
+
+    await teacherPage.switchTab("tab-attempts");
+    await expect(teacherPage.attemptsList).toContainText(studentName);
+    await expect(
+      teacherPage.attemptsList.locator("tbody tr").filter({ hasText: studentNo })
+    ).toHaveCount(1);
+
+    await teacherPage.checkAttemptDuplicates();
+    await expect(teacherPage.attemptsCheckResult).toContainText("检测到 1 组重复记录");
+    await expect(teacherPage.attemptsCheckResult).toContainText(studentName);
+    await expect(teacherPage.attemptsCheckResult).toContainText(studentNo);
+    await expect(teacherPage.attemptsCheckResult).toContainText("3/3");
   });
 
   test("toggle entry open and closed", async () => {
