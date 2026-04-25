@@ -114,12 +114,18 @@ test.describe("Teacher panel", () => {
   test("attempts tab shows empty state initially", async () => {
     // Create a fresh course so there are no attempts
     const slug = `e2e-empty-${Date.now()}`;
-    await teacherPage.createCourse("空课程", slug);
-    // Need to select the new course — get its ID from the dropdown
-    await teacherPage.page.waitForTimeout(500);
+    const courseName = "空课程";
+    await teacherPage.createCourse(courseName, slug);
+    const newCourseId = await teacherPage.page.evaluate((name) => {
+      const cards = Array.from(document.querySelectorAll("#courseList .course-card")) as HTMLElement[];
+      const card = cards.find((item) => item.textContent?.includes(name));
+      return card ? card.id.replace("courseCard_", "") : "";
+    }, courseName);
+    expect(newCourseId).toBeTruthy();
+    await teacherPage.selectCourse(Number(newCourseId));
     await teacherPage.switchTab("tab-attempts");
-    // The quiz title should show the default placeholder
-    await expect(teacherPage.quizTitle).toHaveText("-");
+    // A new course without a loaded quiz should show the unloaded placeholder
+    await expect(teacherPage.quizTitle).toHaveText("未加载");
   });
 
   test("change password", async () => {
