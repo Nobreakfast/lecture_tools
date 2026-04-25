@@ -44,6 +44,7 @@ type Config struct {
 	AdminPassword string // fallback only; auth is DB-based
 	DataDir       string
 	MetadataDir   string
+	SnapshotDir   string
 	AIEndpoint    string
 	AIKey         string
 	AIModel       string
@@ -60,10 +61,12 @@ type Server struct {
 	store               store.Store
 	aiClient            *ai.Client
 	mu                  sync.RWMutex
+	snapshotMu          sync.Mutex
 	courseQuizzes       map[int]*domain.Quiz // course_id -> loaded quiz
 	courseQuizAssetDirs map[int]string       // course_id -> metadata quiz dir (for asset serving)
 	authTokens          map[string]authSession
 	shutdownFn          func()
+	maintenanceMode     bool
 
 	// currentQuiz is intentionally never populated. It exists only so that
 	// a handful of now-unreachable legacy handlers (kept for binary size
@@ -111,6 +114,12 @@ func (s *Server) SetShutdownFunc(fn func()) {
 func (s *Server) Init(ctx context.Context) error {
 	if err := s.store.Init(ctx); err != nil {
 		return err
+	}
+	if strings.TrimSpace(s.cfg.SnapshotDir) != "" {
+		if err := os.MkdirAll(s.cfg.SnapshotDir, 0o755); err != nil {
+			return err
+		}
+		s.startSnapshotScheduler()
 	}
 	// Teacher bootstrap is now handled by cmd/migrate upgrade.
 	// We no longer force entry_open=false on every boot (that would
@@ -195,6 +204,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/system/ai-health", s.apiAdminAIHealth)
 	mux.HandleFunc("/api/system/ai-config", s.apiAdminAIConfig)
 	mux.HandleFunc("/api/system/shutdown", s.apiAdminShutdown)
+	mux.HandleFunc("/api/system/snapshots", s.apiSystemSnapshots)
+	mux.HandleFunc("/api/system/snapshots/create", s.apiSystemSnapshotsCreate)
+	mux.HandleFunc("/api/system/snapshots/create-download", s.apiSystemSnapshotsCreateDownload)
+	mux.HandleFunc("/api/system/snapshots/download", s.apiSystemSnapshotsDownload)
+	mux.HandleFunc("/api/system/snapshots/restore", s.apiSystemSnapshotsRestore)
+	mux.HandleFunc("/api/system/snapshots/upload-restore", s.apiSystemSnapshotsUploadRestore)
 	mux.HandleFunc("/api/system/login", s.apiAdminLogin)
 	mux.HandleFunc("/api/admin/courses", s.apiTeacherCourses)
 	mux.HandleFunc("/api/teacher/courses", s.apiTeacherCourses)
@@ -297,7 +312,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/answer-image/delete", s.apiDeleteAnswerImage)
 	mux.HandleFunc("/uploads/", s.serveUpload)
 
-	var handler http.Handler = withCORS(mux)
+	var handler http.Handler = s.withMaintenanceGuard(withCORS(mux))
 	pfx := s.pathPrefix()
 	if pfx != "" {
 		inner := handler

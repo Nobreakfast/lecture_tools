@@ -114,6 +114,12 @@
 - `POST /api/admin/shutdown`：安全关闭服务
 - `GET /api/admin/ai-health`：AI 健康检查
 - `POST /api/admin/ai-config`：保存 AI 配置（endpoint/key/model）
+- `GET /api/system/snapshots`：列出服务器已保存的系统快照
+- `POST /api/system/snapshots/create`：手动生成并留存一个轻量快照
+- `POST /api/system/snapshots/create-download?mode=full`：立即生成一个完整快照并直接下载，不在服务器长期保留
+- `GET /api/system/snapshots/download?id=...`：下载某个已保存快照
+- `POST /api/system/snapshots/restore`：按服务器已有快照写入恢复任务并触发重启
+- `POST /api/system/snapshots/upload-restore`：上传一个快照包，写入恢复任务并触发重启
 - `GET /api/admin/admin-summary` / `POST /api/admin/admin-summary`：获取/生成全班总结（可结合匹配 PDF 的文本作为上下文）
 - `GET /api/materials`：列出课程材料分组（按 `folder + stem` 聚合）
 - `GET /api/pdfs`：兼容旧页面的 PDF 扁平列表
@@ -190,11 +196,12 @@
       report.pdf
       code.zip
   autocert/
+  snapshot_restore_pending.json
 
-./ppt/
-  <course>/...
-  _homework/
-    <course>/<assignment_id>.pdf
+./snapshots/
+  snapshot_<timestamp>_scheduled_lite.tar.gz
+  snapshot_<timestamp>_manual_lite.tar.gz
+  restore_upload_<timestamp>.tar.gz
 
 ./quiz/
   assets/
@@ -205,5 +212,8 @@
 - 新题型：扩展 `domain.QuestionType` 与判分逻辑
 - 新数据库：实现 `store.Store` 接口
 - 新 AI 厂商：替换 `internal/ai` 的 HTTP 适配
+- 系统快照分为轻量与完整两类：自动任务仅留存轻量快照，完整快照只支持管理员手动生成下载
+- 轻量快照恢复只回滚数据库、题库目录和作业提交目录，保留课程资料与作业说明等静态文件
+- 系统快照恢复采用“写入恢复任务 -> 进程重启 -> 启动前应用快照”的链路，避免在线覆盖 WAL 模式下的 SQLite 主库
 - 多班级并行：当前为单活跃题库架构，如需多班同时答题需引入 `quiz_instance` 概念
 - 若未来需要对作业增加截止时间、评分、版本历史或隐藏草稿，应在当前 `course + assignment_id + student_no` 模型之上增加显式作业元数据层，而不是重新耦合到当前 quiz 状态

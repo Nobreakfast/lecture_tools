@@ -63,6 +63,7 @@ func main() {
 		AdminPassword: env("ADMIN_PASSWORD", "admin123"),
 		DataDir:       env("DATA_DIR", "./data"),
 		MetadataDir:   env("METADATA_DIR", "./metadata"),
+		SnapshotDir:   env("SNAPSHOT_DIR", "./snapshots"),
 		AIEndpoint:    env("AI_ENDPOINT", ""),
 		AIKey:         env("AI_API_KEY", ""),
 		AIModel:       env("AI_MODEL", ""),
@@ -72,6 +73,12 @@ func main() {
 	}
 	if err := os.MkdirAll(cfg.MetadataDir, 0o755); err != nil {
 		log.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.SnapshotDir, 0o755); err != nil {
+		log.Fatal(err)
+	}
+	if err := app.ApplyPendingSnapshotRestore(cfg); err != nil {
+		log.Fatalf("应用待恢复快照失败: %v", err)
 	}
 	st, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
 	if err != nil {

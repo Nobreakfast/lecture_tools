@@ -24,6 +24,7 @@ dist/
 ppt/
 ./quiz/
 metadata*/
+snapshots/
 .sisyphus/
 
 # Created by https://www.toptal.com/developers/gitignore/api/go

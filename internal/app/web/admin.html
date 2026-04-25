@@ -16,6 +16,8 @@
     .teacher-row td .row { gap: 8px; justify-content: flex-end; }
     .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background: rgba(79,70,229,0.12); color: var(--primary); }
     .pill.muted { background: #e5e7eb; color: var(--text-muted); }
+    .snapshot-actions { display:flex; flex-wrap:wrap; gap:10px; }
+    .snapshot-note { margin-top: 8px; color: var(--text-muted); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -54,6 +56,7 @@
       <button class="tab-btn active" data-tab="overview">系统概览</button>
       <button class="tab-btn" data-tab="teachers">教师管理</button>
       <button class="tab-btn" data-tab="ai">AI 配置</button>
+      <button class="tab-btn" data-tab="snapshots">系统快照</button>
       <button class="tab-btn" data-tab="update">系统更新</button>
     </div>
 
@@ -144,6 +147,32 @@
       </div>
     </div>
 
+    <!-- Tab: Snapshots -------------------------------------- -->
+    <div class="tab-page hidden" data-tab="snapshots">
+      <div class="card">
+        <h3 class="section-title">快照操作</h3>
+        <div class="snapshot-actions">
+          <button class="btn btn-secondary" id="snapshotRefreshBtn">刷新列表</button>
+          <button class="btn" id="snapshotCreateLiteBtn">生成轻量快照</button>
+          <button class="btn" id="snapshotCreateDownloadBtn">生成完整快照并下载</button>
+          <button class="btn btn-danger" id="snapshotUploadRestoreBtn">上传快照并恢复</button>
+          <input id="snapshotUploadInput" type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" class="hidden" />
+        </div>
+        <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；完整快照仅支持手动生成并下载。</div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">历史快照</h3>
+        <table class="table" id="snapshotTable">
+          <thead>
+            <tr><th>时间</th><th>类型</th><th>来源</th><th>大小</th><th style="text-align:right">操作</th></tr>
+          </thead>
+          <tbody id="snapshotTbody">
+            <tr><td colspan="5" class="empty">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Tab: Update ----------------------------------------- -->
     <div class="tab-page hidden" data-tab="update">
       <div class="card">
@@ -180,6 +209,7 @@
         if (t === 'overview') loadOverview();
         if (t === 'teachers') loadTeachers();
         if (t === 'ai') loadAIConfig();
+        if (t === 'snapshots') loadSnapshots();
       });
     });
 
@@ -413,6 +443,181 @@
         $('#aiKey').value = '';
       } catch (e) {
         App.toast('保存失败: ' + e.message, 'error');
+      }
+    });
+
+    // ── Snapshots ──────────────────────────────────────────
+    function formatDateTime(v) {
+      if (!v) return '-';
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return v;
+      return d.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function formatBytes(n) {
+      if (!Number.isFinite(Number(n)) || Number(n) < 0) return '-';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let val = Number(n);
+      let idx = 0;
+      while (val >= 1024 && idx < units.length - 1) {
+        val /= 1024;
+        idx += 1;
+      }
+      return (idx === 0 ? val.toFixed(0) : val.toFixed(1)) + ' ' + units[idx];
+    }
+
+    function snapshotTypeLabel(item) {
+      const kind = item.kind || '';
+      const mode = item.mode || '';
+      if (kind === 'scheduled' && mode === 'lite') return '自动轻量';
+      if (kind === 'manual' && mode === 'lite') return '手动轻量';
+      if (kind === 'manual' && mode === 'full') return '手动完整';
+      return [kind, mode].filter(Boolean).join(' / ') || '-';
+    }
+
+    async function loadSnapshots() {
+      const tbody = $('#snapshotTbody');
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
+      try {
+        const r = await App.fetchJSON('/api/system/snapshots');
+        const list = (r && r.items) || [];
+        $('#snapshotMetaNote').textContent = '系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 ' + (r.retention_days || 14) + ' 天；完整快照仅支持手动生成并下载。';
+        if (!list.length) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无快照</td></tr>';
+          return;
+        }
+        tbody.innerHTML = list.map(item => {
+          const typeTag = item.kind === 'scheduled'
+            ? '<span class="pill">自动轻量</span>'
+            : '<span class="pill muted">' + App.escapeHTML(snapshotTypeLabel(item)) + '</span>';
+          return '<tr>'
+            + '<td>' + App.escapeHTML(formatDateTime(item.created_at)) + '</td>'
+            + '<td>' + typeTag + '</td>'
+            + '<td class="small muted">' + App.escapeHTML(item.created_by || '-') + '</td>'
+            + '<td>' + App.escapeHTML(formatBytes(item.size_bytes)) + '</td>'
+            + '<td><div class="row">'
+            +   '<button class="btn btn-ghost small" data-snapshot-act="download" data-id="' + App.escapeHTML(item.id) + '">下载</button>'
+            +   '<button class="btn btn-danger small" data-snapshot-act="restore" data-id="' + App.escapeHTML(item.id) + '" data-name="' + App.escapeHTML(item.filename || item.id) + '">恢复</button>'
+            + '</div></td>'
+            + '</tr>';
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">读取失败：' + App.escapeHTML(e.message || '未知错误') + '</td></tr>';
+      }
+    }
+
+    function pollForRecovery() {
+      setTimeout(async () => {
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const resp = await fetch('/api/auth/me', { credentials: 'include' });
+            if (resp.ok) { location.reload(); return; }
+          } catch (_) {}
+        }
+        App.toast('服务未能在预期时间内恢复，请手动刷新或检查日志', 'error');
+      }, 1000);
+    }
+
+    async function downloadGeneratedSnapshot() {
+      const btn = $('#snapshotCreateDownloadBtn');
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      try {
+        const resp = await fetch('/api/system/snapshots/create-download?mode=full', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(text || '生成失败');
+        }
+        const blob = await resp.blob();
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/i);
+        const filename = (match && match[1]) || ('snapshot-' + Date.now() + '.tar.gz');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        App.toast('完整快照已生成并开始下载', 'success');
+      } catch (e) {
+        App.toast('生成快照失败：' + (e.message || '未知错误'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '生成完整快照并下载';
+      }
+    }
+
+    async function createLiteSnapshot() {
+      const btn = $('#snapshotCreateLiteBtn');
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      try {
+        const r = await App.fetchJSON('/api/system/snapshots/create', {
+          method: 'POST',
+        });
+        App.toast('轻量快照已生成：' + ((r.snapshot && r.snapshot.filename) || '已保存到服务器'), 'success');
+        loadSnapshots();
+      } catch (e) {
+        App.toast('生成轻量快照失败：' + (e.message || '未知错误'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '生成轻量快照';
+      }
+    }
+
+    $('#snapshotRefreshBtn').addEventListener('click', loadSnapshots);
+    $('#snapshotCreateLiteBtn').addEventListener('click', createLiteSnapshot);
+    $('#snapshotCreateDownloadBtn').addEventListener('click', downloadGeneratedSnapshot);
+    $('#snapshotUploadRestoreBtn').addEventListener('click', () => $('#snapshotUploadInput').click());
+    $('#snapshotUploadInput').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const ok = await App.confirmModal('确认上传并恢复该快照？', '系统会在恢复前自动重启，请确保当前没有正在进行的重要操作。');
+      if (!ok) { e.target.value = ''; return; }
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        await App.fetchJSON('/api/system/snapshots/upload-restore', {
+          method: 'POST',
+          body: form,
+        });
+        App.toast('恢复任务已提交，服务正在重启', 'success');
+        pollForRecovery();
+      } catch (err) {
+        App.toast('上传恢复失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        e.target.value = '';
+      }
+    });
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-snapshot-act]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      if (btn.dataset.snapshotAct === 'download') {
+        window.location.href = '/api/system/snapshots/download?id=' + encodeURIComponent(id);
+        return;
+      }
+      if (btn.dataset.snapshotAct === 'restore') {
+        const ok = await App.confirmModal('确认恢复快照？', '将恢复到 ' + (btn.dataset.name || id) + ' 的状态，服务会自动重启。');
+        if (!ok) return;
+        try {
+          await App.fetchJSON('/api/system/snapshots/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+          App.toast('恢复任务已提交，服务正在重启', 'success');
+          pollForRecovery();
+        } catch (err) {
+          App.toast('恢复失败：' + (err.message || '未知错误'), 'error');
+        }
       }
     });
 

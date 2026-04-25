@@ -1,6 +1,6 @@
 # 课程助手
 
-面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交与 AI 学习建议。Go + SQLite 单机运行，单个二进制部署。
+面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交、AI 学习建议与系统快照恢复。Go + SQLite 单机运行，单个二进制部署。
 
 ## 设计原则
 
@@ -10,14 +10,15 @@
 - 题库用 YAML 管理；图片与 YAML 同目录
 - 每个教师的每门课数据完全隔离在 `metadata/{teacher}/{course}/` 下
 - 单二进制 + SQLite；没有前端构建、没有外部依赖
+- 系统每天凌晨 3 点自动生成快照，默认保留 14 天；管理员可下载或恢复
 
 ## 角色与入口
 
-| 角色 | 入口 | 说明 |
-|---|---|---|
-| 学生 | `/` | 输入 6 位邀请码进入课程，做测验 / 看资料 / 提交作业 |
-| 教师 | `/t` 或 `/teacher` | 登录后管理自己的课程 |
-| 系统管理员 | `/admin` | 仅负责教师账号、AI 配置、系统概览 |
+| 角色       | 入口               | 说明                                                |
+| ---------- | ------------------ | --------------------------------------------------- |
+| 学生       | `/`                | 输入 6 位邀请码进入课程，做测验 / 看资料 / 提交作业 |
+| 教师       | `/t` 或 `/teacher` | 登录后管理自己的课程                                |
+| 系统管理员 | `/admin`           | 仅负责教师账号、AI 配置、系统概览                   |
 
 短链：`/s/ABC123` → 自动跳转到 `/?code=ABC123`。
 
@@ -83,25 +84,30 @@ metadata/
               extra.zip
       materials/
         *                       # 课程资料（PDF/代码/任意）
+
+snapshots/
+  snapshot_2026-04-25_030000_scheduled_lite.tar.gz
+  snapshot_2026-04-25_104233_manual_lite.tar.gz
 ```
 
 数据库：`./data/app.db`（SQLite + WAL）。
 
 ## 环境变量
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `APP_ADDR` | `0.0.0.0:8080` | 监听地址；HTTPS 默认改为 `:443` |
-| `APP_BASE_URL` | 自动 | 外部访问的基础 URL |
-| `DATA_DIR` | `./data` | SQLite + 缓存目录 |
-| `METADATA_DIR` | `./metadata` | 按教师/课程组织的文件根 |
-| `AI_ENDPOINT` | - | AI 服务地址 |
-| `AI_API_KEY` | - | AI 鉴权密钥 |
-| `AI_MODEL` | - | 模型名 |
-| `CERT_PATH` | - | HTTPS 证书目录（`*.pem` + `*.key`） |
-| `AUTOCERT_ENABLE` | - | 启用 `autocert` 自动证书 |
-| `AUTOCERT_HOSTS` | - | 域名白名单 |
-| `APP_HTTP_REDIRECT_ADDR` | - | HTTP→HTTPS 301 监听 |
+| 变量                     | 默认           | 说明                                       |
+| ------------------------ | -------------- | ------------------------------------------ |
+| `APP_ADDR`               | `0.0.0.0:8080` | 监听地址；HTTPS 默认改为 `:443`            |
+| `APP_BASE_URL`           | 自动           | 外部访问的基础 URL                         |
+| `DATA_DIR`               | `./data`       | SQLite + 缓存目录                          |
+| `METADATA_DIR`           | `./metadata`   | 按教师/课程组织的文件根                    |
+| `SNAPSHOT_DIR`           | `./snapshots`  | 系统快照目录（自动快照、恢复上传临时文件） |
+| `AI_ENDPOINT`            | -              | AI 服务地址                                |
+| `AI_API_KEY`             | -              | AI 鉴权密钥                                |
+| `AI_MODEL`               | -              | 模型名                                     |
+| `CERT_PATH`              | -              | HTTPS 证书目录（`*.pem` + `*.key`）        |
+| `AUTOCERT_ENABLE`        | -              | 启用 `autocert` 自动证书                   |
+| `AUTOCERT_HOSTS`         | -              | 域名白名单                                 |
+| `APP_HTTP_REDIRECT_ADDR` | -              | HTTP→HTTPS 301 监听                        |
 
 > **注意**：`ADMIN_PASSWORD` 环境变量已**不再生效**。管理员登录必须用 `teachers` 表里 role=admin 的账号（通过 `cmd/migrate upgrade --teacher-id ...` 创建）。
 
@@ -116,20 +122,20 @@ metadata/
 
 ## 路由表
 
-| URL | 视图/Handler | 权限 |
-|---|---|---|
-| `/` | 学生入口（邀请码 + Tab：测验/资料/作业） | 无 |
-| `/s/:code` | 301 → `/?code=:code` | 无 |
-| `/join` | 301 → `/`（旧 QR 码兼容） | 无 |
-| `/t` 或 `/teacher` | 教师面板 | 教师 cookie |
-| `/admin` | 系统管理 | role=admin |
-| `/static/*` | 共享 CSS/JS | 无 |
-| `/api/auth/*` | 统一登录 / 登出 / me | — |
-| `/api/system/*` | 系统管理 API（教师、AI、统计） | role=admin |
-| `/api/teacher/courses/*` | 教师课程 API | 教师 cookie |
-| `/api/course?code=` | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无 |
-| `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话 | — |
-| `/api/admin/*`（教学类） | 410 Gone + 指向新路由 | — |
+| URL                                                                    | 视图/Handler                                                              | 权限        |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------- |
+| `/`                                                                    | 学生入口（邀请码 + Tab：测验/资料/作业）                                  | 无          |
+| `/s/:code`                                                             | 301 → `/?code=:code`                                                      | 无          |
+| `/join`                                                                | 301 → `/`（旧 QR 码兼容）                                                 | 无          |
+| `/t` 或 `/teacher`                                                     | 教师面板                                                                  | 教师 cookie |
+| `/admin`                                                               | 系统管理                                                                  | role=admin  |
+| `/static/*`                                                            | 共享 CSS/JS                                                               | 无          |
+| `/api/auth/*`                                                          | 统一登录 / 登出 / me                                                      | —           |
+| `/api/system/*`                                                        | 系统管理 API（教师、AI、统计）                                            | role=admin  |
+| `/api/teacher/courses/*`                                               | 教师课程 API                                                              | 教师 cookie |
+| `/api/course?code=`                                                    | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无          |
+| `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话                                                | —           |
+| `/api/admin/*`（教学类）                                               | 410 Gone + 指向新路由                                                     | —           |
 
 教师课程 API 约定：
 - `POST /api/teacher/courses`：请求体中的 `slug` 字段可直接填写带空格英文名，例如 `Machine Learning Intro`
@@ -159,6 +165,17 @@ metadata/
 - SQLite WAL + 复合索引
 - 作业 PDF / ZIP 上传会校验文件**内容签名**，非扩展名
 - 作业 PDF 不会出现在 `/materials` 或通用下载路径下
+- 系统快照恢复采用“写入恢复任务 -> 重启 -> 启动前应用快照”流程，避免在线覆盖活跃 SQLite 数据
+
+## 系统快照
+
+- 自动快照：服务每天凌晨 `03:00` 生成一次“轻量快照”并保存在 `SNAPSHOT_DIR`
+- 轻量快照内容：`app.db` 一致性副本、`metadata/*/*/quiz/**`、`metadata/*/*/assignment/*/submissions/**`、`manifest.json`
+- 轻量快照不会打包课程资料 `materials/` 与作业说明文件，因此体积更小，适合日常保留与下载
+- 完整快照：仅管理员在 `/admin` 的“系统快照”Tab 中手动生成并直接下载，不在服务器长期保留
+- 保留策略：服务器端自动清理 14 天前的轻量快照
+- 管理入口：`/admin` 的“系统快照”Tab，可查看历史轻量快照、下载轻量快照、按历史快照恢复、上传快照恢复
+- 恢复方式：管理员提交恢复请求后，服务会写入待恢复任务并自动重启；若你不是用 `systemd` / `launchd` 托管，请手动重新启动服务
 
 ## 开发
 
