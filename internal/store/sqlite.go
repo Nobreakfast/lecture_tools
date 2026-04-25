@@ -759,10 +759,10 @@ func (s *SQLiteStore) GetLiveStatsByCourse(ctx context.Context, courseID int) (i
 
 func (s *SQLiteStore) GetLiveStatsByCourseQuiz(ctx context.Context, courseID int, quizID string) (int, int, error) {
 	var started, submitted int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM attempts WHERE course_id = ? AND quiz_id = ?`, courseID, quizID).Scan(&started); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT name) FROM attempts WHERE course_id = ? AND quiz_id = ?`, courseID, quizID).Scan(&started); err != nil {
 		return 0, 0, err
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM attempts WHERE course_id = ? AND quiz_id = ? AND status = ?`, courseID, quizID, string(domain.StatusSubmitted)).Scan(&submitted); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT name) FROM attempts WHERE course_id = ? AND quiz_id = ? AND status = ?`, courseID, quizID, string(domain.StatusSubmitted)).Scan(&submitted); err != nil {
 		return 0, 0, err
 	}
 	return started, submitted, nil
