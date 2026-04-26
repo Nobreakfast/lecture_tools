@@ -60,7 +60,6 @@ func main() {
 	cfg := app.Config{
 		Addr:          addr,
 		BaseURL:       baseURL,
-		AdminPassword: env("ADMIN_PASSWORD", "admin123"),
 		DataDir:       env("DATA_DIR", "./data"),
 		MetadataDir:   env("METADATA_DIR", "./metadata"),
 		SnapshotDir:   env("SNAPSHOT_DIR", "./snapshots"),

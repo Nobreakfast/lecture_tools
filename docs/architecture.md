@@ -13,11 +13,24 @@
 
 ## 分层
 - `cmd/server`：进程入口与环境配置
-- `internal/app`：HTTP 路由与用例编排
+- `internal/app`：HTTP 路由与用例编排（按职责拆分为多个文件）
+  - `server.go`：核心结构体 `Server`、`Config`、路由注册、页面/静态服务、学生答题与结果 API
+  - `auth.go`：认证中间件与统一登录/登出/改密 API
+  - `admin_summary.go`：管理员 AI 班级总结 API
+  - `quiz_bank.go`：题库文件加载、题库管理、题库内容编辑、AI 生成与下载
+  - `homework.go`：学生作业提交与教师作业管理 API
+  - `pdf.go`：课程材料上传/删除/重命名/可见性 API
+  - `snapshots.go`：系统快照创建/下载/恢复
 - `internal/domain`：核心领域模型
 - `internal/store`：持久化接口与 SQLite 实现
+  - `store.go`：按领域拆分的小接口（`SettingStore`、`TeacherStore`、`CourseStore`、`AttemptStore`、`HomeworkStore`）及组合接口 `Store`
+  - `sqlite.go`：SQLite 实现
 - `internal/quiz`：YAML 题库解析与校验
 - `internal/ai`：AI 总结适配层（含规则兜底）
+  - `client.go`：公共 `Client` 结构体与 `chat` 方法（统一 HTTP/JSON/错误处理）
+  - `summary.go`：学生答题总结
+  - `admin_summary.go`：管理员班级总结
+  - `quiz_generate.go`：题库 AI 生成与自动填充
 
 ## 核心状态
 - 入口开关：`settings.entry_open`
@@ -44,6 +57,19 @@
 - 作业 PDF 的文件名（去掉 `.pdf`）就是 `assignment_id`
 - 学生上传报告/代码后立即保存，最新上传覆盖旧文件；没有单独的 `/api/homework/finalize`
 - `_homework` 目录中的作业 PDF 不进入普通 materials 列表，也不能通过通用 `/ppt/`、`/materials-files/` 学生路径直接访问
+
+## 并发与锁
+`Server` 结构体使用域作用域锁代替全局 `sync.RWMutex`，减少不相关子系统之间的虚假争用：
+
+| 锁 | 类型 | 保护字段 |
+|---|---|---|
+| `quizMu` | `sync.RWMutex` | `courseQuizzes`、`courseQuizAssetDirs`、`currentQuiz` |
+| `authMu` | `sync.RWMutex` | `authTokens` |
+| `serverMu` | `sync.RWMutex` | `shutdownFn`、`maintenanceMode` |
+| `snapshotMu` | `sync.Mutex` | 快照生成并发互斥 |
+| `settingMu` | `sync.Mutex` | 序列化 store 层 read-modify-write 操作（可见性设置等） |
+
+原则：读多用 `RLock`，写用 `Lock`；每个域只锁自己涉及的字段。无内存状态的文件系统或纯 DB 操作不加锁（SQLite WAL 模式已提供事务隔离）。
 
 ## 路由与资源
 
@@ -213,8 +239,8 @@
 
 ## 扩展原则
 - 新题型：扩展 `domain.QuestionType` 与判分逻辑
-- 新数据库：实现 `store.Store` 接口
-- 新 AI 厂商：替换 `internal/ai` 的 HTTP 适配
+- 新数据库：实现 `store.Store` 组合接口（或仅实现所需的小接口如 `AttemptStore`）
+- 新 AI 厂商：替换 `internal/ai` 的 HTTP 适配（所有方法委托给 `Client.chat`）
 - 系统快照分为轻量与完整两类：自动任务仅留存轻量快照，完整快照只支持管理员手动生成下载
 - 轻量快照恢复只回滚数据库、题库目录和作业提交目录，保留课程资料与作业说明等静态文件
 - 系统快照恢复采用“写入恢复任务 -> 进程重启 -> 启动前应用快照”的链路，避免在线覆盖 WAL 模式下的 SQLite 主库

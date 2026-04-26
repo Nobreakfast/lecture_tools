@@ -547,7 +547,7 @@ func (s *Server) apiAdminPDFUpload(w http.ResponseWriter, r *http.Request) {
 	uploaded := make([]materialUploadSuccess, 0, len(headers))
 	failed := make([]materialUploadFailure, 0)
 	for _, header := range headers {
-		result, failure := s.saveUploadedMaterial(dir, folder, header)
+		result, failure := s.saveUploadedMaterial(r.Context(), dir, folder, header)
 		if failure != nil {
 			failed = append(failed, *failure)
 			continue
@@ -570,7 +570,7 @@ func (s *Server) apiAdminPDFUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusOK, resp)
 }
 
-func (s *Server) saveUploadedMaterial(dir, folder string, header *multipart.FileHeader) (*materialUploadSuccess, *materialUploadFailure) {
+func (s *Server) saveUploadedMaterial(ctx context.Context, dir, folder string, header *multipart.FileHeader) (*materialUploadSuccess, *materialUploadFailure) {
 	name, ext, err := normalizeMaterialFilename(header.Filename, "")
 	if err != nil {
 		return nil, &materialUploadFailure{File: filepath.Base(header.Filename), Error: err.Error()}
@@ -591,7 +591,7 @@ func (s *Server) saveUploadedMaterial(dir, folder string, header *multipart.File
 	if err := os.WriteFile(fp, data, 0o644); err != nil {
 		return nil, &materialUploadFailure{File: name, Error: "写入文件失败"}
 	}
-	if err := s.setMaterialVisibility(context.Background(), folder, name, true); err != nil {
+	if err := s.setMaterialVisibility(ctx, folder, name, true); err != nil {
 		_ = os.Remove(fp)
 		return nil, &materialUploadFailure{File: name, Error: "保存文件状态失败"}
 	}
@@ -797,8 +797,6 @@ func (s *Server) isMaterialPathVisible(ctx context.Context, rel string) bool {
 }
 
 func (s *Server) loadMaterialVisibility(ctx context.Context) (map[string]bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	return s.loadMaterialVisibilityUnlocked(ctx)
 }
 
@@ -815,8 +813,8 @@ func (s *Server) loadMaterialVisibilityUnlocked(ctx context.Context) (map[string
 }
 
 func (s *Server) saveMaterialVisibility(ctx context.Context, visibility map[string]bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
 	return s.saveMaterialVisibilityUnlocked(ctx, visibility)
 }
 
@@ -829,8 +827,8 @@ func (s *Server) saveMaterialVisibilityUnlocked(ctx context.Context, visibility 
 }
 
 func (s *Server) setMaterialVisibility(ctx context.Context, folder, file string, visible bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
 	visibility, err := s.loadMaterialVisibilityUnlocked(ctx)
 	if err != nil {
 		return err
@@ -845,8 +843,8 @@ func (s *Server) setMaterialVisibility(ctx context.Context, folder, file string,
 }
 
 func (s *Server) renameMaterialVisibility(ctx context.Context, folder, oldName, newName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
 	visibility, err := s.loadMaterialVisibilityUnlocked(ctx)
 	if err != nil {
 		return err
@@ -864,8 +862,8 @@ func (s *Server) renameMaterialVisibility(ctx context.Context, folder, oldName, 
 }
 
 func (s *Server) deleteMaterialVisibility(ctx context.Context, folder, file string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
 	visibility, err := s.loadMaterialVisibilityUnlocked(ctx)
 	if err != nil {
 		return err

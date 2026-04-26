@@ -4,13 +4,7 @@
 package ai
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
-	"time"
 )
 
 const quizGenerateSystemPrompt = `你是一个课堂题库生成助手。请根据教师的要求生成 YAML 格式的题库。
@@ -54,76 +48,9 @@ const quizAutoFillSystemPrompt = `你是一个课堂题库补全助手。教师�
 只输出完整的 YAML 内容，不要输出其他文字。`
 
 func (c *Client) GenerateQuiz(ctx context.Context, prompt string) (string, error) {
-	return c.chatYAML(ctx, quizGenerateSystemPrompt, prompt, 0.7)
+	return c.chat(ctx, quizGenerateSystemPrompt, prompt, 0.7)
 }
 
 func (c *Client) AutoFillQuiz(ctx context.Context, yamlContent string) (string, error) {
-	return c.chatYAML(ctx, quizAutoFillSystemPrompt, yamlContent, 0.4)
-}
-
-func (c *Client) chatYAML(ctx context.Context, systemPrompt, userMsg string, temperature float64) (string, error) {
-	c.mu.RLock()
-	endpoint := c.endpoint
-	apiKey := c.apiKey
-	model := c.model
-	c.mu.RUnlock()
-
-	if strings.TrimSpace(endpoint) == "" {
-		return "", fmt.Errorf("AI endpoint 未配置")
-	}
-
-	url := resolveEndpoint(endpoint)
-	payload := map[string]any{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userMsg},
-		},
-		"temperature": temperature,
-	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		c.setLastError(err.Error())
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-
-	resp, err := c.httpCli.Do(req)
-	if err != nil {
-		c.setLastError(err.Error())
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		msg := fmt.Sprintf("AI 返回状态码 %d", resp.StatusCode)
-		c.setLastError(msg)
-		return "", fmt.Errorf("%s", msg)
-	}
-
-	var chatResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		c.setLastError(err.Error())
-		return "", err
-	}
-	if len(chatResp.Choices) == 0 {
-		msg := "AI 返回空 choices"
-		c.setLastError(msg)
-		return "", fmt.Errorf("%s", msg)
-	}
-
-	content := stripCodeFence(strings.TrimSpace(chatResp.Choices[0].Message.Content))
-	c.setLastSuccess(time.Now())
-	return content, nil
+	return c.chat(ctx, quizAutoFillSystemPrompt, yamlContent, 0.4)
 }

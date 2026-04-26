@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -525,8 +526,8 @@ func (s *SQLiteStore) GetTeacher(ctx context.Context, id string) (*domain.Teache
 		return nil, err
 	}
 	t.Role = domain.UserRole(role)
-	t.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	t.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	t.CreatedAt = parseTime(time.RFC3339Nano, created)
+	t.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 	return &t, nil
 }
 
@@ -545,8 +546,8 @@ func (s *SQLiteStore) ListTeachers(ctx context.Context) ([]domain.Teacher, error
 			return nil, err
 		}
 		t.Role = domain.UserRole(role)
-		t.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		t.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		t.CreatedAt = parseTime(time.RFC3339Nano, created)
+		t.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 		items = append(items, t)
 	}
 	return items, nil
@@ -690,8 +691,8 @@ func (s *SQLiteStore) scanCourse(row *sql.Row) (*domain.Course, error) {
 		return nil, err
 	}
 	normalizeCourseRecord(&c)
-	c.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	c.CreatedAt = parseTime(time.RFC3339Nano, created)
+	c.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 	return &c, nil
 }
 
@@ -709,8 +710,8 @@ func (s *SQLiteStore) listCourses(ctx context.Context, query string, args ...any
 			return nil, err
 		}
 		normalizeCourseRecord(&c)
-		c.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		c.CreatedAt = parseTime(time.RFC3339Nano, created)
+		c.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 		items = append(items, c)
 	}
 	return items, nil
@@ -967,6 +968,26 @@ func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
 
+// parseTime attempts to parse a timestamp using the given layout. If that
+// fails, it falls back to the SQLite datetime() format ("2006-01-02 15:04:05")
+// which some older rows still use. If both fail, it logs a warning and
+// returns the zero time value.
+func parseTime(layout, value string) time.Time {
+	t, err := time.Parse(layout, value)
+	if err == nil {
+		return t
+	}
+	// Fallback: SQLite datetime() produces "YYYY-MM-DD HH:MM:SS" (space
+	// separator, no timezone). Older rows may store this format.
+	if fallback, err2 := time.Parse(sqliteDatetimeLayout, value); err2 == nil {
+		return fallback
+	}
+	log.Printf("store: time.Parse(%s, %q): %v; fallback also failed", layout, value, err)
+	return time.Time{}
+}
+
+const sqliteDatetimeLayout = "2006-01-02 15:04:05"
+
 func WrapErr(action string, err error) error {
 	if err == nil {
 		return nil
@@ -991,10 +1012,10 @@ func scanAttemptRows(sc rowScanner) (*domain.Attempt, error) {
 		fmt.Sscanf(courseIDRaw.String, "%d", &a.CourseID)
 	}
 	a.Status = domain.AttemptStatus(status)
-	a.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	a.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	a.CreatedAt = parseTime(time.RFC3339Nano, created)
+	a.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 	if submitted.Valid {
-		t, _ := time.Parse(time.RFC3339Nano, submitted.String)
+		t := parseTime(time.RFC3339Nano, submitted.String)
 		a.SubmittedAt = &t
 	}
 	return &a, nil
@@ -1028,8 +1049,8 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	); err != nil {
 		return nil, err
 	}
-	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	item.CreatedAt = parseTime(time.RFC3339Nano, created)
+	item.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 	item.ReportUploadedAt = parseTimePtr(reportUploaded)
 	item.CodeUploadedAt = parseTimePtr(codeUploaded)
 	item.ExtraUploadedAt = parseTimePtr(extraUploaded)

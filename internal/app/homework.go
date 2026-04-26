@@ -83,7 +83,7 @@ func (s *Server) apiHomeworkAssignmentIDs(w http.ResponseWriter, r *http.Request
 	for _, id := range s.listMetadataHomeworkAssignments(c) {
 		seen[id] = struct{}{}
 	}
-	visibility := s.loadHomeworkAssignmentVisibility()
+	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
 	visible := make([]string, 0, len(seen))
 	for id := range seen {
 		if !homeworkAssignmentHidden(visibility, course, id) {
@@ -113,12 +113,12 @@ func (s *Server) apiHomeworkAssignmentPreview(w http.ResponseWriter, r *http.Req
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
-	visibility := s.loadHomeworkAssignmentVisibility()
+	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
 	if homeworkAssignmentHidden(visibility, c.Slug, assignmentID) {
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
-	items := []map[string]any{s.homeworkAssignmentPayload(c.Slug, c.ID, assignmentID, false)}
+	items := []map[string]any{s.homeworkAssignmentPayload(r.Context(), c.Slug, c.ID, assignmentID, false)}
 	writeJSON(w, map[string]any{"items": items})
 }
 
@@ -139,7 +139,7 @@ func (s *Server) apiHomeworkAssignments(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
-	items := []map[string]any{s.homeworkAssignmentPayload(course, courseID, assignmentID, false)}
+	items := []map[string]any{s.homeworkAssignmentPayload(r.Context(), course, courseID, assignmentID, false)}
 	writeJSON(w, map[string]any{"items": items})
 }
 
@@ -154,7 +154,7 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	reqAssignment := r.URL.Query().Get("assignment_id")
-	visibility := s.loadHomeworkAssignmentVisibility()
+	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
 	if homeworkAssignmentHidden(visibility, course, reqAssignment) {
 		http.Error(w, "该作业不可访问", http.StatusForbidden)
 		return
@@ -324,8 +324,6 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	dir := s.homeworkSubmissionDir(submission)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		http.Error(w, "创建目录失败", http.StatusInternalServerError)
@@ -421,8 +419,6 @@ func (s *Server) apiHomeworkDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.store.DeleteHomeworkFileMetadata(r.Context(), submission.ID, slot); err != nil {
 		http.Error(w, "删除文件失败", http.StatusInternalServerError)
 		return
@@ -484,8 +480,6 @@ func (s *Server) apiHomeworkOthersUpload(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "文件不能为空", http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	dir := s.homeworkOthersDir(submission)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		http.Error(w, "创建目录失败", http.StatusInternalServerError)
@@ -571,8 +565,6 @@ func (s *Server) apiHomeworkOthersDelete(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	fp := filepath.Join(s.homeworkOthersDir(submission), name)
 	if err := os.Remove(fp); err != nil {
 		if os.IsNotExist(err) {
@@ -617,8 +609,6 @@ func (s *Server) apiHomeworkOthersRename(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	dir := s.homeworkOthersDir(submission)
 	oldPath := filepath.Join(dir, oldName)
 	newPath := filepath.Join(dir, newName)
@@ -696,7 +686,7 @@ func (s *Server) apiAdminHomeworkAssignments(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 		for _, assignmentID := range assignments {
-			items = append(items, s.homeworkAssignmentPayload(course, 0, assignmentID, true))
+			items = append(items, s.homeworkAssignmentPayload(r.Context(), course, 0, assignmentID, true))
 		}
 	}
 	writeJSON(w, map[string]any{"courses": courses, "items": items})
@@ -743,7 +733,7 @@ func (s *Server) apiAdminHomeworkAssignmentUpload(w http.ResponseWriter, r *http
 	uploaded := make([]map[string]any, 0, len(headers))
 	failed := make([]map[string]any, 0)
 	for _, header := range headers {
-		result, failure := s.saveUploadedHomeworkAssignment(course, 0, assignmentID, dir, header)
+		result, failure := s.saveUploadedHomeworkAssignment(r.Context(), course, 0, assignmentID, dir, header)
 		if failure != nil {
 			failed = append(failed, failure)
 			continue
@@ -1008,7 +998,7 @@ func (s *Server) apiAdminHomeworkAssignmentVisibility(w http.ResponseWriter, r *
 		http.Error(w, "作业编号无效", http.StatusBadRequest)
 		return
 	}
-	s.setHomeworkAssignmentVisibility(course, assignmentID, req.Hidden)
+	s.setHomeworkAssignmentVisibility(r.Context(), course, assignmentID, req.Hidden)
 	writeJSON(w, map[string]any{"ok": true, "hidden": req.Hidden})
 }
 
@@ -1063,7 +1053,7 @@ func (s *Server) apiAdminHomeworkAssignmentRename(w http.ResponseWriter, r *http
 		http.Error(w, "重命名失败", http.StatusInternalServerError)
 		return
 	}
-	s.renameHomeworkAssignmentVisibility(course, oldID, newID)
+	s.renameHomeworkAssignmentVisibility(r.Context(), course, oldID, newID)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -1153,10 +1143,8 @@ func (s *Server) requireEditableHomeworkStudent(r *http.Request) (*domain.Homewo
 	return s.requireHomeworkStudent(r)
 }
 
-func (s *Server) loadHomeworkAssignmentVisibility() map[string]bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	raw, err := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+func (s *Server) loadHomeworkAssignmentVisibility(ctx context.Context) map[string]bool {
+	raw, err := s.store.GetSetting(ctx, homeworkAssignmentVisibilityKey)
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return map[string]bool{}
 	}
@@ -1165,10 +1153,10 @@ func (s *Server) loadHomeworkAssignmentVisibility() map[string]bool {
 	return result
 }
 
-func (s *Server) setHomeworkAssignmentVisibility(course, assignmentID string, hidden bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	raw, _ := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+func (s *Server) setHomeworkAssignmentVisibility(ctx context.Context, course, assignmentID string, hidden bool) {
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
+	raw, _ := s.store.GetSetting(ctx, homeworkAssignmentVisibilityKey)
 	visibility := map[string]bool{}
 	if strings.TrimSpace(raw) != "" {
 		_ = json.Unmarshal([]byte(raw), &visibility)
@@ -1180,13 +1168,13 @@ func (s *Server) setHomeworkAssignmentVisibility(course, assignmentID string, hi
 		delete(visibility, key)
 	}
 	payload, _ := json.Marshal(visibility)
-	_ = s.store.SetSetting(context.Background(), homeworkAssignmentVisibilityKey, string(payload))
+	_ = s.store.SetSetting(ctx, homeworkAssignmentVisibilityKey, string(payload))
 }
 
-func (s *Server) renameHomeworkAssignmentVisibility(course, oldID, newID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	raw, _ := s.store.GetSetting(context.Background(), homeworkAssignmentVisibilityKey)
+func (s *Server) renameHomeworkAssignmentVisibility(ctx context.Context, course, oldID, newID string) {
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
+	raw, _ := s.store.GetSetting(ctx, homeworkAssignmentVisibilityKey)
 	visibility := map[string]bool{}
 	if strings.TrimSpace(raw) != "" {
 		_ = json.Unmarshal([]byte(raw), &visibility)
@@ -1197,7 +1185,7 @@ func (s *Server) renameHomeworkAssignmentVisibility(course, oldID, newID string)
 		visibility[newKey] = val
 		delete(visibility, oldKey)
 		payload, _ := json.Marshal(visibility)
-		_ = s.store.SetSetting(context.Background(), homeworkAssignmentVisibilityKey, string(payload))
+		_ = s.store.SetSetting(ctx, homeworkAssignmentVisibilityKey, string(payload))
 	}
 }
 
@@ -1267,7 +1255,7 @@ func (s *Server) resolveHomeworkSubmissionDirForCourse(course *domain.Course, su
 	return s.homeworkSubmissionDir(submission)
 }
 
-func (s *Server) homeworkAssignmentPayload(course string, courseID int, assignmentID string, admin bool) map[string]any {
+func (s *Server) homeworkAssignmentPayload(ctx context.Context, course string, courseID int, assignmentID string, admin bool) map[string]any {
 	files := s.listHomeworkAssignmentFiles(course, courseID, assignmentID)
 	var updatedAt any
 	var totalSize int64
@@ -1295,7 +1283,7 @@ func (s *Server) homeworkAssignmentPayload(course string, courseID int, assignme
 	}
 	if admin {
 		payload["bundle_delete_url"] = s.pathPrefix() + "/api/admin/homework/assignments/delete"
-		visibility := s.loadHomeworkAssignmentVisibility()
+		visibility := s.loadHomeworkAssignmentVisibility(ctx)
 		payload["hidden"] = homeworkAssignmentHidden(visibility, course, assignmentID)
 	}
 	return payload
@@ -1416,7 +1404,7 @@ func (s *Server) resolveHomeworkAssignmentFileRequest(r *http.Request) (string, 
 	return courseSlug, assignmentID, fileName, bundlePath, nil
 }
 
-func (s *Server) saveUploadedHomeworkAssignment(course string, courseID int, assignmentID, dir string, header *multipart.FileHeader) (map[string]any, map[string]any) {
+func (s *Server) saveUploadedHomeworkAssignment(ctx context.Context, course string, courseID int, assignmentID, dir string, header *multipart.FileHeader) (map[string]any, map[string]any) {
 	name, err := normalizeHomeworkResourceFilename(header.Filename)
 	if err != nil {
 		return nil, map[string]any{"file": filepath.Base(header.Filename), "error": "文件名无效"}
@@ -1436,7 +1424,7 @@ func (s *Server) saveUploadedHomeworkAssignment(course string, courseID int, ass
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		return nil, map[string]any{"file": name, "error": "写入文件失败"}
 	}
-	return s.homeworkAssignmentPayload(course, courseID, assignmentID, true), nil
+	return s.homeworkAssignmentPayload(ctx, course, courseID, assignmentID, true), nil
 }
 
 func validateHomeworkCourse(raw string) (string, error) {
@@ -1595,6 +1583,10 @@ func (s *Server) homeworkSubmissionDir(submission *domain.HomeworkSubmission) st
 }
 
 func (s *Server) resolveHomeworkCourse(courseID int, courseSlug string) *domain.Course {
+	// Intentionally uses context.Background(): this method is called from
+	// internal helpers like homeworkSubmissionDir and listHomeworkAssignmentFiles
+	// that do not have access to a request context. The DB lookup here is
+	// lightweight and not worth propagating ctx through 15+ callers.
 	if courseID > 0 {
 		if c, err := s.store.GetCourse(context.Background(), courseID); err == nil {
 			return c

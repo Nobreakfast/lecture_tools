@@ -115,14 +115,14 @@ func (s *Server) withMaintenanceGuard(next http.Handler) http.Handler {
 }
 
 func (s *Server) isMaintenanceMode() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.serverMu.RLock()
+	defer s.serverMu.RUnlock()
 	return s.maintenanceMode
 }
 
 func (s *Server) setMaintenanceMode(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.serverMu.Lock()
+	defer s.serverMu.Unlock()
 	s.maintenanceMode = enabled
 }
 
@@ -316,9 +316,9 @@ func (s *Server) apiSystemSnapshotsUploadRestore(w http.ResponseWriter, r *http.
 
 func (s *Server) triggerShutdownAfter(delay time.Duration) {
 	time.Sleep(delay)
-	s.mu.RLock()
+	s.serverMu.RLock()
 	fn := s.shutdownFn
-	s.mu.RUnlock()
+	s.serverMu.RUnlock()
 	if fn != nil {
 		fn()
 		return

@@ -220,9 +220,9 @@ func (s *Server) apiTeacherCourseSummary(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	s.mu.RLock()
+	s.quizMu.RLock()
 	q := s.courseQuizzes[courseID]
-	s.mu.RUnlock()
+	s.quizMu.RUnlock()
 	if q == nil {
 		http.Error(w, "当前未加载题库", http.StatusBadRequest)
 		return
@@ -308,9 +308,9 @@ func (s *Server) apiTeacherCourseHistorySummary(w http.ResponseWriter, r *http.R
 
 	// Build a map of all quiz titles from the on-disk quiz bank + currently loaded quiz.
 	titleMap := s.quizBankTitles(course.TeacherID, course.Slug)
-	s.mu.RLock()
+	s.quizMu.RLock()
 	courseQuiz := s.courseQuizzes[courseID]
-	s.mu.RUnlock()
+	s.quizMu.RUnlock()
 	if courseQuiz != nil && courseQuiz.Title != "" {
 		titleMap[courseQuiz.QuizID] = courseQuiz.Title
 	}
