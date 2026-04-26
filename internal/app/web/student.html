@@ -156,7 +156,22 @@
     .message.show { display: block; }
     .message.info { background: rgba(79,70,229,0.08); color: var(--primary); }
     .message.error { background: rgba(239,68,68,0.08); color: var(--danger); }
-    @media (max-width: 720px) { .grid, .slot-grid, .meta-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) {
+      .grid, .slot-grid, .meta-grid { grid-template-columns: 1fr; }
+      .course-header { font-size: 13px; }
+      .course-header strong { font-size: 14px; }
+      .tab-btn { padding: 8px 12px; font-size: 13px; }
+      .code-input { font-size: 18px; letter-spacing: 4px; padding: 12px 14px; }
+      .landing-btn { padding: 10px 16px; font-size: 14px; }
+      .form-submit { font-size: 15px; padding: 11px; }
+      .section-title { font-size: 14px; }
+      .section-hint { font-size: 12px; }
+      .meta-item { padding: 8px 10px; }
+      .slot-card { padding: 14px; }
+      .others-item .others-actions { margin-top: 4px; }
+      .others-item .others-actions button, .others-item .others-actions a { padding: 3px 8px; font-size: 11px; }
+      .download-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+    }
   </style>
 </head>
 <body>
@@ -451,16 +466,22 @@
         var r = await fetch('/api/me', { credentials: 'include' });
         if (r.ok) {
           var data = await r.json();
-          var st = data.attempt && data.attempt.status;
-          if (st === 'in_progress') {
-            if (shouldStayOnCoursePage()) {
-              showQuizResume(data);
+          // Handle session_expired: quiz changed since last visit —
+          // server already cleared the cookie, just proceed normally.
+          if (data.error === 'session_expired') {
+            // Don't show an alert — just silently proceed to the normal flow.
+          } else {
+            var st = data.attempt && data.attempt.status;
+            if (st === 'in_progress') {
+              if (shouldStayOnCoursePage()) {
+                showQuizResume(data);
+                return;
+              }
+              location.href = '/quiz';
               return;
             }
-            location.href = '/quiz';
-            return;
+            if (st === 'submitted')   { location.href = '/result'; return; }
           }
-          if (st === 'submitted')   { location.href = '/result'; return; }
         }
       } catch (_) {}
 

@@ -328,6 +328,26 @@
       max-height: 90vh;
       border-radius: 8px;
     }
+    /* ── Responsive ── */
+    @media (max-width: 720px) {
+      body { padding: 16px 12px; }
+      #title { font-size: 20px; }
+      .toolbar { flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+      .btn { padding: 8px 14px; font-size: 13px; }
+      .btn svg { width: 14px; height: 14px; }
+      .card { padding: 16px; }
+      .card h3 { font-size: 15px; }
+      .card p { font-size: 13px; }
+      .qimage { width: 100%; }
+      .thumb-item { width: 80px; height: 80px; }
+      .ai-actions li { padding: 10px 12px 10px 32px; font-size: 13px; }
+      .ai-encouragement { font-size: 13px; }
+    }
+    @media (hover: none) {
+      .card:hover { transform: none; box-shadow: var(--shadow); }
+      .qimage:hover { transform: none; }
+      .thumb-item:hover { transform: none; }
+    }
   </style>
 </head>
 <body>
@@ -421,10 +441,16 @@
       const r = await fetch('/api/result', { credentials:'include' });
       if (!r.ok) {
         alert(await r.text());
-        location.href = '/quiz';
+        location.href = '/';
         return;
       }
       const data = await r.json();
+      // Handle session_expired: quiz changed since last visit
+      if (data.error === 'session_expired') {
+        alert(data.reason || '该答题会话已过期，请重新进入');
+        location.href = '/';
+        return;
+      }
       resultData = data;
       document.getElementById('title').textContent = `${data.quiz_title}（${data.score.correct}/${data.score.total}）`;
       // Summary will be loaded on-demand via AI button

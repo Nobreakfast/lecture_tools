@@ -1198,7 +1198,7 @@ func (s *Server) setHomeworkCookie(w http.ResponseWriter, token string) {
 		Name:     homeworkCookieName,
 		Value:    token,
 		Path:     s.cookiePath(),
-		MaxAge:   7 * 24 * 3600,
+		MaxAge:   studentSessionMaxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

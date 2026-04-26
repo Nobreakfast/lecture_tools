@@ -23,6 +23,23 @@
     .status-panel.caution { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
     .status-panel.busy { border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.08); }
     .status-title { font-weight: 700; margin-bottom: 4px; }
+    /* ── Responsive ── */
+    @media (max-width: 720px) {
+      .login-wrap .app-shell { padding: 16px 12px; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .tab-bar { font-size: 13px; }
+      .tab-btn { padding: 8px 10px; font-size: 13px; }
+      #view-main { padding: 16px 12px 80px; }
+      /* Teacher add form grid → single column */
+      #view-main .card > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+      .snapshot-actions { gap: 8px; }
+      .snapshot-actions .btn { padding: 8px 12px; font-size: 13px; }
+      /* Table horizontal scroll */
+      .card { overflow-x: auto; }
+      .table { min-width: max-content; }
+      .table th, .table td { white-space: nowrap; }
+      .modal-backdrop > .modal { max-width: calc(100vw - 24px); padding: 20px; }
+    }
   </style>
 </head>
 <body>

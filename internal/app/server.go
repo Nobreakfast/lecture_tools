@@ -81,6 +81,8 @@ type Server struct {
 
 const systemOverviewOnlineWindow = 15 * time.Minute
 
+const studentSessionMaxAge = 3 * 3600 // 3 hours
+
 func New(cfg Config, st store.Store) *Server {
 	return &Server{
 		cfg:                 cfg,
@@ -826,7 +828,7 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 			Name:     "student_token",
 			Value:    token,
 			Path:     s.cookiePath(),
-			MaxAge:   7 * 24 * 3600,
+			MaxAge:   studentSessionMaxAge,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
@@ -856,7 +858,7 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		Name:     "student_token",
 		Value:    token,
 		Path:     s.cookiePath(),
-		MaxAge:   7 * 24 * 3600,
+		MaxAge:   studentSessionMaxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -899,7 +901,14 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		// Quiz has changed since this session was created — the stale
+		// session must be cleared so the student can re-join the new quiz.
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{
+			"ok":            false,
+			"error":         "session_expired",
+			"reason":        "该答题会话已过期（题库已变更），请重新进入",
+		})
 		return
 	}
 	answers, err := s.store.GetAnswers(r.Context(), attempt.ID)
@@ -965,6 +974,28 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) clearStudentCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "student_token",
+		Value:    "",
+		Path:     s.cookiePath(),
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// writeSessionExpired clears the student cookie and returns a JSON response
+// that tells the client the session is stale (e.g. the quiz has changed).
+func writeSessionExpired(w http.ResponseWriter, s *Server) {
+	s.clearStudentCookie(w)
+	writeJSON(w, map[string]any{
+		"ok":     false,
+		"error":  "session_expired",
+		"reason": "该答题会话已过期（题库已变更），请重新进入",
+	})
+}
+
 func (s *Server) apiStudentSignout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -997,7 +1028,8 @@ func (s *Server) apiSaveAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	var req struct {
@@ -1064,7 +1096,8 @@ func (s *Server) apiSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	if _, err := s.store.SubmitAttempt(r.Context(), attempt.ID); err != nil {
@@ -1086,7 +1119,8 @@ func (s *Server) apiResult(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	res, err := s.buildResult(r.Context(), attempt)
@@ -1113,7 +1147,8 @@ func (s *Server) apiRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	token := newID() + newID()
@@ -1138,7 +1173,7 @@ func (s *Server) apiRetry(w http.ResponseWriter, r *http.Request) {
 		Name:     "student_token",
 		Value:    token,
 		Path:     s.cookiePath(),
-		MaxAge:   7 * 24 * 3600,
+		MaxAge:   studentSessionMaxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -1161,7 +1196,8 @@ func (s *Server) apiAISummary(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	saved, sErr := s.store.GetSummary(r.Context(), attempt.ID)
@@ -3585,7 +3621,8 @@ func (s *Server) apiUploadAnswerImage(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.resolveQuizForAttempt(attempt)
 	if current == nil || attempt.QuizID != current.QuizID {
-		http.Error(w, "该答题会话不属于当前题库", http.StatusForbidden)
+		s.clearStudentCookie(w)
+		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)

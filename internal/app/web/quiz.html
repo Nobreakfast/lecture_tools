@@ -299,6 +299,25 @@
       max-height: 90vh;
       border-radius: 8px;
     }
+    /* ── Responsive ── */
+    @media (max-width: 720px) {
+      body { padding: 16px 12px 120px; }
+      #title { font-size: 18px; }
+      .top-actions { gap: 6px; }
+      #exitBtn, #quitBtn { padding: 8px 12px; font-size: 13px; }
+      .card { padding: 16px; }
+      .card strong { font-size: 14px; }
+      .opt { padding: 10px 12px; font-size: 13px; }
+      .opt strong { width: 20px; height: 20px; line-height: 20px; font-size: 11px; }
+      .opt-grid { grid-template-columns: 1fr; }
+      .text-answer { font-size: 14px; min-height: 70px; }
+      .bottom-bar { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+      #submit { font-size: 15px; padding: 11px; }
+      .thumb-item { width: 64px; height: 64px; }
+    }
+    @media (hover: none) {
+      .card:hover { transform: none; box-shadow: var(--shadow); }
+    }
   </style>
 </head>
 <body>
@@ -461,16 +480,18 @@
       const r = await fetch('/api/me', { credentials: 'include' });
       if (!r.ok) {
         const msg = (await r.text()).trim() || r.statusText;
-        if (r.status === 401) {
-          alert('请先从课程页面「开始答题」进入（' + msg + '）');
-          location.href = '/';
-        } else {
-          alert('无法加载答题页：' + msg + '\n请返回课程页刷新后重试。');
-          location.href = '/';
-        }
+        alert('请先从课程页面「开始答题」进入（' + msg + '）');
+        location.href = '/';
         return;
       }
-      state = await r.json();
+      const data = await r.json();
+      // Handle session_expired: quiz changed since last visit
+      if (data.error === 'session_expired') {
+        alert(data.reason || '该答题会话已过期，请重新进入');
+        location.href = '/';
+        return;
+      }
+      state = data;
       if (!state.answer_images) state.answer_images = {};
       document.getElementById('title').textContent = state.quiz.title;
       await render();

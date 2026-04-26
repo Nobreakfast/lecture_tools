@@ -153,6 +153,31 @@
       color: #fff !important;
     }
     .opt-image-teacher { max-width:100%; max-height:120px; object-fit:contain; border-radius:6px; margin-top:2px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 720px) {
+      .login-wrap { padding: 16px 12px; }
+      .logout-row { flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+      .tab-bar { font-size: 13px; }
+      .tab-btn { padding: 8px 10px; font-size: 13px; }
+      .course-card-header { flex-wrap: wrap; }
+      .course-card-actions { flex-wrap: wrap; }
+      .modal-box { max-width: calc(100vw - 24px); padding: 20px; }
+      .file-input-wrap { gap: 8px; }
+      .badge { font-size: 11px; padding: 2px 8px; }
+      button:not(.tab-btn):not(.sub-tab-btn) { padding: 8px 14px; font-size: 13px; }
+      button.small { padding: 4px 10px; font-size: 11px; }
+      /* Sub-tab buttons wrap on mobile */
+      .sub-tab-bar { flex-wrap: wrap; }
+      .sub-tab-btn { padding: 6px 10px; font-size: 12px; }
+      /* Table horizontal scroll on narrow screens */
+      .card { overflow-x: auto; }
+      table { min-width: max-content; }
+      th, td { white-space: nowrap; padding: 8px 10px; }
+    }
+    @media (hover: none) {
+      button:not(.tab-btn):not(.sub-tab-btn):hover { transform: none; }
+    }
   </style>
   <script>
     window.MathJax = {
