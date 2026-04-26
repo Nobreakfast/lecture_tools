@@ -79,6 +79,38 @@
     th { background: rgba(79,70,229,0.06); font-weight: 600; color: var(--text-muted); }
     tbody tr:hover { background: rgba(79,70,229,0.04); }
 
+    /* Attendance matrix table */
+    .attendance-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .attendance-table-wrap table { min-width: max-content; }
+    .attendance-table-wrap th, .attendance-table-wrap td { white-space: nowrap; }
+    .attendance-table-wrap table th,
+    .attendance-table-wrap table td { padding: 8px 10px; }
+
+    /* Sticky first columns: 姓名 / 出勤率 / 均分 (keep sticky minimal for mobile scroll) */
+    .attendance-table-wrap th:nth-child(-n+3),
+    .attendance-table-wrap td:nth-child(-n+3) {
+      position: sticky;
+      background: var(--surface);
+      z-index: 2;
+      box-shadow: 1px 0 0 var(--border);
+    }
+    .attendance-table-wrap th:nth-child(1), .attendance-table-wrap td:nth-child(1) { left: 0; }
+    .attendance-table-wrap th:nth-child(2), .attendance-table-wrap td:nth-child(2) { left: 64px; }
+    .attendance-table-wrap th:nth-child(3), .attendance-table-wrap td:nth-child(3) { left: 164px; }
+    .att-badge { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius: 999px; font-weight:700; font-size:13px; }
+    .att-ok { background: var(--success-bg); color: var(--success); }
+    .att-no { background: #f1f5f9; color: var(--text-muted); }
+    .att-score { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+    .att-row-low td { background-color: #fff1f2 !important; }
+    .att-row-low td:nth-child(-n+3) { background-color: #fff1f2 !important; }
+
+    @media (max-width: 520px) {
+      /* On narrow screens, disable sticky to ensure smooth horizontal scroll. */
+      .attendance-table-wrap th, .attendance-table-wrap td { position: static !important; box-shadow: none !important; }
+      .attendance-table-wrap table th, .attendance-table-wrap table td { padding: 6px 8px; font-size: 13px; }
+      .att-badge { min-width: 22px; height: 22px; font-size: 12px; }
+    }
+
     /* Modals */
     .modal { position: fixed; inset: 0; background: rgba(15,23,42,.4); backdrop-filter: blur(4px);
       display: none; align-items: center; justify-content: center; padding: 16px;
@@ -187,6 +219,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="tab-courses">课程</button>
       <button class="tab-btn" data-tab="tab-attempts">答题</button>
+      <button class="tab-btn" data-tab="tab-attendance">考勤</button>
       <button class="tab-btn" data-tab="tab-upload">上传</button>
       <button class="tab-btn" data-tab="tab-summary">其它</button>
     </div>
@@ -253,6 +286,35 @@
           </div>
         </div>
         <div id="attemptsList"></div>
+      </div>
+    </div>
+
+    <!-- Tab: 考勤 -->
+    <div class="tab-page" id="tab-attendance">
+      <div class="card">
+        <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
+          <div>
+            <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">统计模式</p>
+            <select id="attendanceMode" style="max-width:200px;">
+              <option value="all">所有进入（连接即可）</option>
+              <option value="submitted">仅已提交</option>
+            </select>
+          </div>
+          <div>
+            <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">低出勤标红（%）</p>
+            <input type="number" id="attendanceThreshold" min="0" max="100" step="1" value="34" style="width:80px;" />
+          </div>
+          <button class="small btn-secondary" id="saveThresholdBtn">保存标准</button>
+          <div style="font-size:12px;color:var(--text-secondary);margin-left:auto;">
+            提示：表格支持左右滑动，左侧 3 列固定。
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="attendance-table-wrap">
+          <div id="attendanceTable"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
+        </div>
       </div>
     </div>
 
@@ -486,7 +548,7 @@
     <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h3 id="detailTitle">详情</h3>
-        <button class="small" style="margin-top:0;" onclick="closeDetail()">关闭</button>
+        <button class="small" style="margin-top:0;" id="detailCloseBtn" onclick="closeDetail()">关闭</button>
       </div>
       <div id="detailContent"></div>
     </div>
@@ -904,8 +966,188 @@
     function refreshActiveTab() {
       const tab = getActiveTab();
       if (tab === 'tab-attempts')    refreshAttemptsTab();
+      else if (tab === 'tab-attendance') refreshAttendanceTab();
       else if (tab === 'tab-summary') refreshSummaryTab();
       else if (tab === 'tab-upload')  refreshUploadTab();
+    }
+
+    function attendanceModeValue() {
+      const sel = document.getElementById('attendanceMode');
+      return sel ? (sel.value || 'all') : 'all';
+    }
+
+    function attendanceThresholdValue() {
+      const inp = document.getElementById('attendanceThreshold');
+      const v = parseFloat(inp ? inp.value : '34');
+      return Number.isFinite(v) ? v : 34;
+    }
+
+    let _attendanceThresholdLoaded = false;
+    async function loadAttendanceThreshold() {
+      if (_attendanceThresholdLoaded) return;
+      try {
+        const r = await fetch('/api/teacher/courses/attendance-threshold', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (typeof data.threshold === 'number') {
+          document.getElementById('attendanceThreshold').value = data.threshold;
+        }
+        _attendanceThresholdLoaded = true;
+      } catch (_) {}
+    }
+
+    async function saveAttendanceThreshold() {
+      const threshold = attendanceThresholdValue();
+      try {
+        const r = await fetch('/api/teacher/courses/attendance-threshold', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threshold }),
+        });
+        if (r.ok) {
+          _attendanceThresholdLoaded = true;
+          refreshAttendanceTab();
+        }
+      } catch (_) {}
+    }
+
+    async function refreshAttendanceTab() {
+      const root = document.getElementById('attendanceTable');
+      if (!root) return;
+      if (!selectedCourseId) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
+        return;
+      }
+      await loadAttendanceThreshold();
+      root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">加载中…</p>';
+      try {
+        const mode = encodeURIComponent(attendanceModeValue());
+        const r = await fetch(`/api/teacher/courses/attendance?course_id=${selectedCourseId}&mode=${mode}`, { credentials: 'include' });
+        if (!r.ok) {
+          root.innerHTML = '<p style="font-size:13px;color:var(--danger);margin-top:8px;">加载失败</p>';
+          return;
+        }
+        const data = await r.json();
+        renderAttendanceTable(data);
+      } catch (e) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--danger);margin-top:8px;">加载失败</p>';
+      }
+    }
+
+    let _attendanceData = null;
+
+    function renderAttendanceTable(data) {
+      const root = document.getElementById('attendanceTable');
+      if (!root) return;
+      _attendanceData = data;
+      const quizzes = (data && data.quizzes) ? data.quizzes : [];
+      const students = (data && data.students) ? data.students : [];
+      if (!quizzes.length) {
+        root.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">暂无小测记录</p>';
+        return;
+      }
+      const threshold = attendanceThresholdValue() / 100;
+      const headQuizCols = quizzes.map(q => {
+        const title = escapeHTML(q.title || q.quiz_id || '');
+        return `<th title="${title}" style="text-align:center;min-width:56px;">${q.index || ''}</th>`;
+      }).join('');
+      const rows = students.map((s, si) => {
+        const qs = s.quizzes || {};
+        const quizTds = quizzes.map(q => {
+          const cell = qs[q.quiz_id] || {};
+          const attended = !!cell.attended;
+          const badgeCls = attended ? 'att-badge att-ok' : 'att-badge att-no';
+          const badgeText = attended ? '✓' : '—';
+          const score = (cell.score === 0 || cell.score) ? Number(cell.score) : null;
+          const scoreText = (score === null || Number.isNaN(score)) ? '' : `<div class="att-score">${score.toFixed(1)}</div>`;
+          return `<td style="text-align:center;min-width:56px;"><div class="${badgeCls}">${badgeText}</div>${attended ? scoreText : ''}</td>`;
+        }).join('');
+
+        const attText = escapeHTML(s.attendance_text || '');
+        const rate = typeof s.attendance_rate === 'number' ? s.attendance_rate : 0;
+        const ratePct = Math.round(rate * 100);
+        const rateText = `${attText}${attText ? ' ' : ''}(${ratePct}%)`;
+        const avg = (s.avg_score === 0 || s.avg_score) ? Number(s.avg_score) : null;
+        const avgText = (avg === null || Number.isNaN(avg)) ? '-' : avg.toFixed(1);
+        const rowCls = rate < threshold ? ' class="att-row-low"' : '';
+
+        return `<tr${rowCls} style="cursor:pointer;" onclick="viewStudentAttendance(${si})">
+  <td style="min-width:64px;width:64px;max-width:64px;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(s.name || '')}</td>
+  <td style="min-width:100px;width:100px;max-width:100px;">${escapeHTML(rateText)}</td>
+  <td style="min-width:80px;width:80px;max-width:80px;">${escapeHTML(avgText)}</td>
+  <td style="min-width:80px;">${escapeHTML(s.total_text || attText || '')}</td>
+  <td style="min-width:140px;">${escapeHTML(s.class_name || '')}</td>
+  <td style="min-width:110px;">${escapeHTML(s.student_no || '')}</td>
+  ${quizTds}
+</tr>`;
+      }).join('');
+
+      root.innerHTML = `<table>
+  <thead>
+    <tr>
+      <th style="min-width:64px;width:64px;">姓名</th>
+      <th style="min-width:100px;width:100px;">出勤率</th>
+      <th style="min-width:80px;width:80px;">均分</th>
+      <th style="min-width:80px;">总计</th>
+      <th style="min-width:140px;">班级</th>
+      <th style="min-width:110px;">学号</th>
+      ${headQuizCols}
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>`;
+    }
+
+    function viewStudentAttendance(studentIdx) {
+      if (!_attendanceData) return;
+      const students = _attendanceData.students || [];
+      const quizzes = _attendanceData.quizzes || [];
+      const s = students[studentIdx];
+      if (!s) return;
+
+      _detailHistory = [];
+      const modal = document.getElementById('detailModal');
+      const content = document.getElementById('detailContent');
+      const title = document.getElementById('detailTitle');
+      title.textContent = (s.name || '未知') + ' — 答题总览';
+      modal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+      syncDetailCloseBtn();
+
+      const qs = s.quizzes || {};
+      const rate = typeof s.attendance_rate === 'number' ? s.attendance_rate : 0;
+      const ratePct = Math.round(rate * 100);
+      const avg = (s.avg_score === 0 || s.avg_score) ? Number(s.avg_score) : null;
+      const avgText = (avg === null || Number.isNaN(avg)) ? '-' : avg.toFixed(1);
+
+      let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">
+  班级：${escapeHTML(s.class_name || '—')}　学号：${escapeHTML(s.student_no || '—')}　出勤率：${ratePct}%　均分：${escapeHTML(avgText)}
+</div>`;
+      html += '<table style="width:100%;"><thead><tr>';
+      html += '<th>序号</th><th>小测名称</th><th>出勤</th><th>状态</th><th>得分</th><th>操作</th>';
+      html += '</tr></thead><tbody>';
+      quizzes.forEach((q, i) => {
+        const cell = qs[q.quiz_id] || {};
+        const attended = !!cell.attended;
+        const status = cell.status || '';
+        const statusText = status === 'submitted' ? '已提交' : (status === 'in_progress' ? '进行中' : '—');
+        const score = (cell.score === 0 || cell.score) ? Number(cell.score) : null;
+        const scoreText = (score === null || Number.isNaN(score)) ? '—' : score.toFixed(1);
+        const attemptId = cell.attempt_id || '';
+        const detailBtn = attemptId
+          ? `<button class="small btn-secondary" onclick="event.stopPropagation();viewAttemptDetail('${jsArg(attemptId)}')">查看详情</button>`
+          : '<span style="color:var(--text-secondary);font-size:12px;">—</span>';
+        html += `<tr>
+  <td>${i + 1}</td>
+  <td title="${escapeHTML(q.quiz_id || '')}">${escapeHTML(q.title || q.quiz_id || '')}</td>
+  <td><span class="${attended ? 'att-badge att-ok' : 'att-badge att-no'}" style="font-size:12px;">${attended ? '✓' : '—'}</span></td>
+  <td>${statusText}</td>
+  <td>${scoreText}</td>
+  <td>${detailBtn}</td>
+</tr>`;
+      });
+      html += '</tbody></table>';
+      content.innerHTML = html;
     }
 
     // Unified refresh for the 上传 super-tab: show stats header (shared with
@@ -1807,6 +2049,10 @@
       const modal = document.getElementById('detailModal');
       const content = document.getElementById('detailContent');
       const title = document.getElementById('detailTitle');
+      if (modal.classList.contains('show')) {
+        _detailHistory.push({ title: title.textContent, html: content.innerHTML });
+      }
+      syncDetailCloseBtn();
       content.innerHTML = '<p>加载中...</p>';
       title.textContent = '答题详情';
       modal.classList.add('show');
@@ -1872,9 +2118,22 @@
         content.innerHTML = '<p style="color:var(--danger);">网络异常：' + escapeHTML(String(e)) + '</p>';
       }
     }
+    let _detailHistory = [];
+    function syncDetailCloseBtn() {
+      const btn = document.getElementById('detailCloseBtn');
+      if (btn) btn.textContent = _detailHistory.length ? '返回' : '关闭';
+    }
     function closeDetail() {
-      document.getElementById('detailModal').classList.remove('show');
-      document.body.style.overflow = '';
+      if (_detailHistory.length) {
+        const prev = _detailHistory.pop();
+        document.getElementById('detailTitle').textContent = prev.title;
+        document.getElementById('detailContent').innerHTML = prev.html;
+      } else {
+        _detailHistory = [];
+        document.getElementById('detailModal').classList.remove('show');
+        document.body.style.overflow = '';
+      }
+      syncDetailCloseBtn();
     }
 
     /* ── tab switching ── */
@@ -1932,6 +2191,9 @@
     document.getElementById('uploadMaterialBtn').onclick = uploadMaterial;
     document.getElementById('uploadHomeworkBtn').onclick = uploadHomeworkAssignment;
     document.getElementById('attemptsQuizFilter').onchange = renderAttempts;
+    document.getElementById('attendanceMode').onchange = () => { if (getActiveTab() === 'tab-attendance') refreshAttendanceTab(); };
+    document.getElementById('attendanceThreshold').onchange = () => { if (getActiveTab() === 'tab-attendance') refreshAttendanceTab(); };
+    document.getElementById('saveThresholdBtn').onclick = saveAttendanceThreshold;
     document.getElementById('homeworkAssignmentFilter').onchange = loadHomeworkSubmissions;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };

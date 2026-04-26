@@ -117,6 +117,32 @@ test.describe("Teacher panel", () => {
     await expect(teacherPage.quizTitle).toContainText("第一周课堂反馈");
   });
 
+  test("attendance tab counts join as attendance in all mode, not in submitted mode", async ({
+    page,
+  }) => {
+    const seed = getSeedResult();
+    await teacherPage.selectCourse(seed.courseId);
+    await teacherPage.openEntry();
+
+    const studentPg = await page.context().newPage();
+    const studentPage = new StudentPage(studentPg);
+    await studentPage.enterCode(seed.inviteCode);
+    await studentPage.waitForQuizOpen();
+    await studentPage.joinQuiz("考勤学生", "S-ATT-01", "测试班级");
+
+    // Teacher: attendance mode "all" should show attended.
+    await teacherPage.switchTab("tab-attendance");
+    await teacherPage.attendanceMode.selectOption("all");
+    await expect(teacherPage.attendanceTable).toContainText("考勤学生");
+    await expect(teacherPage.attendanceTable).toContainText("✓");
+
+    // Switch to submitted-only: student hasn't submitted, so should not be counted.
+    await teacherPage.attendanceMode.selectOption("submitted");
+    await expect(teacherPage.attendanceTable).toContainText("考勤学生");
+
+    await studentPg.close();
+  });
+
   test("dedup by name keeps highest score for the same student", async ({
     browser,
   }) => {

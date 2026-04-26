@@ -243,6 +243,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/fix-legacy-attempts", s.apiTeacherCourseFixLegacyAttempts)
 	mux.HandleFunc("/api/teacher/courses/fix-all-legacy", s.apiTeacherCourseFixAllLegacy)
 	mux.HandleFunc("/api/teacher/courses/export-csv", s.apiTeacherCourseExportCSV)
+	mux.HandleFunc("/api/teacher/courses/attendance", s.apiTeacherCourseAttendance)
+	mux.HandleFunc("/api/teacher/courses/attendance-threshold", s.apiTeacherCourseAttendanceThreshold)
 	mux.HandleFunc("/api/teacher/courses/summary", func(w http.ResponseWriter, r *http.Request) {
 		s.apiTeacherCourseSummary(w, r)
 	})
@@ -334,6 +336,315 @@ func (s *Server) Routes() http.Handler {
 		})
 	}
 	return handler
+}
+
+type attendanceQuizInfo struct {
+	QuizID string `json:"quiz_id"`
+	Title  string `json:"title"`
+	Index  int    `json:"index"`
+}
+
+type attendanceCell struct {
+	Attended  bool                 `json:"attended"`
+	Status    domain.AttemptStatus `json:"status,omitempty"`
+	Score     *float64             `json:"score,omitempty"` // normalized to 0-100
+	AttemptID string               `json:"attempt_id,omitempty"`
+}
+
+type attendanceStudentRow struct {
+	Name           string                     `json:"name"`
+	StudentNo      string                     `json:"student_no"`
+	ClassName      string                     `json:"class_name"`
+	AttendedCount  int                        `json:"attended_count"`
+	TotalQuizzes   int                        `json:"total_quizzes"`
+	AttendanceRate float64                    `json:"attendance_rate"`
+	AttendanceText string                     `json:"attendance_text"`
+	TotalText      string                     `json:"total_text"`
+	AvgScore       *float64                   `json:"avg_score,omitempty"`
+	Quizzes        map[string]attendanceCell  `json:"quizzes"`
+}
+
+func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+	if mode == "" {
+		mode = "all"
+	}
+	if mode != "all" && mode != "submitted" {
+		http.Error(w, "mode 仅支持 all 或 submitted", http.StatusBadRequest)
+		return
+	}
+
+	attempts, err := s.store.ListAttemptsByCourse(r.Context(), courseID)
+	if err != nil {
+		http.Error(w, "读取失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Load currently active quiz (if any) to help resolve titles and scoring.
+	s.mu.RLock()
+	loadedQuiz := s.courseQuizzes[courseID]
+	s.mu.RUnlock()
+
+	// Build quiz definitions map for scoring, keyed by quiz_id.
+	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
+
+	// Build a stable quiz list from quiz bank + attempts + loaded quiz.
+	type quizMeta struct{ id, title string }
+	quizMetaMap := map[string]quizMeta{}
+	quizIDsSet := map[string]struct{}{}
+
+	// From disk quiz bank: prefer YAML quiz_id; fallback to directory name.
+	quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
+	if dirs, _ := os.ReadDir(quizRoot); len(dirs) > 0 {
+		for _, d := range dirs {
+			if !d.IsDir() {
+				continue
+			}
+			subDir := filepath.Join(quizRoot, d.Name())
+			files, _ := os.ReadDir(subDir)
+			for _, f := range files {
+				name := strings.ToLower(f.Name())
+				if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+					continue
+				}
+				data, rErr := os.ReadFile(filepath.Join(subDir, f.Name()))
+				if rErr != nil {
+					break
+				}
+				q, pErr := quiz.Parse(data)
+				id := d.Name()
+				title := d.Name()
+				if pErr == nil && q != nil {
+					if strings.TrimSpace(q.QuizID) != "" {
+						id = strings.TrimSpace(q.QuizID)
+					}
+					if strings.TrimSpace(q.Title) != "" {
+						title = strings.TrimSpace(q.Title)
+					}
+				}
+				quizIDsSet[id] = struct{}{}
+				quizMetaMap[id] = quizMeta{id: id, title: title}
+				break
+			}
+		}
+	}
+
+	for _, a := range attempts {
+		if strings.TrimSpace(a.QuizID) == "" {
+			continue
+		}
+		qid := strings.TrimSpace(a.QuizID)
+		quizIDsSet[qid] = struct{}{}
+		if _, ok := quizMetaMap[qid]; !ok {
+			quizMetaMap[qid] = quizMeta{id: qid, title: qid}
+		}
+	}
+	if loadedQuiz != nil && strings.TrimSpace(loadedQuiz.QuizID) != "" {
+		qid := strings.TrimSpace(loadedQuiz.QuizID)
+		quizIDsSet[qid] = struct{}{}
+		title := qid
+		if strings.TrimSpace(loadedQuiz.Title) != "" {
+			title = strings.TrimSpace(loadedQuiz.Title)
+		}
+		if existing, ok := quizMetaMap[qid]; !ok || existing.title == existing.id {
+			quizMetaMap[qid] = quizMeta{id: qid, title: title}
+		}
+	}
+
+	quizIDs := make([]string, 0, len(quizIDsSet))
+	for id := range quizIDsSet {
+		quizIDs = append(quizIDs, id)
+	}
+	sort.Strings(quizIDs)
+	quizzes := make([]attendanceQuizInfo, 0, len(quizIDs))
+	for i, id := range quizIDs {
+		meta := quizMetaMap[id]
+		title := meta.title
+		if strings.TrimSpace(title) == "" {
+			title = id
+		}
+		quizzes = append(quizzes, attendanceQuizInfo{QuizID: id, Title: title, Index: i + 1})
+	}
+
+	// Best attempt per (name, quizID) — consistent with teacherCourseBestAttempts.
+	type attemptKey struct {
+		name  string
+		quizID string
+	}
+	bestMap := map[attemptKey]teacherCourseBestAttempt{}
+	for _, attempt := range attempts {
+		name := strings.TrimSpace(attempt.Name)
+		qid := strings.TrimSpace(attempt.QuizID)
+		if name == "" || qid == "" {
+			continue
+		}
+		item := teacherCourseBestAttempt{Attempt: attempt}
+		if q, ok := quizMap[qid]; ok && q != nil {
+			item.Correct, item.Total = s.calcScore(r.Context(), q, attempt.ID)
+			item.QuizLoaded = true
+		}
+		key := attemptKey{name: name, quizID: qid}
+		if existing, ok := bestMap[key]; !ok || teacherCourseAttemptBetter(item, existing) {
+			bestMap[key] = item
+		}
+	}
+
+	// Collect per-student base info (latest updated_at across all their attempts).
+	type studentMeta struct {
+		name, studentNo, className string
+		updatedAt                 time.Time
+	}
+	studentsMeta := map[string]studentMeta{}
+	for _, attempt := range attempts {
+		name := strings.TrimSpace(attempt.Name)
+		if name == "" {
+			continue
+		}
+		meta := studentsMeta[name]
+		if meta.name == "" || attempt.UpdatedAt.After(meta.updatedAt) {
+			studentsMeta[name] = studentMeta{
+				name:      name,
+				studentNo: strings.TrimSpace(attempt.StudentNo),
+				className: strings.TrimSpace(attempt.ClassName),
+				updatedAt: attempt.UpdatedAt,
+			}
+		}
+	}
+
+	// Build response rows.
+	rows := make([]attendanceStudentRow, 0, len(studentsMeta))
+	for name, meta := range studentsMeta {
+		row := attendanceStudentRow{
+			Name:      meta.name,
+			StudentNo: meta.studentNo,
+			ClassName: meta.className,
+			Quizzes:   map[string]attendanceCell{},
+		}
+		attendedCount := 0
+		scoreSum := 0.0
+		scoreCount := 0
+		for _, qid := range quizIDs {
+			key := attemptKey{name: name, quizID: qid}
+			item, ok := bestMap[key]
+			cell := attendanceCell{Attended: false}
+			if ok {
+				cell.AttemptID = item.Attempt.ID
+				cell.Status = item.Attempt.Status
+				attended := true
+				if mode == "submitted" {
+					attended = item.Attempt.Status == domain.StatusSubmitted
+				}
+				cell.Attended = attended
+				if attended {
+					attendedCount++
+				}
+				if item.QuizLoaded {
+					// Normalize to 100 per quiz.
+					score := 0.0
+					if item.Total <= 0 {
+						score = 100.0
+					} else {
+						score = (float64(item.Correct) / float64(item.Total)) * 100.0
+						if score < 0 {
+							score = 0
+						}
+						if score > 100 {
+							score = 100
+						}
+					}
+					cell.Score = &score
+					if attended {
+						scoreSum += score
+						scoreCount++
+					}
+				}
+			}
+			row.Quizzes[qid] = cell
+		}
+		row.AttendedCount = attendedCount
+		row.TotalQuizzes = len(quizIDs)
+		if row.TotalQuizzes > 0 {
+			row.AttendanceRate = float64(attendedCount) / float64(row.TotalQuizzes)
+		}
+		row.AttendanceText = fmt.Sprintf("%d/%d", attendedCount, row.TotalQuizzes)
+		row.TotalText = row.AttendanceText
+		if scoreCount > 0 {
+			avg := scoreSum / float64(scoreCount)
+			row.AvgScore = &avg
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].ClassName != rows[j].ClassName {
+			return rows[i].ClassName < rows[j].ClassName
+		}
+		if rows[i].StudentNo != rows[j].StudentNo {
+			return rows[i].StudentNo < rows[j].StudentNo
+		}
+		return rows[i].Name < rows[j].Name
+	})
+
+	writeJSON(w, map[string]any{
+		"mode":    mode,
+		"quizzes": quizzes,
+		"students": rows,
+	})
+}
+
+func attendanceThresholdKey(teacherID string) string {
+	return "attendance_threshold:" + teacherID
+}
+
+func (s *Server) apiTeacherCourseAttendanceThreshold(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	key := attendanceThresholdKey(sess.TeacherID)
+
+	if r.Method == http.MethodPost {
+		var body struct {
+			Threshold float64 `json:"threshold"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if body.Threshold < 0 || body.Threshold > 100 {
+			http.Error(w, "threshold must be 0-100", http.StatusBadRequest)
+			return
+		}
+		val := fmt.Sprintf("%.1f", body.Threshold)
+		if err := s.store.SetSetting(r.Context(), key, val); err != nil {
+			http.Error(w, "保存失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "threshold": body.Threshold})
+		return
+	}
+
+	// GET
+	saved, err := s.store.GetSetting(r.Context(), key)
+	threshold := 34.0
+	if err == nil && saved != "" {
+		if v, e := fmt.Sscanf(saved, "%f", &threshold); v < 1 || e != nil {
+			threshold = 34.0
+		}
+	}
+	writeJSON(w, map[string]any{"threshold": threshold})
 }
 
 // gone410 returns a handler that replies 410 Gone with a short hint telling

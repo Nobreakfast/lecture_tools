@@ -32,6 +32,10 @@ export class TeacherPage {
   readonly attemptsList: Locator;
   readonly attemptsQuizFilter: Locator;
 
+  // Attendance tab
+  readonly attendanceMode: Locator;
+  readonly attendanceTable: Locator;
+
   // Upload tab — quiz
   readonly yamlFileInput: Locator;
   readonly uploadYamlBtn: Locator;
@@ -101,6 +105,9 @@ export class TeacherPage {
     this.attemptsList = page.locator("#attemptsList");
     this.attemptsQuizFilter = page.locator("#attemptsQuizFilter");
 
+    this.attendanceMode = page.locator("#attendanceMode");
+    this.attendanceTable = page.locator("#attendanceTable");
+
     this.yamlFileInput = page.locator("#yamlFileInput");
     this.uploadYamlBtn = page.locator("#uploadYamlBtn");
 
@@ -151,7 +158,7 @@ export class TeacherPage {
     await this.viewMain.waitFor({ state: "visible" });
   }
 
-  async switchTab(tab: "tab-courses" | "tab-attempts" | "tab-upload" | "tab-summary") {
+  async switchTab(tab: "tab-courses" | "tab-attempts" | "tab-attendance" | "tab-upload" | "tab-summary") {
     await this.page.locator(`.tab-btn[data-tab="${tab}"]`).click();
     await this.page.locator(`#${tab}`).waitFor({ state: "visible" });
   }
