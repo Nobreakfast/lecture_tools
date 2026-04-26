@@ -59,6 +59,23 @@ test.describe("Teacher panel", () => {
     expect(created?.slug).toBe("Machine_Learning_Intro");
   });
 
+  test("create course with full-width characters normalizes to half-width", async () => {
+    const fullWidthName = "\uFF2D\uFF2C\u3000\uFF11\uFF10\uFF11"; // ＭＬ　１０１
+    await teacherPage.createCourse("全角测试课程", fullWidthName);
+    await expect(teacherPage.courseList).toContainText("全角测试课程");
+
+    const created = await teacherPage.page.evaluate(async () => {
+      const r = await fetch(`/api/teacher/courses?_=${Date.now()}`, {
+        credentials: "include",
+      });
+      const data = await r.json();
+      return (data.items ?? []).find((item: any) => item.name === "全角测试课程");
+    });
+
+    expect(created?.display_name).toBe("ML 101");
+    expect(created?.internal_name).toBe("ML_101");
+  });
+
   test("remembers last selected course after reload", async () => {
     const firstCourseId = await teacherPage.page.evaluate(() => {
       const first = document.querySelector("#coursePills .course-pill") as HTMLElement | null;

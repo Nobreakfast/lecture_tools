@@ -821,12 +821,20 @@
       if (String(courseId) === String(selectedCourseId)) loadCourseState();
     }
 
+    // Full-width → half-width normalization for CJK input methods.
+    function toHalfWidth(s) {
+      return s
+        .replace(/[\uFEFF\u200B-\u200D\u2060]/g, '')
+        .replace(/\u3000/g, ' ')
+        .replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    }
+
     async function createCourse() {
       const name = document.getElementById('newCourseName').value.trim();
-      const slug = document.getElementById('newCourseSlug').value;
+      const slug = toHalfWidth(document.getElementById('newCourseSlug').value).trim();
       if (!name) { alert('请输入课程名称'); return; }
-      if (!slug.trim()) { alert('请输入英文名称'); return; }
-      if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]*[a-zA-Z0-9])?$/.test(slug.trim())) {
+      if (!slug) { alert('请输入英文名称'); return; }
+      if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]*[a-zA-Z0-9])?$/.test(slug)) {
         alert('英文名称仅允许英文字母、数字、空格、连字符(-)和下划线(_)，且不能以特殊字符开头或结尾');
         return;
       }
