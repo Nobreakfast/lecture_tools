@@ -156,14 +156,14 @@ func (s *Server) apiTeacherCourseState(w http.ResponseWriter, r *http.Request) {
 	s.quizMu.RUnlock()
 	title := ""
 	quizID := ""
-	if q != nil {
+	if q != nil && strings.TrimSpace(q.QuizID) != "" {
 		title = q.Title
 		quizID = q.QuizID
 	}
 	// Scope counters to the currently loaded quiz only, so teachers see "this
 	// round" numbers, not the course's cumulative history.
 	var started, submitted int
-	if q != nil {
+	if q != nil && strings.TrimSpace(q.QuizID) != "" {
 		started, submitted, _ = s.store.GetLiveStatsByCourseQuiz(r.Context(), courseID, q.QuizID)
 	}
 	writeJSON(w, map[string]any{

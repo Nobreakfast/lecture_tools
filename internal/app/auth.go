@@ -34,7 +34,14 @@ func (s *Server) requireAdmin(r *http.Request) bool {
 }
 
 func (s *Server) requireTeacherOrAdmin(r *http.Request) *authSession {
-	return s.getAuthSession(r)
+	sess := s.getAuthSession(r)
+	if sess == nil {
+		return nil
+	}
+	if sess.Role != domain.RoleTeacher && sess.Role != domain.RoleAdmin {
+		return nil
+	}
+	return sess
 }
 
 // getAuthSession reads the auth_token cookie and returns the matching session.
