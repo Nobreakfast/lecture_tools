@@ -295,6 +295,7 @@
           <button class="small" id="openEntryBtn">开启入口</button>
           <button class="small btn-danger" id="closeEntryBtn">关闭入口</button>
           <button class="small btn-secondary" id="exportCsvBtn">导出 CSV</button>
+          <button class="small btn-secondary" id="shareQuizBtn">分享小测</button>
           <button class="small btn-danger" id="clearAttemptsBtn">清空答题</button>
         </div>
       </div>
@@ -576,6 +577,32 @@
         <button class="small" style="margin-top:0;" id="detailCloseBtn" onclick="closeDetail()">关闭</button>
       </div>
       <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <!-- 分享小测弹窗 -->
+  <div id="shareModal" class="modal">
+    <div class="modal-box" style="width:min(560px,100%);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;">分享小测</h3>
+        <button class="small" style="margin-top:0;" onclick="closeShareModal()">关闭</button>
+      </div>
+      <div id="shareContent">
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <input type="text" id="shareUrlInput" readonly style="flex:1;font-family:var(--mono);font-size:13px;padding:8px 10px;" />
+            <button class="small btn-secondary" id="copyShareUrlBtn">复制</button>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin:0;">任何人获得此链接均可查看该小测的所有答题记录</p>
+        </div>
+        <div style="margin-bottom:12px;">
+          <p style="font-size:13px;font-weight:600;margin:0 0 8px;">已创建的分享链接</p>
+          <div id="shareList" style="max-height:240px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div id="shareEmpty" style="text-align:center;padding:20px;color:var(--text-muted);font-size:14px;display:none;">
+        请先加载小测后再创建分享
+      </div>
     </div>
   </div>
 
@@ -2202,6 +2229,8 @@
     document.getElementById('openEntryBtn').onclick = () => toggleEntry(true);
     document.getElementById('closeEntryBtn').onclick = () => toggleEntry(false);
     document.getElementById('exportCsvBtn').onclick = exportCsv;
+    document.getElementById('shareQuizBtn').onclick = openShareModal;
+    document.getElementById('copyShareUrlBtn').onclick = copyShareUrl;
     document.getElementById('clearAttemptsBtn').onclick = clearAttempts;
     document.getElementById('genSummaryBtn').onclick = generateSummary;
     document.getElementById('refreshSummaryBtn').onclick = refreshSummaryTab;
@@ -2263,6 +2292,162 @@
       }
       location.hash = '';
     })();
+
+    /* ── Share Quiz ── */
+    let currentShareUrl = '';
+
+    function openShareModal() {
+      const modal = document.getElementById('shareModal');
+      const content = document.getElementById('shareContent');
+      const empty = document.getElementById('shareEmpty');
+      const urlInput = document.getElementById('shareUrlInput');
+
+      if (!currentLoadedQuizId) {
+        content.style.display = 'none';
+        empty.style.display = 'block';
+        modal.style.display = 'flex';
+        return;
+      }
+
+      content.style.display = 'block';
+      empty.style.display = 'none';
+      urlInput.value = '';
+      modal.style.display = 'flex';
+      loadShareList();
+    }
+
+    function closeShareModal() {
+      document.getElementById('shareModal').style.display = 'none';
+    }
+
+    async function loadShareList() {
+      if (!selectedCourseId || !currentLoadedQuizId) return;
+
+      try {
+        const resp = await fetch(`/api/teacher/courses/share/list?course_id=${selectedCourseId}&quiz_id=${jsArg(currentLoadedQuizId)}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        renderShareList(data.items || []);
+      } catch (e) {
+        console.error('loadShareList error:', e);
+      }
+    }
+
+    function renderShareList(items) {
+      const container = document.getElementById('shareList');
+      if (items.length === 0) {
+        container.innerHTML = '<p style="font-size:13px;color:var(--text-muted);margin:0;">暂无分享链接，点击下方按钮创建</p>';
+        // Show create button
+        if (!document.getElementById('createShareBtn')) {
+          const btn = document.createElement('button');
+          btn.id = 'createShareBtn';
+          btn.textContent = '创建新分享链接';
+          btn.style.marginTop = '8px';
+          btn.onclick = createShareLink;
+          container.appendChild(btn);
+        }
+        return;
+      }
+
+      let html = '';
+      items.forEach(item => {
+        html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(item.share_url)}</div>
+            <div style="font-size:11px;color:var(--text-muted);">创建于 ${escapeHTML(item.created_at)}</div>
+          </div>
+          <button class="small btn-secondary" onclick="copyText('${escapeHTML(item.share_url)}')">复制</button>
+          <button class="small btn-danger" onclick="revokeShare(${item.id})">撤销</button>
+        </div>`;
+      });
+
+      // Add create button
+      html += `<button id="createShareBtn" style="margin-top:10px;" onclick="createShareLink()">创建新分享链接</button>`;
+      container.innerHTML = html;
+    }
+
+    async function createShareLink() {
+      if (!selectedCourseId || !currentLoadedQuizId) return;
+
+      const btn = document.getElementById('createShareBtn');
+      if (btn) btn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/teacher/courses/share?course_id=${selectedCourseId}&quiz_id=${jsArg(currentLoadedQuizId)}`, { method: 'POST' });
+        if (!resp.ok) {
+          const text = await resp.text();
+          alert('创建失败: ' + text);
+          return;
+        }
+        const data = await resp.json();
+        currentShareUrl = data.share_url;
+        document.getElementById('shareUrlInput').value = data.share_url;
+        loadShareList();
+      } catch (e) {
+        alert('创建失败: ' + e.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function copyShareUrl() {
+      const url = document.getElementById('shareUrlInput').value;
+      if (!url) {
+        createShareLink();
+        return;
+      }
+      copyText(url);
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast('已复制到剪贴板');
+        }).catch(() => {
+          fallbackCopy(text);
+        });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); showToast('已复制到剪贴板'); } catch(e) { alert('复制失败，请手动复制'); }
+      document.body.removeChild(ta);
+    }
+
+    async function revokeShare(id) {
+      if (!confirm('确定要撤销此分享链接吗？')) return;
+      if (!selectedCourseId) return;
+
+      try {
+        const resp = await fetch(`/api/teacher/courses/share?course_id=${selectedCourseId}&id=${id}`, { method: 'DELETE' });
+        if (!resp.ok) {
+          const text = await resp.text();
+          alert('撤销失败: ' + text);
+          return;
+        }
+        loadShareList();
+      } catch (e) {
+        alert('撤销失败: ' + e.message);
+      }
+    }
+
+    function showToast(msg) {
+      // Simple toast notification
+      const toast = document.createElement('div');
+      toast.textContent = msg;
+      toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 24px;border-radius:8px;font-size:14px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; }, 1500);
+      setTimeout(() => document.body.removeChild(toast), 1800);
+    }
   </script>
 </body>
 </html>

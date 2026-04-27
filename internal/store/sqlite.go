@@ -104,6 +104,14 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(course_id, quiz_id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS quiz_share (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			course_id INTEGER NOT NULL DEFAULT 0,
+			quiz_id TEXT NOT NULL,
+			share_token TEXT UNIQUE NOT NULL,
+			created_at TEXT NOT NULL,
+			revoked_at TEXT
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -148,6 +156,8 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_courses_invite ON courses(invite_code);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_teacher_slug ON courses(teacher_id, slug) WHERE slug != '';`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_summaries_course_quiz ON admin_summaries(course_id, quiz_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_share_token ON quiz_share(share_token) WHERE revoked_at IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_quiz_share_lookup ON quiz_share(course_id, quiz_id) WHERE revoked_at IS NULL;`,
 	}
 	for _, idx := range indexes {
 		if _, err := s.db.ExecContext(ctx, idx); err != nil {
@@ -670,6 +680,10 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM homework_submissions WHERE course_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM quiz_share WHERE course_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1471,6 +1485,93 @@ func (s *SQLiteStore) ensureHomeworkCourseID(ctx context.Context) error {
 		return tx.Commit()
 	}
 	return nil
+}
+
+// ── Quiz Share ──
+
+func (s *SQLiteStore) CreateQuizShare(ctx context.Context, qs *domain.QuizShare) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO quiz_share(course_id, quiz_id, share_token, created_at) VALUES(?, ?, ?, ?)`,
+		qs.CourseID, qs.QuizID, qs.ShareToken, qs.CreatedAt.Format(time.RFC3339Nano))
+	if err != nil {
+		return err
+	}
+	// Get the auto-incremented ID
+	var id int64
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM quiz_share WHERE share_token = ?`, qs.ShareToken).Scan(&id)
+	if err != nil {
+		return err
+	}
+	qs.ID = int(id)
+	return nil
+}
+
+func (s *SQLiteStore) GetQuizShareByID(ctx context.Context, id int) (*domain.QuizShare, error) {
+	var qs domain.QuizShare
+	var created string
+	var revoked sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, course_id, quiz_id, share_token, created_at, revoked_at FROM quiz_share WHERE id = ?`,
+		id).Scan(&qs.ID, &qs.CourseID, &qs.QuizID, &qs.ShareToken, &created, &revoked)
+	if err != nil {
+		return nil, err
+	}
+	qs.CreatedAt = parseTime(time.RFC3339Nano, created)
+	if revoked.Valid {
+		t := parseTime(time.RFC3339Nano, revoked.String)
+		qs.RevokedAt = &t
+	}
+	return &qs, nil
+}
+
+func (s *SQLiteStore) GetQuizShareByToken(ctx context.Context, token string) (*domain.QuizShare, error) {
+	var qs domain.QuizShare
+	var created string
+	var revoked sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, course_id, quiz_id, share_token, created_at, revoked_at FROM quiz_share WHERE share_token = ?`,
+		token).Scan(&qs.ID, &qs.CourseID, &qs.QuizID, &qs.ShareToken, &created, &revoked)
+	if err != nil {
+		return nil, err
+	}
+	qs.CreatedAt = parseTime(time.RFC3339Nano, created)
+	if revoked.Valid {
+		t := parseTime(time.RFC3339Nano, revoked.String)
+		qs.RevokedAt = &t
+	}
+	return &qs, nil
+}
+
+func (s *SQLiteStore) ListActiveQuizShares(ctx context.Context, courseID int, quizID string) ([]domain.QuizShare, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, course_id, quiz_id, share_token, created_at, revoked_at FROM quiz_share WHERE course_id = ? AND quiz_id = ? AND revoked_at IS NULL ORDER BY created_at DESC`,
+		courseID, quizID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.QuizShare
+	for rows.Next() {
+		var qs domain.QuizShare
+		var created string
+		var revoked sql.NullString
+		if err := rows.Scan(&qs.ID, &qs.CourseID, &qs.QuizID, &qs.ShareToken, &created, &revoked); err != nil {
+			return nil, err
+		}
+		qs.CreatedAt = parseTime(time.RFC3339Nano, created)
+		if revoked.Valid {
+			t := parseTime(time.RFC3339Nano, revoked.String)
+			qs.RevokedAt = &t
+		}
+		items = append(items, qs)
+	}
+	return items, nil
+}
+
+func (s *SQLiteStore) RevokeQuizShare(ctx context.Context, id int) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `UPDATE quiz_share SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, now, id)
+	return err
 }
 
 func migrationInviteCode() string {

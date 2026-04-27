@@ -63,6 +63,12 @@ type AttemptStore interface {
 	ClearAttemptsByCourse(ctx context.Context, courseID int, quizID string) error
 	FixLegacyAttemptsCourse(ctx context.Context, quizID string, courseID int) (int, error)
 	FixAllLegacyAttemptsCourse(ctx context.Context, quizIDs []string, courseID int) (int, error)
+	// Quiz share operations
+	CreateQuizShare(ctx context.Context, qs *domain.QuizShare) error
+	GetQuizShareByID(ctx context.Context, id int) (*domain.QuizShare, error)
+	GetQuizShareByToken(ctx context.Context, token string) (*domain.QuizShare, error)
+	ListActiveQuizShares(ctx context.Context, courseID int, quizID string) ([]domain.QuizShare, error)
+	RevokeQuizShare(ctx context.Context, id int) error
 }
 
 // HomeworkStore provides homework submission and file operations.

@@ -132,6 +132,15 @@ type ResultSummary struct {
 	Encouragement string   `json:"encouragement"`
 }
 
+type QuizShare struct {
+	ID         int
+	CourseID   int
+	QuizID     string
+	ShareToken string
+	CreatedAt  time.Time
+	RevokedAt  *time.Time
+}
+
 type HomeworkFileSlot string
 
 const (

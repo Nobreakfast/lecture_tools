@@ -272,6 +272,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/delete", s.apiTeacherCourseHomeworkSubmissionDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/invite-qr", s.apiTeacherCourseInviteQR)
+	mux.HandleFunc("/api/teacher/courses/share", s.apiTeacherCourseShare)
+	mux.HandleFunc("/api/teacher/courses/share/list", s.apiTeacherCourseShareList)
+	mux.HandleFunc("/share", s.pageShare)
+	mux.HandleFunc("/api/share", s.apiShareDetail)
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
 	// System-level admin APIs (teachers, AI config, system status).
@@ -4093,6 +4097,281 @@ func formatQuestionOptionsForCSV(q domain.Question) string {
 		}
 	}
 	return strings.Join(parts, " | ")
+}
+
+// ── Quiz Share ──
+
+func (s *Server) apiTeacherCourseShare(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.apiTeacherCourseShareCreate(w, r)
+	case http.MethodDelete:
+		s.apiTeacherCourseShareRevoke(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) apiTeacherCourseShareCreate(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
+	if quizID == "" {
+		// If no quiz_id specified, use the currently loaded quiz
+		s.quizMu.RLock()
+		q := s.courseQuizzes[courseID]
+		s.quizMu.RUnlock()
+		if q == nil {
+			http.Error(w, "当前课程未加载小测", http.StatusBadRequest)
+			return
+		}
+		quizID = q.QuizID
+	}
+
+	tokenBuf := make([]byte, 16)
+	if _, err := crand.Read(tokenBuf); err != nil {
+		http.Error(w, "生成分享令牌失败", http.StatusInternalServerError)
+		return
+	}
+	shareToken := hex.EncodeToString(tokenBuf)
+
+	qs := &domain.QuizShare{
+		CourseID:   courseID,
+		QuizID:     quizID,
+		ShareToken: shareToken,
+		CreatedAt:  time.Now(),
+	}
+	if err := s.store.CreateQuizShare(r.Context(), qs); err != nil {
+		http.Error(w, "创建分享失败", http.StatusInternalServerError)
+		return
+	}
+
+	baseURL := strings.TrimRight(s.cfg.BaseURL, "/")
+	if baseURL == "" {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		baseURL = scheme + "://" + r.Host
+	}
+	pfx := s.pathPrefix()
+	shareURL := baseURL + pfx + "/share?token=" + shareToken
+
+	writeJSON(w, map[string]any{
+		"share_token": shareToken,
+		"share_url":   shareURL,
+		"course_name": course.DisplayName,
+		"quiz_id":     quizID,
+	})
+}
+
+func (s *Server) apiTeacherCourseShareRevoke(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	idStr := strings.TrimSpace(r.URL.Query().Get("id"))
+	if idStr == "" {
+		http.Error(w, "缺少分享ID", http.StatusBadRequest)
+		return
+	}
+	var shareID int
+	if _, err := fmt.Sscanf(idStr, "%d", &shareID); err != nil {
+		http.Error(w, "分享ID无效", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the share belongs to this course
+	qs, err := s.store.GetQuizShareByID(r.Context(), shareID)
+	if err != nil {
+		http.Error(w, "分享不存在", http.StatusNotFound)
+		return
+	}
+	if qs.CourseID != courseID {
+		http.Error(w, "无权限撤销此分享", http.StatusForbidden)
+		return
+	}
+
+	if err := s.store.RevokeQuizShare(r.Context(), shareID); err != nil {
+		http.Error(w, "撤销失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiTeacherCourseShareList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
+
+	shares, err := s.store.ListActiveQuizShares(r.Context(), courseID, quizID)
+	if err != nil {
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
+	}
+
+	baseURL := strings.TrimRight(s.cfg.BaseURL, "/")
+	if baseURL == "" {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		baseURL = scheme + "://" + r.Host
+	}
+	pfx := s.pathPrefix()
+
+	items := make([]map[string]any, 0, len(shares))
+	for _, sh := range shares {
+		items = append(items, map[string]any{
+			"id":          sh.ID,
+			"share_token": sh.ShareToken,
+			"share_url":   baseURL + pfx + "/share?token=" + sh.ShareToken,
+			"quiz_id":     sh.QuizID,
+			"created_at":  sh.CreatedAt.Format("2006-01-02 15:04"),
+		})
+	}
+	writeJSON(w, map[string]any{"items": items})
+}
+
+func (s *Server) pageShare(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		http.Error(w, "缺少分享令牌", http.StatusBadRequest)
+		return
+	}
+	qs, err := s.store.GetQuizShareByToken(r.Context(), token)
+	if err != nil || qs == nil {
+		http.Error(w, "分享链接无效或已过期", http.StatusNotFound)
+		return
+	}
+	if qs.RevokedAt != nil {
+		http.Error(w, "此分享已被撤销", http.StatusGone)
+		return
+	}
+	s.servePage(w, "web/share.html")
+}
+
+func (s *Server) apiShareDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		http.Error(w, "缺少分享令牌", http.StatusBadRequest)
+		return
+	}
+	qs, err := s.store.GetQuizShareByToken(r.Context(), token)
+	if err != nil || qs == nil {
+		http.Error(w, "分享链接无效或已过期", http.StatusNotFound)
+		return
+	}
+	if qs.RevokedAt != nil {
+		http.Error(w, "此分享已被撤销", http.StatusGone)
+		return
+	}
+
+	// Load course info
+	course, err := s.store.GetCourse(r.Context(), qs.CourseID)
+	if err != nil {
+		http.Error(w, "课程不存在", http.StatusNotFound)
+		return
+	}
+
+	// Load quiz YAML from course_state
+	cs, err := s.store.GetCourseState(r.Context(), qs.CourseID)
+	if err != nil || cs.QuizYAML == "" {
+		http.Error(w, "未找到小测数据", http.StatusNotFound)
+		return
+	}
+
+	parsedQuiz, err := quiz.Parse([]byte(cs.QuizYAML))
+	if err != nil {
+		http.Error(w, "解析小测失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify the quiz_id matches
+	if parsedQuiz.QuizID != qs.QuizID {
+		// The loaded quiz might be different now; still use the stored YAML
+		// but filter attempts by the shared quiz_id
+	}
+
+	// Load all submitted attempts for this (course_id, quiz_id)
+	attempts, err := s.store.ListAttemptsByCourse(r.Context(), qs.CourseID)
+	if err != nil {
+		http.Error(w, "读取答卷失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Filter to submitted attempts matching the shared quiz_id
+	type attemptWithAnswers struct {
+		ID          string         `json:"id"`
+		Name        string         `json:"name"`
+		StudentNo   string         `json:"student_no"`
+		ClassName   string         `json:"class_name"`
+		AttemptNo   int            `json:"attempt_no"`
+		SubmittedAt string         `json:"submitted_at"`
+		Answers     map[string]string `json:"answers"`
+	}
+
+	attemptList := make([]attemptWithAnswers, 0)
+	for _, a := range attempts {
+		if a.QuizID != qs.QuizID || a.Status != domain.StatusSubmitted {
+			continue
+		}
+		answers, err := s.store.GetAnswers(r.Context(), a.ID)
+		if err != nil {
+			continue
+		}
+		submittedAt := ""
+		if a.SubmittedAt != nil {
+			submittedAt = a.SubmittedAt.Format("2006-01-02 15:04")
+		}
+		attemptList = append(attemptList, attemptWithAnswers{
+			ID:          a.ID,
+			Name:        a.Name,
+			StudentNo:   a.StudentNo,
+			ClassName:   a.ClassName,
+			AttemptNo:   a.AttemptNo,
+			SubmittedAt: submittedAt,
+			Answers:     answers,
+		})
+	}
+
+	writeJSON(w, map[string]any{
+		"quiz":        parsedQuiz,
+		"course_name": course.DisplayName,
+		"quiz_id":     qs.QuizID,
+		"attempts":    attemptList,
+		"total":       len(attemptList),
+	})
 }
 
 func seededRandom(key string) *mrand.Rand {

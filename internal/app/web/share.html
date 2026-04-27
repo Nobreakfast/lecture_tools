@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小测分享</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    body {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 16px;
+      font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+      color: var(--text, #1e293b);
+      background: var(--bg, #f8fafc);
+    }
+    .header {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--border, #e2e8f0);
+    }
+    .header h1 {
+      font-size: 22px;
+      margin: 0 0 6px;
+    }
+    .header .meta {
+      font-size: 14px;
+      color: var(--text-dim, #64748b);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--primary-bg, #eef2ff);
+      color: var(--primary, #4f46e5);
+    }
+    .stats {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      background: var(--surface, #fff);
+      border-radius: var(--radius, 8px);
+      padding: 16px 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .stat-card .label {
+      font-size: 12px;
+      color: var(--text-dim, #64748b);
+      margin-bottom: 4px;
+    }
+    .stat-card .value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary, #4f46e5);
+    }
+    .student-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface, #fff);
+      border-radius: var(--radius, 8px);
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .student-table th,
+    .student-table td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border, #e2e8f0);
+      font-size: 14px;
+    }
+    .student-table th {
+      background: var(--bg, #f8fafc);
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-dim, #64748b);
+      text-transform: uppercase;
+    }
+    .student-table tr.clickable {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .student-table tr.clickable:hover {
+      background: var(--primary-bg, #eef2ff);
+    }
+    .detail-panel {
+      display: none;
+      background: var(--surface, #fff);
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: var(--radius, 8px);
+      padding: 20px;
+      margin: 12px 0 24px;
+    }
+    .detail-panel.active {
+      display: block;
+    }
+    .detail-panel h3 {
+      margin: 0 0 16px;
+      font-size: 16px;
+      color: var(--primary, #4f46e5);
+    }
+    .question-block {
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border, #e2e8f0);
+    }
+    .question-block:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    .question-stem {
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .question-type {
+      font-size: 11px;
+      color: var(--text-dim, #64748b);
+      margin-bottom: 8px;
+    }
+    .student-answer {
+      font-size: 14px;
+      padding: 8px 12px;
+      background: var(--bg, #f8fafc);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .student-answer.correct {
+      background: var(--success-bg, #f0fdf4);
+      color: var(--success, #16a34a);
+      border-left: 3px solid var(--success, #16a34a);
+    }
+    .student-answer.incorrect {
+      background: var(--danger-bg, #fef2f2);
+      color: var(--danger, #dc2626);
+      border-left: 3px solid var(--danger, #dc2626);
+    }
+    .correct-answer {
+      font-size: 13px;
+      color: var(--success, #16a34a);
+      margin-top: 4px;
+    }
+    .options-list {
+      list-style: none;
+      padding: 0;
+      margin: 4px 0 0;
+    }
+    .options-list li {
+      font-size: 13px;
+      padding: 3px 0;
+      color: var(--text-dim, #64748b);
+    }
+    .options-list li.correct-opt {
+      color: var(--success, #16a34a);
+      font-weight: 600;
+    }
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-dim, #64748b);
+    }
+    .error-msg {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--danger, #dc2626);
+    }
+    .empty-msg {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-dim, #64748b);
+    }
+    .close-detail {
+      float: right;
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: var(--text-dim, #64748b);
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .close-detail:hover {
+      color: var(--text, #1e293b);
+    }
+    .search-box {
+      margin-bottom: 16px;
+    }
+    .search-box input {
+      width: 100%;
+      max-width: 320px;
+      padding: 8px 12px;
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: var(--radius, 8px);
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--surface, #fff);
+      color: var(--text, #1e293b);
+    }
+    .search-box input:focus {
+      outline: none;
+      border-color: var(--primary, #4f46e5);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+    @media (max-width: 640px) {
+      body { padding: 16px 10px; }
+      .student-table th, .student-table td { padding: 8px 10px; font-size: 13px; }
+      .stats { gap: 12px; }
+      .stat-card { padding: 12px 16px; }
+      .stat-card .value { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">加载中...</div>
+  <div class="error-msg" id="error" style="display:none;"></div>
+
+  <div id="content" style="display:none;">
+    <div class="header">
+      <h1 id="quiz-title"></h1>
+      <div class="meta">
+        <span id="course-name"></span>
+        <span class="badge" id="quiz-id-badge"></span>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="label">已提交人数</div>
+        <div class="value" id="total-submitted">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">题目数量</div>
+        <div class="value" id="total-questions">0</div>
+      </div>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="搜索姓名、学号、班级..." />
+    </div>
+
+    <table class="student-table" id="student-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>姓名</th>
+          <th>学号</th>
+          <th>班级</th>
+          <th>提交时间</th>
+        </tr>
+      </thead>
+      <tbody id="student-tbody"></tbody>
+    </table>
+
+    <div class="empty-msg" id="empty-msg" style="display:none;">暂无提交记录</div>
+  </div>
+
+  <div class="detail-panel" id="detail-panel">
+    <button class="close-detail" onclick="closeDetail()">&times;</button>
+    <h3 id="detail-student-name"></h3>
+    <div id="detail-questions"></div>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(window.location.search).get('token');
+    let quizData = null;
+    let attemptsData = [];
+    let questions = [];
+
+    if (!token) {
+      showError('缺少分享令牌');
+    } else {
+      loadData();
+    }
+
+    async function loadData() {
+      try {
+        const resp = await fetch('/api/share?token=' + encodeURIComponent(token));
+        if (!resp.ok) {
+          const text = await resp.text();
+          showError(text || '加载失败');
+          return;
+        }
+        const data = await resp.json();
+        quizData = data;
+        attemptsData = data.attempts || [];
+        questions = (data.quiz && data.quiz.questions) || [];
+        render();
+      } catch (e) {
+        showError('网络错误: ' + e.message);
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('loading').style.display = 'none';
+      const el = document.getElementById('error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function render() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = 'block';
+
+      document.getElementById('quiz-title').textContent = (quizData.quiz && quizData.quiz.title) || '小测';
+      document.getElementById('course-name').textContent = quizData.course_name || '';
+      document.getElementById('quiz-id-badge').textContent = quizData.quiz_id || '';
+      document.getElementById('total-submitted').textContent = attemptsData.length;
+      document.getElementById('total-questions').textContent = questions.length;
+
+      renderTable(attemptsData);
+
+      document.getElementById('search-input').addEventListener('input', function(e) {
+        const q = e.target.value.toLowerCase().trim();
+        if (!q) {
+          renderTable(attemptsData);
+          return;
+        }
+        const filtered = attemptsData.filter(a =>
+          a.name.toLowerCase().includes(q) ||
+          a.student_no.toLowerCase().includes(q) ||
+          a.class_name.toLowerCase().includes(q)
+        );
+        renderTable(filtered);
+      });
+    }
+
+    function renderTable(items) {
+      const tbody = document.getElementById('student-tbody');
+      const emptyMsg = document.getElementById('empty-msg');
+      const table = document.getElementById('student-table');
+
+      if (items.length === 0) {
+        table.style.display = 'none';
+        emptyMsg.style.display = 'block';
+        return;
+      }
+      table.style.display = '';
+      emptyMsg.style.display = 'none';
+
+      tbody.innerHTML = '';
+      items.forEach((a, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'clickable';
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${esc(a.name)}</td>
+          <td>${esc(a.student_no)}</td>
+          <td>${esc(a.class_name)}</td>
+          <td>${esc(a.submitted_at || '')}</td>
+        `;
+        tr.addEventListener('click', () => showDetail(a));
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showDetail(attempt) {
+      const panel = document.getElementById('detail-panel');
+      document.getElementById('detail-student-name').textContent =
+        `${attempt.name} (${attempt.student_no}) - ${attempt.class_name}`;
+
+      const container = document.getElementById('detail-questions');
+      container.innerHTML = '';
+
+      questions.forEach((q, idx) => {
+        const block = document.createElement('div');
+        block.className = 'question-block';
+
+        const typeLabel = getTypeLabel(q.type);
+        const studentAns = attempt.answers && attempt.answers[q.id] ? attempt.answers[q.id] : '(未作答)';
+
+        let answerClass = '';
+        let correctHtml = '';
+
+        if (q.type === 'single_choice' || q.type === 'yes_no') {
+          if (q.correct_answer) {
+            const isCorrect = studentAns === q.correct_answer;
+            answerClass = studentAns === '(未作答)' ? '' : (isCorrect ? 'correct' : 'incorrect');
+            if (!isCorrect && studentAns !== '(未作答)') {
+              correctHtml = `<div class="correct-answer">正确答案: ${esc(q.correct_answer)}</div>`;
+            }
+          }
+        } else if (q.type === 'multi_choice') {
+          if (q.correct_answer) {
+            const normalize = s => s.replace(/\s/g, '').split(',').sort().join(',');
+            const isCorrect = studentAns !== '(未作答)' && normalize(studentAns) === normalize(q.correct_answer);
+            answerClass = studentAns === '(未作答)' ? '' : (isCorrect ? 'correct' : 'incorrect');
+            if (!isCorrect && studentAns !== '(未作答)') {
+              correctHtml = `<div class="correct-answer">正确答案: ${esc(q.correct_answer)}</div>`;
+            }
+          }
+        }
+
+        let optionsHtml = '';
+        if (q.options && q.options.length > 0) {
+          const correctKeys = (q.correct_answer || '').split(',').map(s => s.trim());
+          optionsHtml = '<ul class="options-list">' + q.options.map(opt => {
+            const isCorrectOpt = correctKeys.includes(opt.key);
+            return `<li class="${isCorrectOpt ? 'correct-opt' : ''}">${esc(opt.key)}. ${esc(opt.text)}</li>`;
+          }).join('') + '</ul>';
+        }
+
+        block.innerHTML = `
+          <div class="question-type">${idx + 1}. ${typeLabel}${q.allow_multiple ? ' (多选)' : ''}</div>
+          <div class="question-stem">${esc(q.stem)}</div>
+          ${optionsHtml}
+          <div class="student-answer ${answerClass}">学生答案: ${esc(studentAns)}</div>
+          ${correctHtml}
+        `;
+        container.appendChild(block);
+      });
+
+      panel.classList.add('active');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function closeDetail() {
+      document.getElementById('detail-panel').classList.remove('active');
+    }
+
+    function getTypeLabel(type) {
+      const labels = {
+        'single_choice': '单选题',
+        'multi_choice': '多选题',
+        'yes_no': '判断题',
+        'survey': '调研题',
+        'short_answer': '简答题'
+      };
+      return labels[type] || type;
+    }
+
+    function esc(s) {
+      if (!s) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

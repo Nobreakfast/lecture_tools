@@ -231,6 +231,21 @@ func (m *memStore) FixLegacyAttemptsCourse(context.Context, string, int) (int, e
 func (m *memStore) FixAllLegacyAttemptsCourse(context.Context, []string, int) (int, error) {
 	return 0, errors.New("not implemented")
 }
+func (m *memStore) CreateQuizShare(context.Context, *domain.QuizShare) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) GetQuizShareByID(context.Context, int) (*domain.QuizShare, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) GetQuizShareByToken(context.Context, string) (*domain.QuizShare, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) ListActiveQuizShares(context.Context, int, string) ([]domain.QuizShare, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *memStore) RevokeQuizShare(context.Context, int) error {
+	return errors.New("not implemented")
+}
 func (m *memStore) CreateHomeworkSubmission(_ context.Context, submission *domain.HomeworkSubmission) error {
 	m.homeworkSubmissions = append(m.homeworkSubmissions, *submission)
 	return nil
