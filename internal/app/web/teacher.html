@@ -494,28 +494,14 @@
           </div>
         </div>
       </div>
-      <!-- MCP 工具下载 -->
+      <!-- MCP 智能助手配置 -->
       <div class="card">
-        <p><strong>MCP 智能助手工具</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">下载后配合 Claude Desktop 使用，可用自然语言查询课程数据</span></p>
-        <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
-          <a href="/api/teacher/mcp/download?platform=darwin-arm64" class="small" style="display:inline-block;padding:6px 14px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;">macOS (Apple芯片)</a>
-          <a href="/api/teacher/mcp/download?platform=darwin-amd64" class="small" style="display:inline-block;padding:6px 14px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;">macOS (Intel)</a>
-          <a href="/api/teacher/mcp/download?platform=windows-amd64" class="small" style="display:inline-block;padding:6px 14px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;">Windows</a>
-        </div>
+        <p><strong>MCP 智能助手配置</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">在 Claude Desktop / Cursor 中配置后即可用自然语言查询课程数据</span></p>
         <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
-          <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Claude Desktop 配置示例</p>
-          <pre style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;">{
-  "mcpServers": {
-    "course-assistant": {
-      "command": "/下载路径/lecture_tools-darwin-arm64",
-      "env": {
-        "SERVER_URL": "服务器地址",
-        "TEACHER_ID": "你的工号",
-        "TEACHER_PWD": "你的密码"
-      }
-    }
-  }
-}</pre>
+          <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Claude Desktop / Cursor 配置示例</p>
+          <pre id="mcpConfig" style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;"></pre>
+          <button id="copyMcpConfig" class="small" style="margin-top:8px;">复制配置</button>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">将以上内容粘贴到 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。</p>
         </div>
       </div>
     </div>
@@ -2448,6 +2434,32 @@
       setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; }, 1500);
       setTimeout(() => document.body.removeChild(toast), 1800);
     }
+
+    /* ── MCP config renderer ── */
+    function renderMCPConfig() {
+      const prefix = (typeof __PREFIX !== 'undefined' && __PREFIX) ? __PREFIX : '';
+      const token = (typeof __AUTH_TOKEN !== 'undefined' && __AUTH_TOKEN) ? __AUTH_TOKEN : '';
+      const pre = document.getElementById('mcpConfig');
+      const btn = document.getElementById('copyMcpConfig');
+      if (!pre) return;
+      if (!token) {
+        pre.textContent = '请先登录后刷新页面，以获取 MCP 配置。';
+        if (btn) btn.style.display = 'none';
+        return;
+      }
+      const url = window.location.origin + prefix + '/mcp/sse?token=' + encodeURIComponent(token);
+      const config = { mcpServers: { 'course-assistant': { url: url } } };
+      pre.textContent = JSON.stringify(config, null, 2);
+      if (btn) {
+        btn.onclick = function() {
+          navigator.clipboard.writeText(pre.textContent).then(() => {
+            btn.textContent = '已复制';
+            setTimeout(() => btn.textContent = '复制配置', 2000);
+          });
+        };
+      }
+    }
+    renderMCPConfig();
   </script>
 </body>
 </html>

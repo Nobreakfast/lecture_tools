@@ -277,6 +277,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/share", s.pageShare)
 	mux.HandleFunc("/api/share", s.apiShareDetail)
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
+	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix
+	// stripping the SSE server sees /mcp/sse and /mcp/message.
+	mcpSSEServer := s.newMCPSSEServer()
+	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
+		s.mcpAuthMiddleware(mcpSSEServer).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/mcp/message", func(w http.ResponseWriter, r *http.Request) {
+		s.mcpAuthMiddleware(mcpSSEServer).ServeHTTP(w, r)
+	})
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
 	// System-level admin APIs (teachers, AI config, system status).
 	mux.HandleFunc("/api/admin/login", s.apiAdminLogin)
@@ -709,8 +718,12 @@ func (s *Server) pageAdmin(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/admin.html")
 }
 
-func (s *Server) pageTeacher(w http.ResponseWriter, _ *http.Request) {
-	s.servePage(w, "web/teacher.html")
+func (s *Server) pageTeacher(w http.ResponseWriter, r *http.Request) {
+	token := ""
+	if c, err := r.Cookie("auth_token"); err == nil {
+		token = c.Value
+	}
+	s.servePageWithToken(w, "web/teacher.html", token)
 }
 
 func (s *Server) pageTeacherDocs(w http.ResponseWriter, r *http.Request) {
@@ -722,6 +735,10 @@ func (s *Server) pageTeacherDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) servePage(w http.ResponseWriter, path string) {
+	s.servePageWithToken(w, path, "")
+}
+
+func (s *Server) servePageWithToken(w http.ResponseWriter, path string, token string) {
 	f, err := webFS.ReadFile(path)
 	if err != nil {
 		http.Error(w, "page not found", http.StatusNotFound)
@@ -736,6 +753,10 @@ func (s *Server) servePage(w http.ResponseWriter, path string) {
 		content = strings.ReplaceAll(content, "location.href = '/", "location.href = __PREFIX+'/")
 		content = strings.ReplaceAll(content, `src="/assets/${`, `src="${__PREFIX}/assets/${`)
 		content = strings.ReplaceAll(content, "window.open('/", "window.open(__PREFIX+'/")
+	}
+	if token != "" {
+		injection := `<script>var __AUTH_TOKEN='` + token + `';</script>`
+		content = strings.Replace(content, "<head>", "<head>"+injection, 1)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

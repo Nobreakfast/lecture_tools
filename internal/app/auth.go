@@ -51,15 +51,23 @@ func (s *Server) getAuthSession(r *http.Request) *authSession {
 	if err != nil || cookie.Value == "" {
 		return nil
 	}
+	return s.getAuthSessionByToken(cookie.Value)
+}
+
+// getAuthSessionByToken looks up a session by its raw token string.
+func (s *Server) getAuthSessionByToken(token string) *authSession {
+	if token == "" {
+		return nil
+	}
 	s.authMu.RLock()
-	sess, ok := s.authTokens[cookie.Value]
+	sess, ok := s.authTokens[token]
 	s.authMu.RUnlock()
 	if !ok {
 		return nil
 	}
 	if time.Now().After(sess.Expiry) {
 		s.authMu.Lock()
-		delete(s.authTokens, cookie.Value)
+		delete(s.authTokens, token)
 		s.authMu.Unlock()
 		return nil
 	}

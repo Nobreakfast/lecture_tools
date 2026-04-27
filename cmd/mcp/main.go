@@ -1,3 +1,5 @@
+// Deprecated: MCP is now served natively via SSE in the main HTTP server.
+// This standalone stdio client is no longer maintained.
 package main
 
 import (

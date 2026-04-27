@@ -1,6 +1,6 @@
 BIN_DIR := bin
 
-.PHONY: build build-server build-migrate build-qrgen build-mcp clean \
+.PHONY: build build-server build-migrate build-qrgen clean \
         test test-go test-e2e test-e2e-ui e2e-install docs-screenshots
 
 build: build-server build-migrate build-qrgen
@@ -17,11 +17,12 @@ build-qrgen:
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/qrgen ./cmd/qrgen
 
-build-mcp:
-	@mkdir -p $(BIN_DIR)/mcp
-	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-arm64 ./cmd/mcp
-	GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-amd64 ./cmd/mcp
-	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-windows-amd64.exe ./cmd/mcp
+# build-mcp is deprecated; MCP is now served natively via SSE.
+# build-mcp:
+# 	@mkdir -p $(BIN_DIR)/mcp
+# 	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-arm64 ./cmd/mcp
+# 	GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-darwin-amd64 ./cmd/mcp
+# 	GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/mcp/lecture_tools-windows-amd64.exe ./cmd/mcp
 
 run: build-server
 	./$(BIN_DIR)/server
