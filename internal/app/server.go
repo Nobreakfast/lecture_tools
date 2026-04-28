@@ -279,13 +279,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix
 	// stripping the SSE server sees /mcp/sse and /mcp/message.
+	// Only the SSE endpoint requires authentication; the message endpoint
+	// relies on the session ID (which embeds the token) for security.
 	mcpSSEServer := s.newMCPSSEServer()
 	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
 		s.mcpAuthMiddleware(mcpSSEServer).ServeHTTP(w, r)
 	})
-	mux.HandleFunc("/mcp/message", func(w http.ResponseWriter, r *http.Request) {
-		s.mcpAuthMiddleware(mcpSSEServer).ServeHTTP(w, r)
-	})
+	mux.HandleFunc("/mcp/message", mcpSSEServer.ServeHTTP)
 	mux.HandleFunc("/api/course", s.apiCourseByInviteCode)
 	// System-level admin APIs (teachers, AI config, system status).
 	mux.HandleFunc("/api/admin/login", s.apiAdminLogin)

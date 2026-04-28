@@ -13,6 +13,7 @@ import (
 
 	"course-assistant/internal/domain"
 
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -51,9 +52,20 @@ func (s *Server) mcpAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func mcpSessionFromContext(ctx context.Context) *authSession {
+// mcpSessionFromContext tries to retrieve the auth session from the context.
+// It first looks for the direct context value (set during SSE connection).
+// If that's missing, it falls back to extracting the token from the mcp-go
+// session ID and looking it up in the server's auth store.
+func (s *Server) mcpSessionFromContext(ctx context.Context) *authSession {
 	if sess, ok := ctx.Value(mcpAuthKey{}).(*authSession); ok {
 		return sess
+	}
+	if mcpSess := server.ClientSessionFromContext(ctx); mcpSess != nil {
+		sessionID := mcpSess.SessionID()
+		if idx := strings.Index(sessionID, ":"); idx > 0 {
+			token := sessionID[:idx]
+			return s.getAuthSessionByToken(token)
+		}
 	}
 	return nil
 }
@@ -74,7 +86,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		mcp.WithDescription("列出教师的所有课程，包含课程ID、名称、标识和邀请码"),
 	)
 	mcpServer.AddTool(listCoursesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sess := mcpSessionFromContext(ctx)
+		sess := s.mcpSessionFromContext(ctx)
 		if sess == nil {
 			return mcp.NewToolResultError("unauthorized"), nil
 		}
@@ -105,7 +117,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		),
 	)
 	mcpServer.AddTool(getQuizAttemptsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sess := mcpSessionFromContext(ctx)
+		sess := s.mcpSessionFromContext(ctx)
 		if sess == nil {
 			return mcp.NewToolResultError("unauthorized"), nil
 		}
@@ -171,7 +183,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		),
 	)
 	mcpServer.AddTool(getHomeworkSubmissionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sess := mcpSessionFromContext(ctx)
+		sess := s.mcpSessionFromContext(ctx)
 		if sess == nil {
 			return mcp.NewToolResultError("unauthorized"), nil
 		}
@@ -233,7 +245,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		),
 	)
 	mcpServer.AddTool(getSummaryStatsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sess := mcpSessionFromContext(ctx)
+		sess := s.mcpSessionFromContext(ctx)
 		if sess == nil {
 			return mcp.NewToolResultError("unauthorized"), nil
 		}
@@ -268,10 +280,10 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		// Marshal to JSON for reliable type extraction then format as Markdown.
 		statsJSON, _ := json.Marshal(stats)
 		var structured struct {
-			StudentCount int                `json:"student_count"`
-			AvgScore     float64            `json:"avg_score"`
-			AvgTotal     float64            `json:"avg_total"`
-			Students     []map[string]any   `json:"students"`
+			StudentCount int              `json:"student_count"`
+			AvgScore     float64          `json:"avg_score"`
+			AvgTotal     float64          `json:"avg_total"`
+			Students     []map[string]any `json:"students"`
 		}
 		_ = json.Unmarshal(statsJSON, &structured)
 
@@ -303,6 +315,28 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		return mcp.NewToolResultText(b.String()), nil
 	})
 
-	sseServer := server.NewSSEServer(mcpServer, server.WithBasePath("/mcp"))
+	sseServer := server.NewSSEServer(mcpServer,
+		server.WithBasePath("/mcp"),
+		server.WithSessionIDGenerator(func(ctx context.Context, r *http.Request) (string, error) {
+			// Embed the auth token into the session ID so that subsequent
+			// message POSTs can recover the session without re-authenticating.
+			token := ""
+			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+				token = strings.TrimPrefix(h, "Bearer ")
+			}
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
+			if token == "" {
+				if c, err := r.Cookie("auth_token"); err == nil {
+					token = c.Value
+				}
+			}
+			if token != "" {
+				return token + ":" + uuid.New().String(), nil
+			}
+			return uuid.New().String(), nil
+		}),
+	)
 	return sseServer
 }

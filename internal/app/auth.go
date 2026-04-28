@@ -5,6 +5,7 @@ package app
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -61,11 +62,14 @@ func (s *Server) getAuthSessionByToken(token string) *authSession {
 	}
 	s.authMu.RLock()
 	sess, ok := s.authTokens[token]
+	tokenCount := len(s.authTokens)
 	s.authMu.RUnlock()
 	if !ok {
+		log.Printf("mcp auth: token not found (len=%d, token_prefix=%s)", tokenCount, token[:min(8, len(token))])
 		return nil
 	}
 	if time.Now().After(sess.Expiry) {
+		log.Printf("mcp auth: token expired (expiry=%s)", sess.Expiry.Format(time.RFC3339))
 		s.authMu.Lock()
 		delete(s.authTokens, token)
 		s.authMu.Unlock()
