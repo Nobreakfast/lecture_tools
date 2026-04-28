@@ -195,6 +195,8 @@ test.describe("Homework lifecycle", () => {
     const pdfLink = row.getByRole("link", { name: "PDF" });
     const href = await pdfLink.getAttribute("href");
     expect(href).toBeTruthy();
+    const allLink = row.getByRole("link", { name: "全部" });
+    await expect(allLink).toBeVisible();
 
     const response = await teacherPage.page.context().request.get(href!, {
       failOnStatusCode: true,

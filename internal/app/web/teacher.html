@@ -1998,13 +1998,14 @@
         const code = item.files && item.files.code;
         const extra = item.files && item.files.extra;
         const dlLinks = [];
+        const hasOthers = Array.isArray(item.others) && item.others.length > 0;
         if (report && report.uploaded && item.report_download_url)
           dlLinks.push(`<a href="${escapeHTML(item.report_download_url)}" target="_blank" title="${escapeHTML(report.original_name || 'PDF')}">PDF</a>`);
         if (code && code.uploaded && item.code_download_url)
           dlLinks.push(`<a href="${escapeHTML(item.code_download_url)}" target="_blank" title="${escapeHTML(code.original_name || 'Nb')}">Nb</a>`);
         if (extra && extra.uploaded && item.extra_download_url)
           dlLinks.push(`<a href="${escapeHTML(item.extra_download_url)}" target="_blank" title="${escapeHTML(extra.original_name || 'Zip')}">Zip</a>`);
-        if (item.archive_download_url && dlLinks.length > 1)
+        if (item.archive_download_url && (dlLinks.length > 0 || hasOthers))
           dlLinks.push(`<a href="${escapeHTML(item.archive_download_url)}" target="_blank">全部</a>`);
         const dlCell = dlLinks.length ? dlLinks.join(' ') : '-';
         const keyCell = item.secret_key
