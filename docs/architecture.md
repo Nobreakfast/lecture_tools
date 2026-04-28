@@ -128,6 +128,9 @@
 - `POST /api/teacher/courses`：创建课程；当请求里的英文名包含空格时，服务端自动规范化为 `display_name`（空格展示）与 `internal_name`（下划线路径）
 - 自动转换规则：先去掉首尾空格，再把连续空白折叠为单个分隔符；前端展示保留空格版，文件路径与内部引用统一使用下划线版
 - 历史课程不做强制转换；若旧数据没有 `display_name/internal_name`，运行时回退到原 `slug`
+- `GET /api/teacher/mcp`：读取“其它 > MCP”里的长效 token 状态；仅在已开启时返回可复制 token
+- `POST /api/teacher/mcp`：开启/关闭教师专属长效 token；关闭后已有 MCP 配置立即失效，但 token 会保留供后续重新开启
+- `/mcp/sse`、`/mcp/message`：既支持现有教师登录态，也支持上述长效 token 直连，供 Trae / Cursor / Claude Desktop 使用
 
 管理员接口（均需登录）：
 - `POST /api/admin/login`：登录

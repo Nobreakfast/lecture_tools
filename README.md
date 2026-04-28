@@ -1,6 +1,6 @@
 # 课程助手
 
-面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交、AI 学习建议、教师独立文档页与系统快照恢复。系统管理员可在 `/admin` 查看教师/课程/学生/答题总量与在线人数，并直接看到“是否适合升级/重启/恢复”的维护建议。教师端小测成绩会按“同一学生 + 同一题库”自动保留最高分，并支持重复记录检查；作业下载文件名统一为 `班级_作业编号_姓名_学号`。Go + SQLite 单机运行，单个二进制部署。
+面向课堂现场的轻量教学辅助系统：**多教师、多课程、多学生**，支持随堂测验、课程资料、作业提交、AI 学习建议、教师独立文档页、MCP 智能助手长效 token 与系统快照恢复。系统管理员可在 `/admin` 查看教师/课程/学生/答题总量与在线人数，并直接看到“是否适合升级/重启/恢复”的维护建议。教师端小测成绩会按“同一学生 + 同一题库”自动保留最高分，并支持重复记录检查；作业下载文件名统一为 `班级_作业编号_姓名_学号`。Go + SQLite 单机运行，单个二进制部署。
 
 ## 设计原则
 
@@ -134,6 +134,8 @@ snapshots/
 | `/api/auth/*`                                                          | 统一登录 / 登出 / me                                                      | —           |
 | `/api/system/*`                                                        | 系统管理 API（教师、AI、统计）                                            | role=admin  |
 | `/api/teacher/courses/*`                                               | 教师课程 API                                                              | 教师 cookie |
+| `/api/teacher/mcp`                                                     | 教师 MCP 长效 token 开关与配置读取                                        | 教师 cookie |
+| `/mcp/sse` / `/mcp/message`                                            | MCP SSE 服务入口                                                          | 教师 cookie 或长效 token |
 | `/api/course?code=`                                                    | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无          |
 | `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话                                                | —           |
 | `/api/admin/*`（教学类）                                               | 410 Gone + 指向新路由                                                     | —           |
@@ -144,6 +146,7 @@ snapshots/
 - 文件路径、课程目录、作业目录等内部引用统一使用 `internal_name`
 - `GET /api/teacher/courses/attempts`、`/attempts-check`、`/export-csv` 会按“同一学生 + 同一题库”自动去重，保留最高分；教师页可查看重复检查结果
 - 教师端作业下载（单个 PDF、单个学生压缩包、批量压缩包内学生目录/文件）统一使用 `班级_作业编号_姓名_学号` 命名
+- “其它 > MCP” 支持开启/关闭教师专属长效 token；开启后页面直接给出可复制的 MCP 配置，关闭后旧 token 立即失效
 
 ## 题库 YAML
 

@@ -670,6 +670,74 @@ func TestAPITeacherCoursesNormalizesEnglishName(t *testing.T) {
 	}
 }
 
+func TestAPITeacherMCPPersistentTokenToggle(t *testing.T) {
+	st := &memStore{
+		settings: map[string]string{},
+		teachers: []domain.Teacher{
+			{ID: "T01", Name: "教师一", Role: domain.RoleTeacher},
+		},
+	}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "T01",
+		Role:      domain.RoleTeacher,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/api/teacher/mcp", strings.NewReader(`{"enabled":true}`))
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	enableRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(enableRR, enableReq)
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("enable status: %d body=%s", enableRR.Code, enableRR.Body.String())
+	}
+	var enabledResp struct {
+		Enabled  bool   `json:"enabled"`
+		HasToken bool   `json:"has_token"`
+		Token    string `json:"token"`
+	}
+	if err := json.Unmarshal(enableRR.Body.Bytes(), &enabledResp); err != nil {
+		t.Fatalf("unmarshal enable response: %v", err)
+	}
+	if !enabledResp.Enabled || !enabledResp.HasToken || enabledResp.Token == "" {
+		t.Fatalf("unexpected enable response: %+v", enabledResp)
+	}
+	if sess := s.getAuthSessionByToken(enabledResp.Token); sess == nil || sess.TeacherID != "T01" {
+		t.Fatalf("persistent token should authenticate teacher, got %+v", sess)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/teacher/mcp", nil)
+	getReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	getRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("get status: %d body=%s", getRR.Code, getRR.Body.String())
+	}
+	var getResp struct {
+		Enabled bool   `json:"enabled"`
+		Token   string `json:"token"`
+	}
+	if err := json.Unmarshal(getRR.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("unmarshal get response: %v", err)
+	}
+	if !getResp.Enabled || getResp.Token != enabledResp.Token {
+		t.Fatalf("unexpected get response: %+v", getResp)
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/api/teacher/mcp", strings.NewReader(`{"enabled":false}`))
+	disableReq.Header.Set("Content-Type", "application/json")
+	disableReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	disableRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(disableRR, disableReq)
+	if disableRR.Code != http.StatusOK {
+		t.Fatalf("disable status: %d body=%s", disableRR.Code, disableRR.Body.String())
+	}
+	if sess := s.getAuthSessionByToken(enabledResp.Token); sess != nil {
+		t.Fatalf("disabled persistent token should not authenticate, got %+v", sess)
+	}
+}
+
 func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
 	st := &memStore{
 		courses: []domain.Course{{

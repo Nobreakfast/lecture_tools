@@ -36,14 +36,14 @@ import (
 var webFS embed.FS
 
 type Config struct {
-	Addr          string
-	BaseURL       string
-	DataDir       string
-	MetadataDir   string
-	SnapshotDir   string
-	AIEndpoint    string
-	AIKey         string
-	AIModel       string
+	Addr        string
+	BaseURL     string
+	DataDir     string
+	MetadataDir string
+	SnapshotDir string
+	AIEndpoint  string
+	AIKey       string
+	AIModel     string
 }
 
 type authSession struct {
@@ -53,18 +53,18 @@ type authSession struct {
 }
 
 type Server struct {
-	cfg                 Config
-	store               store.Store
-	aiClient            *ai.Client
+	cfg      Config
+	store    store.Store
+	aiClient *ai.Client
 
 	// Domain-scoped locks replace the former global mu. Each lock protects
 	// only the fields listed beside it, reducing false contention between
 	// unrelated subsystems.
-	quizMu              sync.RWMutex // protects courseQuizzes, courseQuizAssetDirs, currentQuiz
-	authMu              sync.RWMutex // protects authTokens
-	serverMu            sync.RWMutex // protects shutdownFn, maintenanceMode
-	snapshotMu          sync.Mutex
-	settingMu           sync.Mutex   // serializes store-level read-modify-write for settings (visibility etc.)
+	quizMu     sync.RWMutex // protects courseQuizzes, courseQuizAssetDirs, currentQuiz
+	authMu     sync.RWMutex // protects authTokens
+	serverMu   sync.RWMutex // protects shutdownFn, maintenanceMode
+	snapshotMu sync.Mutex
+	settingMu  sync.Mutex // serializes store-level read-modify-write for settings (visibility etc.)
 
 	courseQuizzes       map[int]*domain.Quiz // course_id -> loaded quiz
 	courseQuizAssetDirs map[int]string       // course_id -> metadata quiz dir (for asset serving)
@@ -276,6 +276,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/share/list", s.apiTeacherCourseShareList)
 	mux.HandleFunc("/share", s.pageShare)
 	mux.HandleFunc("/api/share", s.apiShareDetail)
+	mux.HandleFunc("/api/teacher/mcp", s.apiTeacherMCP)
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix
 	// stripping the SSE server sees /mcp/sse and /mcp/message.
@@ -370,16 +371,16 @@ type attendanceCell struct {
 }
 
 type attendanceStudentRow struct {
-	Name           string                     `json:"name"`
-	StudentNo      string                     `json:"student_no"`
-	ClassName      string                     `json:"class_name"`
-	AttendedCount  int                        `json:"attended_count"`
-	TotalQuizzes   int                        `json:"total_quizzes"`
-	AttendanceRate float64                    `json:"attendance_rate"`
-	AttendanceText string                     `json:"attendance_text"`
-	TotalText      string                     `json:"total_text"`
-	AvgScore       *float64                   `json:"avg_score,omitempty"`
-	Quizzes        map[string]attendanceCell  `json:"quizzes"`
+	Name           string                    `json:"name"`
+	StudentNo      string                    `json:"student_no"`
+	ClassName      string                    `json:"class_name"`
+	AttendedCount  int                       `json:"attended_count"`
+	TotalQuizzes   int                       `json:"total_quizzes"`
+	AttendanceRate float64                   `json:"attendance_rate"`
+	AttendanceText string                    `json:"attendance_text"`
+	TotalText      string                    `json:"total_text"`
+	AvgScore       *float64                  `json:"avg_score,omitempty"`
+	Quizzes        map[string]attendanceCell `json:"quizzes"`
 }
 
 func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Request) {
@@ -497,7 +498,7 @@ func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Reque
 
 	// Best attempt per (name, quizID) — consistent with teacherCourseBestAttempts.
 	type attemptKey struct {
-		name  string
+		name   string
 		quizID string
 	}
 	bestMap := map[attemptKey]teacherCourseBestAttempt{}
@@ -521,7 +522,7 @@ func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Reque
 	// Collect per-student base info (latest updated_at across all their attempts).
 	type studentMeta struct {
 		name, studentNo, className string
-		updatedAt                 time.Time
+		updatedAt                  time.Time
 	}
 	studentsMeta := map[string]studentMeta{}
 	for _, attempt := range attempts {
@@ -614,8 +615,8 @@ func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Reque
 	})
 
 	writeJSON(w, map[string]any{
-		"mode":    mode,
-		"quizzes": quizzes,
+		"mode":     mode,
+		"quizzes":  quizzes,
 		"students": rows,
 	})
 }
@@ -718,12 +719,8 @@ func (s *Server) pageAdmin(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/admin.html")
 }
 
-func (s *Server) pageTeacher(w http.ResponseWriter, r *http.Request) {
-	token := ""
-	if c, err := r.Cookie("auth_token"); err == nil {
-		token = c.Value
-	}
-	s.servePageWithToken(w, "web/teacher.html", token)
+func (s *Server) pageTeacher(w http.ResponseWriter, _ *http.Request) {
+	s.servePage(w, "web/teacher.html")
 }
 
 func (s *Server) pageTeacherDocs(w http.ResponseWriter, r *http.Request) {
@@ -930,9 +927,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		// session must be cleared so the student can re-join the new quiz.
 		s.clearStudentCookie(w)
 		writeJSON(w, map[string]any{
-			"ok":            false,
-			"error":         "session_expired",
-			"reason":        "该答题会话已过期（题库已变更），请重新进入",
+			"ok":     false,
+			"error":  "session_expired",
+			"reason": "该答题会话已过期（题库已变更），请重新进入",
 		})
 		return
 	}
@@ -1959,9 +1956,7 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 	cw.Flush()
 }
 
-
 // Auth middleware and API handlers are in auth.go
-
 
 // ── Admin overview ──
 
@@ -2012,16 +2007,16 @@ func (s *Server) apiAdminOverview(w http.ResponseWriter, r *http.Request) {
 	onlineCount, onlineStudents, onlineTeachers := s.systemOverviewOnlineCounts(r.Context(), allAttempts)
 
 	writeJSON(w, map[string]any{
-		"teacher_count":          len(teachers),
-		"course_count":           len(allCourses),
-		"student_count":          len(students),
-		"attempt_count":          len(allAttempts),
-		"online_count":           onlineCount,
-		"online_student_count":   onlineStudents,
-		"online_teacher_count":   onlineTeachers,
-		"online_window_minutes":  int(systemOverviewOnlineWindow / time.Minute),
-		"teachers":               teacherItems,
-		"courses":                courseItems,
+		"teacher_count":         len(teachers),
+		"course_count":          len(allCourses),
+		"student_count":         len(students),
+		"attempt_count":         len(allAttempts),
+		"online_count":          onlineCount,
+		"online_student_count":  onlineStudents,
+		"online_teacher_count":  onlineTeachers,
+		"online_window_minutes": int(systemOverviewOnlineWindow / time.Minute),
+		"teachers":              teacherItems,
+		"courses":               courseItems,
 	})
 }
 
@@ -2360,7 +2355,6 @@ func coursePayload(c domain.Course) map[string]any {
 		"updated_at":    c.UpdatedAt,
 	}
 }
-
 
 // Course-scoped quiz APIs and quiz bank management are in quiz_bank.go
 
@@ -4353,12 +4347,12 @@ func (s *Server) apiShareDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Filter to submitted attempts matching the shared quiz_id
 	type attemptWithAnswers struct {
-		ID          string         `json:"id"`
-		Name        string         `json:"name"`
-		StudentNo   string         `json:"student_no"`
-		ClassName   string         `json:"class_name"`
-		AttemptNo   int            `json:"attempt_no"`
-		SubmittedAt string         `json:"submitted_at"`
+		ID          string            `json:"id"`
+		Name        string            `json:"name"`
+		StudentNo   string            `json:"student_no"`
+		ClassName   string            `json:"class_name"`
+		AttemptNo   int               `json:"attempt_no"`
+		SubmittedAt string            `json:"submitted_at"`
 		Answers     map[string]string `json:"answers"`
 	}
 

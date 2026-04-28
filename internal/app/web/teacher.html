@@ -498,9 +498,16 @@
       <div class="card">
         <p><strong>MCP 智能助手配置</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">在 Claude Desktop / Cursor 中配置后即可用自然语言查询课程数据</span></p>
         <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+          <div class="row" style="align-items:center;gap:12px;margin-bottom:8px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;">
+              <input id="mcpEnabledToggle" type="checkbox" />
+              启用长效 MCP Token
+            </label>
+            <button id="copyMcpConfig" class="small" style="margin-top:0;display:none;">复制配置</button>
+          </div>
+          <p id="mcpStatus" style="font-size:12px;color:var(--text-secondary);margin:0 0 8px 0;">加载中…</p>
           <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Claude Desktop / Cursor 配置示例</p>
           <pre id="mcpConfig" style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;"></pre>
-          <button id="copyMcpConfig" class="small" style="margin-top:8px;">复制配置</button>
           <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">将以上内容粘贴到 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。</p>
         </div>
       </div>
@@ -1260,6 +1267,7 @@
       document.getElementById('summaryStatus').textContent = '';
       document.getElementById('summaryRawStats').innerHTML = '';
       document.getElementById('historyRawStats').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">加载中…</p>';
+      await loadMCPConfig();
       if (!selectedCourseId) {
         document.getElementById('historyRawStats').innerHTML = '';
         return;
@@ -2436,20 +2444,28 @@
     }
 
     /* ── MCP config renderer ── */
-    function renderMCPConfig() {
+    function renderMCPConfig(state) {
       const prefix = (typeof __PREFIX !== 'undefined' && __PREFIX) ? __PREFIX : '';
-      const token = (typeof __AUTH_TOKEN !== 'undefined' && __AUTH_TOKEN) ? __AUTH_TOKEN : '';
       const pre = document.getElementById('mcpConfig');
       const btn = document.getElementById('copyMcpConfig');
-      if (!pre) return;
-      if (!token) {
-        pre.textContent = '请先登录后刷新页面，以获取 MCP 配置。';
-        if (btn) btn.style.display = 'none';
+      const toggle = document.getElementById('mcpEnabledToggle');
+      const status = document.getElementById('mcpStatus');
+      if (!pre || !btn || !toggle || !status) return;
+      const enabled = !!(state && state.enabled);
+      const token = state && state.token ? state.token : '';
+      toggle.checked = enabled;
+      toggle.disabled = false;
+      if (!enabled || !token) {
+        pre.textContent = '当前未启用长效 MCP Token。开启后会生成一个长期可复用的专用 token，服务重启后仍可继续使用。';
+        btn.style.display = 'none';
+        status.textContent = enabled ? '配置读取失败，请关闭后重新开启一次。' : '当前已关闭。开启后即可复制可直接使用的 MCP 配置。';
         return;
       }
       const url = window.location.origin + prefix + '/mcp/sse?token=' + encodeURIComponent(token);
       const config = { mcpServers: { 'course-assistant': { url: url } } };
       pre.textContent = JSON.stringify(config, null, 2);
+      btn.style.display = '';
+      status.textContent = '当前已启用长效 Token，可直接复制到 Trae、Cursor 或 Claude Desktop。';
       if (btn) {
         btn.onclick = function() {
           navigator.clipboard.writeText(pre.textContent).then(() => {
@@ -2459,7 +2475,58 @@
         };
       }
     }
-    renderMCPConfig();
+
+    async function loadMCPConfig() {
+      const pre = document.getElementById('mcpConfig');
+      const toggle = document.getElementById('mcpEnabledToggle');
+      const status = document.getElementById('mcpStatus');
+      if (!pre || !toggle || !status) return;
+      toggle.disabled = true;
+      pre.textContent = '加载中…';
+      status.textContent = '正在读取 MCP 配置…';
+      try {
+        const r = await fetch('/api/teacher/mcp', { credentials: 'include' });
+        if (!r.ok) {
+          pre.textContent = '读取失败，请稍后重试。';
+          status.textContent = await r.text();
+          toggle.disabled = false;
+          return;
+        }
+        renderMCPConfig(await r.json());
+      } catch (_) {
+        pre.textContent = '读取失败，请检查网络或稍后重试。';
+        status.textContent = '无法连接到服务器。';
+        toggle.disabled = false;
+      }
+    }
+
+    async function onMCPEnabledToggle() {
+      const toggle = document.getElementById('mcpEnabledToggle');
+      if (!toggle) return;
+      const enabled = !!toggle.checked;
+      toggle.disabled = true;
+      try {
+        const r = await fetch('/api/teacher/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ enabled })
+        });
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
+        renderMCPConfig(await r.json());
+        showToast(enabled ? '已开启长效 MCP Token' : '已关闭长效 MCP Token');
+      } catch (err) {
+        showToast(err && err.message ? err.message : '保存 MCP 配置失败');
+        await loadMCPConfig();
+      }
+    }
+
+    const mcpToggle = document.getElementById('mcpEnabledToggle');
+    if (mcpToggle) {
+      mcpToggle.addEventListener('change', onMCPEnabledToggle);
+    }
   </script>
 </body>
 </html>

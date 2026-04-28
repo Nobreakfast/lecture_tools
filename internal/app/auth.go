@@ -4,6 +4,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -65,6 +66,9 @@ func (s *Server) getAuthSessionByToken(token string) *authSession {
 	tokenCount := len(s.authTokens)
 	s.authMu.RUnlock()
 	if !ok {
+		if sess := s.getPersistentMCPSessionByToken(context.Background(), token); sess != nil {
+			return sess
+		}
 		log.Printf("mcp auth: token not found (len=%d, token_prefix=%s)", tokenCount, token[:min(8, len(token))])
 		return nil
 	}
