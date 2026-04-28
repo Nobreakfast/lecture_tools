@@ -35,11 +35,13 @@ func TestCreateAndApplyPendingSnapshotRestore(t *testing.T) {
 	}
 	quizFile := filepath.Join(cfg.MetadataDir, "teacher1", "course1", "quiz", "week1", "week1.yaml")
 	submissionFile := filepath.Join(cfg.MetadataDir, "teacher1", "course1", "assignment", "hw1", "submissions", "2023001", "sub1", "report.pdf")
+	qaFile := filepath.Join(cfg.MetadataDir, "teacher1", "course1", "assignment", "hw1", "qa", "qa1", "question", "q.jpg")
 	materialFile := filepath.Join(cfg.MetadataDir, "teacher1", "course1", "materials", "slide.pdf")
 	assignmentSpec := filepath.Join(cfg.MetadataDir, "teacher1", "course1", "assignment", "hw1", "spec.pdf")
 	for path, content := range map[string]string{
 		quizFile:       "before-quiz",
 		submissionFile: "before-submission",
+		qaFile:         "before-qa",
 		materialFile:   "before-material",
 		assignmentSpec: "before-spec",
 	} {
@@ -65,6 +67,7 @@ func TestCreateAndApplyPendingSnapshotRestore(t *testing.T) {
 	for path, content := range map[string]string{
 		quizFile:       "after-quiz",
 		submissionFile: "after-submission",
+		qaFile:         "after-qa",
 		materialFile:   "after-material",
 		assignmentSpec: "after-spec",
 	} {
@@ -111,6 +114,7 @@ func TestCreateAndApplyPendingSnapshotRestore(t *testing.T) {
 	for path, want := range map[string]string{
 		quizFile:       "before-quiz",
 		submissionFile: "before-submission",
+		qaFile:         "before-qa",
 		materialFile:   "after-material",
 		assignmentSpec: "after-spec",
 	} {

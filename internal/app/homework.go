@@ -41,6 +41,8 @@ const (
 	homeworkAssignmentsFolder       = "_homework"
 	homeworkAssignmentPDFMaxSize    = 500 << 20
 	homeworkOthersMaxSize           = 50 << 20
+	homeworkQAImageMaxSize          = 8 << 20
+	homeworkQAImageMaxCount         = 5
 	homeworkOthersFolder            = "others"
 	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
 )
@@ -171,6 +173,194 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(fileName, "download.bin")))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, fp)
+}
+
+func (s *Server) apiHomeworkQA(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		course, assignmentID, ok := s.resolveHomeworkQARequest(w, r)
+		if !ok {
+			return
+		}
+		items, err := s.store.ListHomeworkQA(r.Context(), course.ID, course.Slug, assignmentID, false, false)
+		if err != nil {
+			http.Error(w, "读取 Q&A 失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"items": homeworkQAPayloads(items, false)})
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, int64((homeworkQAImageMaxCount*homeworkQAImageMaxSize)+(1<<20)))
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "请求过大或格式错误", http.StatusBadRequest)
+			return
+		}
+		course, assignmentID, ok := s.resolveHomeworkQARequest(w, r)
+		if !ok {
+			return
+		}
+		question := strings.TrimSpace(r.FormValue("question"))
+		if question == "" {
+			http.Error(w, "问题不能为空", http.StatusBadRequest)
+			return
+		}
+		if len([]rune(question)) > 1000 {
+			http.Error(w, "问题不能超过 1000 字", http.StatusBadRequest)
+			return
+		}
+		qaID := newID()
+		images, err := s.saveHomeworkQAImages(r, course, assignmentID, qaID, "question")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		now := time.Now()
+		qa := &domain.HomeworkQA{
+			ID:             qaID,
+			Course:         course.Slug,
+			CourseID:       course.ID,
+			AssignmentID:   assignmentID,
+			Question:       question,
+			QuestionImages: images,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		if err := s.store.CreateHomeworkQuestion(r.Context(), qa); err != nil {
+			_ = os.RemoveAll(s.metadataHomeworkQADir(course.TeacherID, course.Slug, assignmentID, qaID))
+			http.Error(w, "保存问题失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) apiTeacherCourseHomeworkQA(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(r.URL.Query().Get("assignment_id"))
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	if !s.homeworkAssignmentExists(course.Slug, courseID, assignmentID) {
+		http.Error(w, "作业不存在", http.StatusNotFound)
+		return
+	}
+	items, err := s.store.ListHomeworkQA(r.Context(), courseID, course.Slug, assignmentID, true, true)
+	if err != nil {
+		http.Error(w, "读取 Q&A 失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"items": homeworkQAPayloads(items, true)})
+}
+
+func (s *Server) apiTeacherCourseHomeworkQAAnswer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, int64((homeworkQAImageMaxCount*homeworkQAImageMaxSize)+(1<<20)))
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "请求过大或格式错误", http.StatusBadRequest)
+		return
+	}
+	qa, ok := s.resolveTeacherHomeworkQA(w, r, course)
+	if !ok {
+		return
+	}
+	answer := strings.TrimSpace(r.FormValue("answer"))
+	if answer == "" {
+		http.Error(w, "回答不能为空", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(answer)) > 3000 {
+		http.Error(w, "回答不能超过 3000 字", http.StatusBadRequest)
+		return
+	}
+	images, err := s.saveHomeworkQAImages(r, course, qa.AssignmentID, qa.ID, "answer")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(images) == 0 {
+		images = qa.AnswerImages
+	}
+	if err := s.store.AnswerHomeworkQuestion(r.Context(), qa.ID, answer, images); err != nil {
+		http.Error(w, "保存回答失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiTeacherCourseHomeworkQAPin(w http.ResponseWriter, r *http.Request) {
+	s.apiTeacherCourseHomeworkQABool(w, r, "pinned")
+}
+
+func (s *Server) apiTeacherCourseHomeworkQAHidden(w http.ResponseWriter, r *http.Request) {
+	s.apiTeacherCourseHomeworkQABool(w, r, "hidden")
+}
+
+func (s *Server) apiTeacherCourseHomeworkQABool(w http.ResponseWriter, r *http.Request, field string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		ID    string `json:"id"`
+		Value bool   `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	qa, ok := s.resolveTeacherHomeworkQAByID(w, r, course, req.ID)
+	if !ok {
+		return
+	}
+	value := req.Value
+	if field == "pinned" {
+		err = s.store.SetHomeworkQuestionPinned(r.Context(), qa.ID, value)
+	} else {
+		err = s.store.SetHomeworkQuestionHidden(r.Context(), qa.ID, value)
+	}
+	if err != nil {
+		http.Error(w, "更新失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
@@ -1239,6 +1429,10 @@ func (s *Server) metadataHomeworkSubmissionDir(teacherID, courseSlug string, sub
 	return newDir
 }
 
+func (s *Server) metadataHomeworkQADir(teacherID, courseSlug, assignmentID, qaID string) string {
+	return filepath.Join(s.metadataAssignmentDir(teacherID, courseSlug, assignmentID), "qa", safePathPart(qaID))
+}
+
 func (s *Server) resolveHomeworkAssignmentDirForCourse(course *domain.Course, assignmentID string) string {
 	metaDir := s.metadataHomeworkAssignmentDir(course.TeacherID, course.Slug, assignmentID)
 	if _, err := os.Stat(metaDir); err == nil {
@@ -1636,6 +1830,147 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		payload["bulk_archive_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/archive-all?" + bulkParams.Encode()
 	}
 	return payload
+}
+
+func (s *Server) resolveHomeworkQARequest(w http.ResponseWriter, r *http.Request) (*domain.Course, string, bool) {
+	rawCourseID := strings.TrimSpace(r.FormValue("course_id"))
+	if rawCourseID == "" {
+		rawCourseID = strings.TrimSpace(r.URL.Query().Get("course_id"))
+	}
+	courseID, err := strconv.Atoi(rawCourseID)
+	if err != nil || courseID <= 0 {
+		http.Error(w, "课程无效", http.StatusBadRequest)
+		return nil, "", false
+	}
+	course, err := s.store.GetCourse(r.Context(), courseID)
+	if err != nil || course == nil {
+		http.Error(w, "课程无效", http.StatusBadRequest)
+		return nil, "", false
+	}
+	assignmentID, err := validateHomeworkAssignmentID(r.FormValue("assignment_id"))
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return nil, "", false
+	}
+	if !s.homeworkAssignmentExists(course.Slug, course.ID, assignmentID) {
+		http.Error(w, "作业不存在", http.StatusNotFound)
+		return nil, "", false
+	}
+	return course, assignmentID, true
+}
+
+func (s *Server) resolveTeacherHomeworkQA(w http.ResponseWriter, r *http.Request, course *domain.Course) (*domain.HomeworkQA, bool) {
+	return s.resolveTeacherHomeworkQAByID(w, r, course, strings.TrimSpace(r.FormValue("id")))
+}
+
+func (s *Server) resolveTeacherHomeworkQAByID(w http.ResponseWriter, r *http.Request, course *domain.Course, id string) (*domain.HomeworkQA, bool) {
+	if id == "" {
+		http.Error(w, "缺少 id 参数", http.StatusBadRequest)
+		return nil, false
+	}
+	qa, err := s.store.GetHomeworkQAByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "问题不存在", http.StatusNotFound)
+		return nil, false
+	}
+	if qa.CourseID != course.ID {
+		http.Error(w, "无权限访问此问题", http.StatusForbidden)
+		return nil, false
+	}
+	return qa, true
+}
+
+func homeworkQAPayloads(items []domain.HomeworkQA, includePrivate bool) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		payload := map[string]any{
+			"id":              item.ID,
+			"assignment_id":   item.AssignmentID,
+			"question":        item.Question,
+			"question_images": item.QuestionImages,
+			"answer":          item.Answer,
+			"answer_images":   item.AnswerImages,
+			"pinned":          item.Pinned,
+			"created_at":      item.CreatedAt,
+			"answered_at":     item.AnsweredAt,
+			"updated_at":      item.UpdatedAt,
+		}
+		if includePrivate {
+			payload["hidden"] = item.Hidden
+			payload["unanswered"] = strings.TrimSpace(item.Answer) == ""
+		}
+		result = append(result, payload)
+	}
+	return result
+}
+
+func (s *Server) saveHomeworkQAImages(r *http.Request, course *domain.Course, assignmentID, qaID, kind string) ([]string, error) {
+	files := homeworkQAImageHeaders(r)
+	if len(files) == 0 {
+		return []string{}, nil
+	}
+	if len(files) > homeworkQAImageMaxCount {
+		return nil, fmt.Errorf("最多上传 %d 张图片", homeworkQAImageMaxCount)
+	}
+	dir := filepath.Join(s.metadataHomeworkQADir(course.TeacherID, course.Slug, assignmentID, qaID), safePathPart(kind))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("创建图片目录失败")
+	}
+	urls := make([]string, 0, len(files))
+	for idx, header := range files {
+		data, ext, err := readHomeworkQAImage(header)
+		if err != nil {
+			return nil, err
+		}
+		filename := fmt.Sprintf("%s_%d_%d%s", kind, time.Now().UnixMilli(), idx+1, ext)
+		if err := os.WriteFile(filepath.Join(dir, filename), data, 0o644); err != nil {
+			return nil, fmt.Errorf("写入图片失败")
+		}
+		rel, _ := filepath.Rel(s.cfg.MetadataDir, filepath.Join(dir, filename))
+		urls = append(urls, s.pathPrefix()+"/uploads/"+filepath.ToSlash(rel))
+	}
+	return urls, nil
+}
+
+func homeworkQAImageHeaders(r *http.Request) []*multipart.FileHeader {
+	if r.MultipartForm == nil || r.MultipartForm.File == nil {
+		return nil
+	}
+	files := make([]*multipart.FileHeader, 0)
+	files = append(files, r.MultipartForm.File["images"]...)
+	files = append(files, r.MultipartForm.File["images[]"]...)
+	return files
+}
+
+func readHomeworkQAImage(header *multipart.FileHeader) ([]byte, string, error) {
+	if header == nil {
+		return nil, "", fmt.Errorf("图片无效")
+	}
+	if header.Size > homeworkQAImageMaxSize {
+		return nil, "", fmt.Errorf("单张图片不能超过 8 MB")
+	}
+	file, err := header.Open()
+	if err != nil {
+		return nil, "", fmt.Errorf("读取图片失败")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, homeworkQAImageMaxSize+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("读取图片失败")
+	}
+	if len(data) > homeworkQAImageMaxSize {
+		return nil, "", fmt.Errorf("单张图片不能超过 8 MB")
+	}
+	if len(data) < 4 {
+		return nil, "", fmt.Errorf("图片文件太小")
+	}
+	if data[0] == 0xFF && data[1] == 0xD8 {
+		return data, ".jpg", nil
+	}
+	if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+		return data, ".png", nil
+	}
+	return nil, "", fmt.Errorf("仅支持 JPEG/PNG 格式图片")
 }
 
 func homeworkFilePayload(submission *domain.HomeworkSubmission, slot domain.HomeworkFileSlot) map[string]any {

@@ -28,7 +28,7 @@ func newHomeworkTestServer(t *testing.T) *Server {
 	}
 	s := &Server{
 		cfg:        Config{DataDir: dataDir, MetadataDir: metadataDir},
-		store:      &memStore{},
+		store:      &memStore{courses: []domain.Course{{ID: 1, TeacherID: "admin", Name: "course-a", Slug: "course-a", InternalName: "course-a"}, {ID: 2, TeacherID: "admin", Name: "course-b", Slug: "course-b", InternalName: "course-b"}}},
 		authTokens: map[string]authSession{"test-admin": {TeacherID: "admin", Role: domain.RoleAdmin, Expiry: time.Now().Add(time.Hour)}},
 	}
 	writeHomeworkAssignmentPDF(t, s, "course-a", "task-1", []byte("%PDF-1.4\nassignment-one"))
@@ -121,6 +121,37 @@ func doHomeworkUpload(t *testing.T, h http.Handler, target string, fields map[st
 	}
 	if _, err := fw.Write(data); err != nil {
 		t.Fatalf("Write upload data: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("Close multipart writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, target, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
+}
+
+func doHomeworkQAUpload(t *testing.T, h http.Handler, target string, fields map[string]string, images map[string][]byte, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for key, value := range fields {
+		if err := mw.WriteField(key, value); err != nil {
+			t.Fatalf("WriteField(%s): %v", key, err)
+		}
+	}
+	for filename, data := range images {
+		fw, err := mw.CreateFormFile("images", filename)
+		if err != nil {
+			t.Fatalf("CreateFormFile(%s): %v", filename, err)
+		}
+		if _, err := fw.Write(data); err != nil {
+			t.Fatalf("Write QA image data(%s): %v", filename, err)
+		}
 	}
 	if err := mw.Close(); err != nil {
 		t.Fatalf("Close multipart writer: %v", err)
@@ -362,7 +393,6 @@ func TestHomeworkAssignmentFilesStayOutOfMaterialsRoutes(t *testing.T) {
 	}
 }
 
-
 func TestHomeworkOthersUploadListRenameDeleteFlow(t *testing.T) {
 	s := newHomeworkTestServer(t)
 	h := s.Routes()
@@ -542,6 +572,89 @@ func TestHomeworkOthersInvalidFilename(t *testing.T) {
 	dotRR := doHomeworkUpload(t, h, "/api/homework/others/upload", nil, ".hidden", []byte("data"), cookie)
 	if dotRR.Code != http.StatusBadRequest {
 		t.Fatalf("expected dot-file upload 400, got %d", dotRR.Code)
+	}
+}
+
+func TestHomeworkQAWithImagesLifecycle(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3}
+
+	createRR := doHomeworkQAUpload(t, h, "/api/homework/qa", map[string]string{
+		"course_id":     "1",
+		"assignment_id": "task-1",
+		"question":      "可以手写拍照吗？",
+	}, map[string][]byte{"question.png": png})
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected QA create 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+
+	publicRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/qa?course_id=1&assignment_id=task-1", nil)
+	if publicRR.Code != http.StatusOK {
+		t.Fatalf("expected public QA list 200, got %d", publicRR.Code)
+	}
+	var publicResp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(publicRR.Body.Bytes(), &publicResp); err != nil {
+		t.Fatalf("unmarshal public QA response: %v", err)
+	}
+	if len(publicResp.Items) != 0 {
+		t.Fatalf("unanswered QA should not be public: %+v", publicResp.Items)
+	}
+
+	adminCookie := &http.Cookie{Name: "auth_token", Value: "test-admin"}
+	teacherRR := doHomeworkJSON(t, h, http.MethodGet, "/api/teacher/courses/homework/qa?course_id=1&assignment_id=task-1", nil, adminCookie)
+	if teacherRR.Code != http.StatusOK {
+		t.Fatalf("expected teacher QA list 200, got %d body=%s", teacherRR.Code, teacherRR.Body.String())
+	}
+	var teacherResp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(teacherRR.Body.Bytes(), &teacherResp); err != nil {
+		t.Fatalf("unmarshal teacher QA response: %v", err)
+	}
+	if len(teacherResp.Items) != 1 {
+		t.Fatalf("teacher should see unanswered QA, got %+v", teacherResp.Items)
+	}
+	qaID, _ := teacherResp.Items[0]["id"].(string)
+	if qaID == "" {
+		t.Fatalf("missing QA id: %+v", teacherResp.Items[0])
+	}
+
+	answerRR := doHomeworkQAUpload(t, h, "/api/teacher/courses/homework/qa/answer?course_id=1", map[string]string{
+		"id":     qaID,
+		"answer": "可以，图片要清晰。",
+	}, map[string][]byte{"answer.png": png}, adminCookie)
+	if answerRR.Code != http.StatusOK {
+		t.Fatalf("expected answer 200, got %d body=%s", answerRR.Code, answerRR.Body.String())
+	}
+	pinRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/qa/pin?course_id=1", []byte(`{"id":"`+qaID+`","value":true}`), adminCookie)
+	if pinRR.Code != http.StatusOK {
+		t.Fatalf("expected pin 200, got %d body=%s", pinRR.Code, pinRR.Body.String())
+	}
+
+	publicRR = doHomeworkJSON(t, h, http.MethodGet, "/api/homework/qa?course_id=1&assignment_id=task-1", nil)
+	if err := json.Unmarshal(publicRR.Body.Bytes(), &publicResp); err != nil {
+		t.Fatalf("unmarshal public answered QA response: %v", err)
+	}
+	if len(publicResp.Items) != 1 || publicResp.Items[0]["answer"] != "可以，图片要清晰。" || publicResp.Items[0]["pinned"] != true {
+		t.Fatalf("unexpected public answered QA: %+v", publicResp.Items)
+	}
+	if len(publicResp.Items[0]["question_images"].([]any)) != 1 || len(publicResp.Items[0]["answer_images"].([]any)) != 1 {
+		t.Fatalf("expected question and answer images: %+v", publicResp.Items[0])
+	}
+
+	hideRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/qa/hidden?course_id=1", []byte(`{"id":"`+qaID+`","value":true}`), adminCookie)
+	if hideRR.Code != http.StatusOK {
+		t.Fatalf("expected hide 200, got %d body=%s", hideRR.Code, hideRR.Body.String())
+	}
+	publicRR = doHomeworkJSON(t, h, http.MethodGet, "/api/homework/qa?course_id=1&assignment_id=task-1", nil)
+	if err := json.Unmarshal(publicRR.Body.Bytes(), &publicResp); err != nil {
+		t.Fatalf("unmarshal public hidden QA response: %v", err)
+	}
+	if len(publicResp.Items) != 0 {
+		t.Fatalf("hidden QA should not be public: %+v", publicResp.Items)
 	}
 }
 

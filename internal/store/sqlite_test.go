@@ -326,6 +326,73 @@ func TestGetCourseFallsBackToLegacySlugWhenDualNamesMissing(t *testing.T) {
 	}
 }
 
+func TestHomeworkQALifecycle(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-homework-qa?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	qa := &domain.HomeworkQA{
+		ID:             "qa-1",
+		CourseID:       10,
+		Course:         "course-a",
+		AssignmentID:   "task-1",
+		Question:       "请问报告格式？",
+		QuestionImages: []string{"/uploads/t/c/assignment/task-1/qa/qa-1/question/q.jpg"},
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := st.CreateHomeworkQuestion(ctx, qa); err != nil {
+		t.Fatalf("CreateHomeworkQuestion failed: %v", err)
+	}
+	publicItems, err := st.ListHomeworkQA(ctx, 10, "", "task-1", false, false)
+	if err != nil {
+		t.Fatalf("ListHomeworkQA public failed: %v", err)
+	}
+	if len(publicItems) != 0 {
+		t.Fatalf("unanswered question should be hidden from public list")
+	}
+	if err := st.AnswerHomeworkQuestion(ctx, "qa-1", "按模板填写。", []string{"/uploads/t/c/assignment/task-1/qa/qa-1/answer/a.png"}); err != nil {
+		t.Fatalf("AnswerHomeworkQuestion failed: %v", err)
+	}
+	if err := st.SetHomeworkQuestionPinned(ctx, "qa-1", true); err != nil {
+		t.Fatalf("SetHomeworkQuestionPinned failed: %v", err)
+	}
+	publicItems, err = st.ListHomeworkQA(ctx, 10, "", "task-1", false, false)
+	if err != nil {
+		t.Fatalf("ListHomeworkQA answered failed: %v", err)
+	}
+	if len(publicItems) != 1 || !publicItems[0].Pinned || publicItems[0].Answer != "按模板填写。" || len(publicItems[0].QuestionImages) != 1 || len(publicItems[0].AnswerImages) != 1 {
+		t.Fatalf("unexpected public QA item: %+v", publicItems)
+	}
+	if publicItems[0].AnsweredAt == nil {
+		t.Fatalf("answered_at should be set")
+	}
+	if err := st.SetHomeworkQuestionHidden(ctx, "qa-1", true); err != nil {
+		t.Fatalf("SetHomeworkQuestionHidden failed: %v", err)
+	}
+	publicItems, err = st.ListHomeworkQA(ctx, 10, "", "task-1", false, false)
+	if err != nil {
+		t.Fatalf("ListHomeworkQA hidden failed: %v", err)
+	}
+	if len(publicItems) != 0 {
+		t.Fatalf("hidden question should not be public")
+	}
+	teacherItems, err := st.ListHomeworkQA(ctx, 10, "", "task-1", true, true)
+	if err != nil {
+		t.Fatalf("ListHomeworkQA teacher failed: %v", err)
+	}
+	if len(teacherItems) != 1 || !teacherItems[0].Hidden {
+		t.Fatalf("teacher should see hidden QA item: %+v", teacherItems)
+	}
+}
+
 func TestHomeworkSubmissionSchemaCutoverDropsLegacyColumns(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-homework-schema-cutover?mode=memory&cache=shared")

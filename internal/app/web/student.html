@@ -145,6 +145,16 @@
     .download-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
     .download-item:last-child { border-bottom: 0; }
     .download-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+    .qa-toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    .qa-list { margin-top:12px; display:grid; gap:10px; }
+    .qa-item { border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:12px; font-size:13px; line-height:1.7; }
+    .qa-item.pinned { border-color:var(--primary); box-shadow:0 0 0 2px rgba(79,70,229,0.08); }
+    .qa-label { font-size:12px; color:var(--text-muted); font-weight:700; margin-bottom:4px; }
+    .qa-images { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .qa-images img { width:96px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+    .qa-form { display:none; margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:var(--radius); background:#fff; }
+    .qa-form.show { display:block; }
+    .qa-form textarea { width:100%; min-height:86px; resize:vertical; border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; font-family:inherit; font-size:14px; }
     .others-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
     .others-item:last-child { border-bottom: 0; }
     .others-item .others-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -292,9 +302,25 @@
       </div>
 
       <div class="card">
-        <div class="section-title">2. 下载本次作业文件</div>
-        <div class="section-hint">这里列出老师为当前作业准备的所有文件。</div>
+        <div class="qa-toolbar">
+          <div>
+            <div class="section-title" style="margin-bottom:4px;">2. 下载本次作业文件</div>
+            <div class="section-hint" style="margin-bottom:0;">这里列出老师为当前作业准备的所有文件。</div>
+          </div>
+          <button id="qaToggleBtn" class="secondary" style="margin-top:0;">提问</button>
+        </div>
         <div id="assignmentFiles" class="download-list"><div class="download-empty">请先选择作业编号并点击"进入"。</div></div>
+        <div id="qaForm" class="qa-form">
+          <textarea id="qaQuestionInput" maxlength="1000" placeholder="请输入你的问题，教师回答后会匿名公开给所有同学查看。"></textarea>
+          <div class="actions">
+            <input id="qaImageInput" type="file" accept="image/*" multiple style="display:none;" />
+            <button id="qaImageBtn" class="secondary" type="button">选择图片</button>
+            <button id="qaSubmitBtn" type="button">提交问题</button>
+          </div>
+          <div id="qaImageInfo" class="download-meta">最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。</div>
+          <div id="qaMessage" class="message info"></div>
+        </div>
+        <div id="qaList" class="qa-list"></div>
       </div>
 
       <div class="card" id="submissionCard" style="display:none;">
@@ -337,6 +363,7 @@
     var course = null;   // { id, name, slug, teacher_name, invite_code }
     var pollTimer = null;
     var assignmentItems = [];
+    var qaItems = [];
 
     // ── Helpers ──
     function escapeHTML(s) {
@@ -708,14 +735,15 @@
     }
     async function previewAssignmentFiles() {
       var aid = document.getElementById('assignment_id').value.trim();
-      if (!course || !aid) { assignmentItems = []; renderAssignmentFiles(); return; }
+      if (!course || !aid) { assignmentItems = []; qaItems = []; renderAssignmentFiles(); renderQA(); return; }
       try {
         var r = await fetch('/api/homework/assignment-preview?course_id=' + course.id + '&assignment_id=' + encodeURIComponent(aid), { credentials: 'include' });
-        if (!r.ok) { assignmentItems = []; renderAssignmentFiles(); return; }
+        if (!r.ok) { assignmentItems = []; qaItems = []; renderAssignmentFiles(); renderQA(); return; }
         var data = await r.json();
         assignmentItems = data.items || [];
         renderAssignmentFiles();
-      } catch (_) { assignmentItems = []; renderAssignmentFiles(); }
+        await loadQA();
+      } catch (_) { assignmentItems = []; qaItems = []; renderAssignmentFiles(); renderQA(); }
     }
     function renderAssignmentFiles() {
       var root = document.getElementById('assignmentFiles');
@@ -726,6 +754,66 @@
       root.innerHTML = files.map(function(file) {
         return '<div class="download-item"><span>' + escapeHTML(file.name) + ' <span class="download-meta" style="margin-top:0;">' + escapeHTML(formatSize(file.size)) + '</span></span><div class="download-actions"><a class="link-btn secondary" href="' + escapeHTML(file.download_url) + '">下载</a></div></div>';
       }).join('');
+    }
+    async function loadQA() {
+      var aid = document.getElementById('assignment_id').value.trim();
+      if (!course || !aid) { qaItems = []; renderQA(); return; }
+      try {
+        var r = await fetch('/api/homework/qa?course_id=' + encodeURIComponent(course.id) + '&assignment_id=' + encodeURIComponent(aid), { credentials: 'include' });
+        if (!r.ok) { qaItems = []; renderQA(); return; }
+        var data = await r.json();
+        qaItems = data.items || [];
+        renderQA();
+      } catch (_) { qaItems = []; renderQA(); }
+    }
+    function renderQA() {
+      var root = document.getElementById('qaList');
+      var aid = document.getElementById('assignment_id').value.trim();
+      if (!course || !aid) { root.innerHTML = ''; return; }
+      if (!qaItems.length) {
+        root.innerHTML = '<div class="download-empty">暂无已回答的问题。</div>';
+        return;
+      }
+      root.innerHTML = qaItems.map(function(item) {
+        return '<div class="qa-item ' + (item.pinned ? 'pinned' : '') + '">' +
+          '<div class="qa-label">' + (item.pinned ? '置顶 · ' : '') + '问题</div>' +
+          '<div>' + escapeHTML(item.question || '') + '</div>' +
+          renderQAImages(item.question_images) +
+          '<div class="qa-label" style="margin-top:10px;">回答</div>' +
+          '<div>' + escapeHTML(item.answer || '') + '</div>' +
+          renderQAImages(item.answer_images) +
+          '</div>';
+      }).join('');
+    }
+    function renderQAImages(images) {
+      if (!images || !images.length) return '';
+      return '<div class="qa-images">' + images.map(function(url) {
+        return '<a href="' + escapeHTML(url) + '" target="_blank"><img src="' + escapeHTML(url) + '" alt="Q&A 图片" /></a>';
+      }).join('') + '</div>';
+    }
+    async function submitQAQuestion() {
+      var aid = document.getElementById('assignment_id').value.trim();
+      var text = document.getElementById('qaQuestionInput').value.trim();
+      if (!course || !aid) { setMessage('qaMessage', 'error', '请先选择作业编号。'); return; }
+      if (!text) { setMessage('qaMessage', 'error', '请输入问题。'); return; }
+      var files = Array.from(document.getElementById('qaImageInput').files || []);
+      if (files.length > 5) { setMessage('qaMessage', 'error', '最多上传 5 张图片。'); return; }
+      var fd = new FormData();
+      fd.append('course_id', course.id);
+      fd.append('assignment_id', aid);
+      fd.append('question', text);
+      files.forEach(function(file) { fd.append('images', file); });
+      try {
+        var r = await fetch('/api/homework/qa', { method: 'POST', credentials: 'include', body: fd });
+        if (!r.ok) { setMessage('qaMessage', 'error', await r.text()); return; }
+        document.getElementById('qaQuestionInput').value = '';
+        document.getElementById('qaImageInput').value = '';
+        document.getElementById('qaImageInfo').textContent = '最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。';
+        setMessage('qaMessage', 'info', '问题已提交，教师回答后会公开显示。');
+        await loadQA();
+      } catch (_) {
+        setMessage('qaMessage', 'error', '提交失败，请重试。');
+      }
     }
     function renderSubmission(submission) {
       var card = document.getElementById('submissionCard');
@@ -930,6 +1018,15 @@
       else { inp.type = 'password'; this.textContent = '👁'; }
     };
     document.getElementById('assignment_id').onchange = previewAssignmentFiles;
+    document.getElementById('qaToggleBtn').onclick = function() {
+      document.getElementById('qaForm').classList.toggle('show');
+    };
+    document.getElementById('qaImageBtn').onclick = function() { document.getElementById('qaImageInput').click(); };
+    document.getElementById('qaImageInput').onchange = function() {
+      var files = Array.from(this.files || []);
+      document.getElementById('qaImageInfo').textContent = files.length ? ('已选择 ' + files.length + ' 张图片') : '最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。';
+    };
+    document.getElementById('qaSubmitBtn').onclick = submitQAQuestion;
     document.getElementById('enterBtn').onclick = startOrResumeSubmission;
     document.getElementById('refreshBtn').onclick = function() { fetchCurrentSubmission(true); };
     document.getElementById('reportUploadBtn').onclick = function() { document.getElementById('reportInput').click(); };

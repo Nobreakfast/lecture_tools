@@ -534,7 +534,7 @@ func (s *Server) prepareSnapshotMetadata(tmpDir, mode string) (string, []string,
 			return "", nil, 0, 0, err
 		}
 		files, size, err := dirStats(liteRoot)
-		return liteRoot, []string{"metadata/*/*/quiz/**", "metadata/*/*/assignment/*/submissions/**"}, files, size, err
+		return liteRoot, []string{"metadata/*/*/quiz/**", "metadata/*/*/assignment/*/submissions/**", "metadata/*/*/assignment/*/qa/**"}, files, size, err
 	default:
 		return "", nil, 0, 0, fmt.Errorf("不支持的快照模式: %s", mode)
 	}
@@ -589,7 +589,7 @@ func shouldIncludeLiteMetadata(rel string, isDir bool) bool {
 	if len(parts) <= 4 {
 		return isDir
 	}
-	return parts[4] == "submissions"
+	return parts[4] == "submissions" || parts[4] == "qa"
 }
 
 func createSQLiteSnapshot(ctx context.Context, dbPath, snapshotPath string) error {
@@ -966,18 +966,20 @@ func applyLiteMetadataRestore(srcRoot, dstRoot string) error {
 				if !assignment.IsDir() {
 					continue
 				}
-				submissionsSrc := filepath.Join(assignmentsSrc, assignment.Name(), "submissions")
-				if _, err := os.Stat(submissionsSrc); errors.Is(err, os.ErrNotExist) {
-					continue
-				} else if err != nil {
-					return err
-				}
 				assignmentDst := filepath.Join(courseDst, "assignment", assignment.Name())
 				if err := os.MkdirAll(assignmentDst, 0o755); err != nil {
 					return err
 				}
-				if err := replacePath(submissionsSrc, filepath.Join(assignmentDst, "submissions")); err != nil {
-					return err
+				for _, child := range []string{"submissions", "qa"} {
+					childSrc := filepath.Join(assignmentsSrc, assignment.Name(), child)
+					if _, err := os.Stat(childSrc); errors.Is(err, os.ErrNotExist) {
+						continue
+					} else if err != nil {
+						return err
+					}
+					if err := replacePath(childSrc, filepath.Join(assignmentDst, child)); err != nil {
+						return err
+					}
 				}
 			}
 		}

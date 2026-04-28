@@ -7,6 +7,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -112,6 +113,21 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			created_at TEXT NOT NULL,
 			revoked_at TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS homework_qa (
+			id TEXT PRIMARY KEY,
+			course TEXT NOT NULL,
+			course_id INTEGER NOT NULL DEFAULT 0,
+			assignment_id TEXT NOT NULL,
+			question TEXT NOT NULL,
+			question_images_json TEXT NOT NULL DEFAULT '[]',
+			answer TEXT NOT NULL DEFAULT '',
+			answer_images_json TEXT NOT NULL DEFAULT '[]',
+			pinned INTEGER NOT NULL DEFAULT 0,
+			hidden INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			answered_at TEXT,
+			updated_at TEXT NOT NULL
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -158,6 +174,8 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_summaries_course_quiz ON admin_summaries(course_id, quiz_id);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_share_token ON quiz_share(share_token) WHERE revoked_at IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_quiz_share_lookup ON quiz_share(course_id, quiz_id) WHERE revoked_at IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_homework_qa_lookup ON homework_qa(course_id, assignment_id, hidden, pinned, updated_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_homework_qa_course_assignment ON homework_qa(course_id, assignment_id);`,
 	}
 	for _, idx := range indexes {
 		if _, err := s.db.ExecContext(ctx, idx); err != nil {
@@ -683,6 +701,10 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM homework_qa WHERE course_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM quiz_share WHERE course_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -978,6 +1000,123 @@ func (s *SQLiteStore) DeleteHomeworkSubmission(ctx context.Context, submissionID
 	return sql.ErrNoRows
 }
 
+func (s *SQLiteStore) CreateHomeworkQuestion(ctx context.Context, qa *domain.HomeworkQA) error {
+	questionImages, err := encodeStringSlice(qa.QuestionImages)
+	if err != nil {
+		return err
+	}
+	answerImages, err := encodeStringSlice(qa.AnswerImages)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO homework_qa(
+		id, course, course_id, assignment_id, question, question_images_json,
+		answer, answer_images_json, pinned, hidden, created_at, answered_at, updated_at
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		qa.ID, qa.Course, qa.CourseID, qa.AssignmentID, qa.Question, questionImages,
+		qa.Answer, answerImages, boolToInt(qa.Pinned), boolToInt(qa.Hidden),
+		qa.CreatedAt.Format(time.RFC3339Nano), formatTimePtr(qa.AnsweredAt), qa.UpdatedAt.Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (s *SQLiteStore) ListHomeworkQA(ctx context.Context, courseID int, course, assignmentID string, includeUnanswered, includeHidden bool) ([]domain.HomeworkQA, error) {
+	query := `SELECT id, course, course_id, assignment_id, question, question_images_json, answer, answer_images_json, pinned, hidden, created_at, answered_at, updated_at FROM homework_qa`
+	args := make([]any, 0, 4)
+	filters := make([]string, 0, 4)
+	if courseID > 0 {
+		filters = append(filters, "course_id = ?")
+		args = append(args, courseID)
+	} else if strings.TrimSpace(course) != "" {
+		filters = append(filters, "course = ?")
+		args = append(args, course)
+	}
+	if strings.TrimSpace(assignmentID) != "" {
+		filters = append(filters, "assignment_id = ?")
+		args = append(args, assignmentID)
+	}
+	if !includeUnanswered {
+		filters = append(filters, "answer != ''")
+	}
+	if !includeHidden {
+		filters = append(filters, "hidden = 0")
+	}
+	if len(filters) > 0 {
+		query += " WHERE " + strings.Join(filters, " AND ")
+	}
+	query += ` ORDER BY pinned DESC, CASE WHEN answer = '' THEN 0 ELSE 1 END ASC, updated_at DESC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.HomeworkQA, 0)
+	for rows.Next() {
+		item, err := scanHomeworkQARows(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *item)
+	}
+	return items, rows.Err()
+}
+
+func (s *SQLiteStore) GetHomeworkQAByID(ctx context.Context, id string) (*domain.HomeworkQA, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, course, course_id, assignment_id, question, question_images_json, answer, answer_images_json, pinned, hidden, created_at, answered_at, updated_at FROM homework_qa WHERE id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, sql.ErrNoRows
+	}
+	return scanHomeworkQARows(rows)
+}
+
+func (s *SQLiteStore) AnswerHomeworkQuestion(ctx context.Context, id, answer string, answerImages []string) error {
+	imagesJSON, err := encodeStringSlice(answerImages)
+	if err != nil {
+		return err
+	}
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_qa SET answer = ?, answer_images_json = ?, answered_at = ?, updated_at = ? WHERE id = ?`, answer, imagesJSON, now, now, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (s *SQLiteStore) SetHomeworkQuestionPinned(ctx context.Context, id string, pinned bool) error {
+	return s.updateHomeworkQABool(ctx, id, "pinned", pinned)
+}
+
+func (s *SQLiteStore) SetHomeworkQuestionHidden(ctx context.Context, id string, hidden bool) error {
+	return s.updateHomeworkQABool(ctx, id, "hidden", hidden)
+}
+
+func (s *SQLiteStore) updateHomeworkQABool(ctx context.Context, id, column string, value bool) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`UPDATE homework_qa SET %s = ?, updated_at = ? WHERE id = ?`, column), boolToInt(value), now, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
@@ -1069,6 +1208,64 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	item.CodeUploadedAt = parseTimePtr(codeUploaded)
 	item.ExtraUploadedAt = parseTimePtr(extraUploaded)
 	return &item, nil
+}
+
+func scanHomeworkQARows(sc rowScanner) (*domain.HomeworkQA, error) {
+	var item domain.HomeworkQA
+	var questionImages string
+	var answerImages string
+	var pinned int
+	var hidden int
+	var created string
+	var answered sql.NullString
+	var updated string
+	if err := sc.Scan(
+		&item.ID,
+		&item.Course,
+		&item.CourseID,
+		&item.AssignmentID,
+		&item.Question,
+		&questionImages,
+		&item.Answer,
+		&answerImages,
+		&pinned,
+		&hidden,
+		&created,
+		&answered,
+		&updated,
+	); err != nil {
+		return nil, err
+	}
+	item.QuestionImages = decodeStringSlice(questionImages)
+	item.AnswerImages = decodeStringSlice(answerImages)
+	item.Pinned = pinned != 0
+	item.Hidden = hidden != 0
+	item.CreatedAt = parseTime(time.RFC3339Nano, created)
+	item.AnsweredAt = parseTimePtr(answered)
+	item.UpdatedAt = parseTime(time.RFC3339Nano, updated)
+	return &item, nil
+}
+
+func encodeStringSlice(items []string) (string, error) {
+	if items == nil {
+		items = []string{}
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeStringSlice(raw string) []string {
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []string{}
+	}
+	if items == nil {
+		return []string{}
+	}
+	return items
 }
 
 func (s *SQLiteStore) ensureHomeworkSubmissionSchema(ctx context.Context) error {

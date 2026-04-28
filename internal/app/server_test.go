@@ -23,6 +23,7 @@ type memStore struct {
 	answers             map[string]map[string]string
 	settings            map[string]string
 	homeworkSubmissions []domain.HomeworkSubmission
+	homeworkQA          []domain.HomeworkQA
 	teachers            []domain.Teacher
 	courses             []domain.Course
 	nextCourseID        int
@@ -368,6 +369,75 @@ func (m *memStore) DeleteHomeworkSubmission(_ context.Context, submissionID stri
 		}
 	}
 	return errors.New("not found")
+}
+func (m *memStore) CreateHomeworkQuestion(_ context.Context, qa *domain.HomeworkQA) error {
+	m.homeworkQA = append(m.homeworkQA, *qa)
+	return nil
+}
+func (m *memStore) ListHomeworkQA(_ context.Context, courseID int, course, assignmentID string, includeUnanswered, includeHidden bool) ([]domain.HomeworkQA, error) {
+	items := make([]domain.HomeworkQA, 0)
+	for _, item := range m.homeworkQA {
+		if courseID > 0 {
+			if item.CourseID != courseID {
+				continue
+			}
+		} else if course != "" && item.Course != course {
+			continue
+		}
+		if assignmentID != "" && item.AssignmentID != assignmentID {
+			continue
+		}
+		if !includeUnanswered && strings.TrimSpace(item.Answer) == "" {
+			continue
+		}
+		if !includeHidden && item.Hidden {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+func (m *memStore) GetHomeworkQAByID(_ context.Context, id string) (*domain.HomeworkQA, error) {
+	for i := range m.homeworkQA {
+		if m.homeworkQA[i].ID == id {
+			item := m.homeworkQA[i]
+			return &item, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+func (m *memStore) AnswerHomeworkQuestion(_ context.Context, id, answer string, answerImages []string) error {
+	for i := range m.homeworkQA {
+		if m.homeworkQA[i].ID == id {
+			now := time.Now()
+			m.homeworkQA[i].Answer = answer
+			m.homeworkQA[i].AnswerImages = answerImages
+			m.homeworkQA[i].AnsweredAt = &now
+			m.homeworkQA[i].UpdatedAt = now
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+func (m *memStore) SetHomeworkQuestionPinned(_ context.Context, id string, pinned bool) error {
+	for i := range m.homeworkQA {
+		if m.homeworkQA[i].ID == id {
+			m.homeworkQA[i].Pinned = pinned
+			m.homeworkQA[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+func (m *memStore) SetHomeworkQuestionHidden(_ context.Context, id string, hidden bool) error {
+	for i := range m.homeworkQA {
+		if m.homeworkQA[i].ID == id {
+			m.homeworkQA[i].Hidden = hidden
+			m.homeworkQA[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {

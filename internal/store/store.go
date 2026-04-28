@@ -82,6 +82,12 @@ type HomeworkStore interface {
 	SaveHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error
 	DeleteHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot) error
 	DeleteHomeworkSubmission(ctx context.Context, submissionID string) error
+	CreateHomeworkQuestion(ctx context.Context, qa *domain.HomeworkQA) error
+	ListHomeworkQA(ctx context.Context, courseID int, course, assignmentID string, includeUnanswered, includeHidden bool) ([]domain.HomeworkQA, error)
+	GetHomeworkQAByID(ctx context.Context, id string) (*domain.HomeworkQA, error)
+	AnswerHomeworkQuestion(ctx context.Context, id, answer string, answerImages []string) error
+	SetHomeworkQuestionPinned(ctx context.Context, id string, pinned bool) error
+	SetHomeworkQuestionHidden(ctx context.Context, id string, hidden bool) error
 }
 
 // Store is the composition of all domain-scoped store interfaces.

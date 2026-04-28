@@ -170,6 +170,22 @@ type HomeworkSubmission struct {
 	UpdatedAt          time.Time
 }
 
+type HomeworkQA struct {
+	ID             string
+	Course         string
+	CourseID       int
+	AssignmentID   string
+	Question       string
+	QuestionImages []string
+	Answer         string
+	AnswerImages   []string
+	Pinned         bool
+	Hidden         bool
+	CreatedAt      time.Time
+	AnsweredAt     *time.Time
+	UpdatedAt      time.Time
+}
+
 func (h HomeworkSubmission) HasUploadedFiles() bool {
 	return h.ReportOriginalName != "" || h.CodeOriginalName != "" || h.ExtraOriginalName != ""
 }
