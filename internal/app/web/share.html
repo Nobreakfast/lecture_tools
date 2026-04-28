@@ -231,7 +231,7 @@
 
     <div class="stats">
       <div class="stat-card">
-        <div class="label">已提交人数</div>
+        <div class="label">学生 / 提交</div>
         <div class="value" id="total-submitted">0</div>
       </div>
       <div class="stat-card">
@@ -251,6 +251,7 @@
           <th>姓名</th>
           <th>学号</th>
           <th>班级</th>
+          <th>提交次数</th>
           <th>提交时间</th>
         </tr>
       </thead>
@@ -310,32 +311,61 @@
       document.getElementById('quiz-title').textContent = (quizData.quiz && quizData.quiz.title) || '小测';
       document.getElementById('course-name').textContent = quizData.course_name || '';
       document.getElementById('quiz-id-badge').textContent = quizData.quiz_id || '';
-      document.getElementById('total-submitted').textContent = attemptsData.length;
+      const grouped = groupAttempts(attemptsData);
+      document.getElementById('total-submitted').textContent = grouped.length + ' / ' + attemptsData.length;
       document.getElementById('total-questions').textContent = questions.length;
 
-      renderTable(attemptsData);
+      renderTable(grouped);
 
       document.getElementById('search-input').addEventListener('input', function(e) {
         const q = e.target.value.toLowerCase().trim();
         if (!q) {
-          renderTable(attemptsData);
+          renderTable(groupAttempts(attemptsData));
           return;
         }
-        const filtered = attemptsData.filter(a =>
-          a.name.toLowerCase().includes(q) ||
-          a.student_no.toLowerCase().includes(q) ||
-          a.class_name.toLowerCase().includes(q)
+        const filtered = groupAttempts(attemptsData).filter(g =>
+          g.name.toLowerCase().includes(q) ||
+          g.student_no.toLowerCase().includes(q) ||
+          g.class_name.toLowerCase().includes(q)
         );
         renderTable(filtered);
       });
     }
 
-    function renderTable(items) {
+    function groupAttempts(items) {
+      const groups = new Map();
+      (items || []).forEach(a => {
+        const key = [a.student_no || '', a.name || '', a.class_name || ''].join('\u0001');
+        if (!groups.has(key)) {
+          groups.set(key, {
+            name: a.name || '',
+            student_no: a.student_no || '',
+            class_name: a.class_name || '',
+            attempts: []
+          });
+        }
+        groups.get(key).attempts.push(a);
+      });
+      const result = Array.from(groups.values());
+      result.forEach(g => {
+        g.attempts.sort((a, b) => {
+          const an = Number(a.attempt_no || 0);
+          const bn = Number(b.attempt_no || 0);
+          if (an !== bn) return bn - an;
+          return String(b.submitted_at || '').localeCompare(String(a.submitted_at || ''));
+        });
+        g.latest = g.attempts[0] || {};
+      });
+      result.sort((a, b) => String(b.latest.submitted_at || '').localeCompare(String(a.latest.submitted_at || '')));
+      return result;
+    }
+
+    function renderTable(groups) {
       const tbody = document.getElementById('student-tbody');
       const emptyMsg = document.getElementById('empty-msg');
       const table = document.getElementById('student-table');
 
-      if (items.length === 0) {
+      if (groups.length === 0) {
         table.style.display = 'none';
         emptyMsg.style.display = 'block';
         return;
@@ -344,17 +374,40 @@
       emptyMsg.style.display = 'none';
 
       tbody.innerHTML = '';
-      items.forEach((a, idx) => {
+      groups.forEach((g, idx) => {
+        const latest = g.latest || {};
         const tr = document.createElement('tr');
         tr.className = 'clickable';
         tr.innerHTML = `
           <td>${idx + 1}</td>
-          <td>${esc(a.name)}</td>
-          <td>${esc(a.student_no)}</td>
-          <td>${esc(a.class_name)}</td>
-          <td>${esc(a.submitted_at || '')}</td>
+          <td>
+            <details>
+              <summary style="cursor:pointer;color:var(--primary, #4f46e5);font-weight:600;">${esc(g.name)}</summary>
+              <div style="margin-top:8px;display:grid;gap:6px;">
+                ${g.attempts.map(a => `
+                  <button type="button" class="attempt-link" data-attempt-id="${esc(a.id)}" style="text-align:left;border:1px solid var(--border, #e2e8f0);background:var(--bg, #f8fafc);border-radius:8px;padding:7px 9px;cursor:pointer;">
+                    <strong>${a.attempt_no ? '第' + esc(a.attempt_no) + '次' : '未编号'}</strong>
+                    <span style="color:var(--text-dim, #64748b);margin-left:8px;">${esc(a.submitted_at || '')}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </details>
+          </td>
+          <td>${esc(g.student_no)}</td>
+          <td>${esc(g.class_name)}</td>
+          <td>${g.attempts.length}</td>
+          <td>${esc(latest.submitted_at || '')}</td>
         `;
-        tr.addEventListener('click', () => showDetail(a));
+        tr.addEventListener('click', (evt) => {
+          const btn = evt.target.closest('.attempt-link');
+          if (btn) {
+            const found = g.attempts.find(a => a.id === btn.getAttribute('data-attempt-id'));
+            if (found) showDetail(found);
+            return;
+          }
+          if (evt.target.tagName.toLowerCase() === 'summary') return;
+          showDetail(latest);
+        });
         tbody.appendChild(tr);
       });
     }
@@ -362,7 +415,7 @@
     function showDetail(attempt) {
       const panel = document.getElementById('detail-panel');
       document.getElementById('detail-student-name').textContent =
-        `${attempt.name} (${attempt.student_no}) - ${attempt.class_name}`;
+        `${attempt.name} (${attempt.student_no}) - ${attempt.class_name} - ${attempt.attempt_no ? '第' + attempt.attempt_no + '次' : '提交记录'}`;
 
       const container = document.getElementById('detail-questions');
       container.innerHTML = '';

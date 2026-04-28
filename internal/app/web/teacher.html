@@ -1585,28 +1585,52 @@
       }
       const showQuizCol = filterVal === '__all__';
       const rows = items.map(item => {
-        const total = Number(item.total || 0);
-        const correct = Number(item.correct || 0);
-        const ratio = total > 0 ? correct / total : 0;
-        const pct = total > 0 ? Math.round(ratio * 100) : 0;
-        const barColor = scoreBarColor(ratio);
-        const scoreCell = item.quiz_loaded
-          ? `<div class="score-bar-wrap"><div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="score-text">${correct}/${total}</span></div>`
-          : `<span style="color:var(--text-secondary);font-size:12px;">未加载</span>`;
+        const scoreCell = attemptScoreCell(item);
         const quizCol = showQuizCol ? `<td style="font-size:12px;color:var(--text-secondary);">${escapeHTML(item.quiz_id || '-')}</td>` : '';
+        const history = Array.isArray(item.attempts) ? item.attempts : [];
+        const historyHtml = history.length > 1
+          ? `<details style="margin-top:2px;">
+              <summary style="cursor:pointer;color:var(--primary);font-weight:600;list-style-position:inside;">${escapeHTML(item.name)}</summary>
+              <div style="margin-top:8px;display:grid;gap:6px;min-width:220px;">
+                ${history.map(a => {
+                  const label = a.attempt_no ? '第' + a.attempt_no + '次' : '未编号';
+                  const time = a.submitted_at || a.updated_at || '';
+                  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+                    <div style="font-size:12px;line-height:1.4;">
+                      <div><strong>${escapeHTML(label)}</strong> ${statusBadge(a.status)}</div>
+                      <div style="color:var(--text-secondary);">${escapeHTML(time)}</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">${attemptScoreCell(a)}<button class="small" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="viewAttemptDetail('${jsArg(a.id)}')">查看</button></div>
+                  </div>`;
+                }).join('')}
+              </div>
+            </details>`
+          : `<button class="link-btn" style="padding:0;font-weight:600;" onclick="viewAttemptDetail('${jsArg(item.id)}')">${escapeHTML(item.name)}</button>`;
         return `<tr>
-          <td>${escapeHTML(item.name)}</td>
+          <td>${historyHtml}</td>
           <td>${escapeHTML(item.student_no)}</td>
           <td>${escapeHTML(item.class_name)}</td>
           ${quizCol}
           <td>${item.attempt_no ? '第'+item.attempt_no+'次' : '-'}</td>
           <td>${statusBadge(item.status)}</td>
           <td>${scoreCell}</td>
-          <td><button class="small" onclick="viewAttemptDetail('${escapeHTML(item.id)}')">查看</button></td>
+          <td><button class="small" onclick="viewAttemptDetail('${jsArg(item.id)}')">查看</button></td>
         </tr>`;
       }).join('');
       const quizHeader = showQuizCol ? '<th>题库</th>' : '';
       root.innerHTML = `<table><thead><tr><th>姓名</th><th>学号</th><th>班级</th>${quizHeader}<th>尝试</th><th>状态</th><th>得分</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function attemptScoreCell(item) {
+      const total = Number(item.total || 0);
+      const correct = Number(item.correct || 0);
+      if (!item.quiz_loaded) {
+        return `<span style="color:var(--text-secondary);font-size:12px;">未加载</span>`;
+      }
+      const ratio = total > 0 ? correct / total : 0;
+      const pct = total > 0 ? Math.round(ratio * 100) : 0;
+      const barColor = scoreBarColor(ratio);
+      return `<div class="score-bar-wrap"><div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="score-text">${correct}/${total}</span></div>`;
     }
 
     function exportCsv() {

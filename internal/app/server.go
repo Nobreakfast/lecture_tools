@@ -2384,14 +2384,17 @@ func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request
 	}
 
 	bestItems := s.teacherCourseBestAttempts(r.Context(), course, q, items)
+	attemptGroups := s.teacherCourseAttemptGroups(r.Context(), course, q, items)
 	result := make([]map[string]any, 0, len(bestItems))
 	for _, item := range bestItems {
 		a := item.Attempt
+		key := teacherCourseAttemptGroupKey{studentNo: a.StudentNo, name: a.Name, quizID: a.QuizID}
 		result = append(result, map[string]any{
 			"id": a.ID, "name": a.Name, "student_no": a.StudentNo,
 			"class_name": a.ClassName, "attempt_no": a.AttemptNo,
 			"status": a.Status, "correct": item.Correct, "total": item.Total,
 			"quiz_id": a.QuizID, "quiz_loaded": item.QuizLoaded, "updated_at": a.UpdatedAt,
+			"attempts": attemptGroups[key],
 		})
 	}
 	writeJSON(w, map[string]any{"items": result, "current_quiz_id": currentQuizID})
@@ -2644,13 +2647,56 @@ type teacherCourseBestAttempt struct {
 	QuizLoaded bool
 }
 
-func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) []teacherCourseBestAttempt {
-	type attemptKey struct {
-		name   string
-		quizID string
-	}
+type teacherCourseAttemptGroupKey struct {
+	studentNo string
+	name      string
+	quizID    string
+}
+
+func (s *Server) teacherCourseAttemptGroups(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) map[teacherCourseAttemptGroupKey][]map[string]any {
 	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
-	bestMap := map[attemptKey]teacherCourseBestAttempt{}
+	groups := map[teacherCourseAttemptGroupKey][]map[string]any{}
+	for _, attempt := range attempts {
+		correct, total := 0, 0
+		quizLoaded := false
+		if attempt.Status == domain.StatusSubmitted {
+			if q, ok := quizMap[attempt.QuizID]; ok {
+				correct, total = s.calcScore(ctx, q, attempt.ID)
+				quizLoaded = true
+			}
+		}
+		submittedAt := ""
+		if attempt.SubmittedAt != nil {
+			submittedAt = attempt.SubmittedAt.Format("2006-01-02 15:04")
+		}
+		key := teacherCourseAttemptGroupKey{studentNo: attempt.StudentNo, name: attempt.Name, quizID: attempt.QuizID}
+		groups[key] = append(groups[key], map[string]any{
+			"id": attempt.ID, "attempt_no": attempt.AttemptNo,
+			"status": attempt.Status, "correct": correct, "total": total,
+			"quiz_loaded": quizLoaded, "updated_at": attempt.UpdatedAt.Format("2006-01-02 15:04"),
+			"submitted_at": submittedAt,
+		})
+	}
+	for key := range groups {
+		sort.Slice(groups[key], func(i, j int) bool {
+			left := groups[key][i]
+			right := groups[key][j]
+			li, _ := left["attempt_no"].(int)
+			ri, _ := right["attempt_no"].(int)
+			if li != ri {
+				return li > ri
+			}
+			ls, _ := left["updated_at"].(string)
+			rs, _ := right["updated_at"].(string)
+			return ls > rs
+		})
+	}
+	return groups
+}
+
+func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) []teacherCourseBestAttempt {
+	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
+	bestMap := map[teacherCourseAttemptGroupKey]teacherCourseBestAttempt{}
 	for _, attempt := range attempts {
 		item := teacherCourseBestAttempt{Attempt: attempt}
 		if attempt.Status == domain.StatusSubmitted {
@@ -2659,7 +2705,7 @@ func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.C
 				item.QuizLoaded = true
 			}
 		}
-		key := attemptKey{name: attempt.Name, quizID: attempt.QuizID}
+		key := teacherCourseAttemptGroupKey{studentNo: attempt.StudentNo, name: attempt.Name, quizID: attempt.QuizID}
 		if existing, ok := bestMap[key]; !ok || teacherCourseAttemptBetter(item, existing) {
 			bestMap[key] = item
 		}
@@ -4379,6 +4425,15 @@ func (s *Server) apiShareDetail(w http.ResponseWriter, r *http.Request) {
 			Answers:     answers,
 		})
 	}
+	sort.Slice(attemptList, func(i, j int) bool {
+		if attemptList[i].StudentNo != attemptList[j].StudentNo {
+			return attemptList[i].StudentNo < attemptList[j].StudentNo
+		}
+		if attemptList[i].AttemptNo != attemptList[j].AttemptNo {
+			return attemptList[i].AttemptNo > attemptList[j].AttemptNo
+		}
+		return attemptList[i].SubmittedAt > attemptList[j].SubmittedAt
+	})
 
 	writeJSON(w, map[string]any{
 		"quiz":        parsedQuiz,
