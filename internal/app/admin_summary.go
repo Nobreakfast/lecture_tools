@@ -316,47 +316,8 @@ func (s *Server) apiTeacherCourseHistorySummary(w http.ResponseWriter, r *http.R
 	}
 
 	// For each quiz_id, load the quiz from disk to compute scores (not just the currently loaded one).
-	quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
-	// parseFirstYAML parses the first YAML found in a directory.
-	parseFirstYAML := func(dirPath string) *domain.Quiz {
-		files, _ := os.ReadDir(dirPath)
-		for _, f := range files {
-			name := strings.ToLower(f.Name())
-			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(dirPath, f.Name()))
-			if err != nil {
-				continue
-			}
-			q, err := quiz.Parse(data)
-			if err == nil {
-				return q
-			}
-		}
-		return nil
-	}
 	loadQuizFromBank := func(qid string) *domain.Quiz {
-		// Check in-memory first.
-		if courseQuiz != nil && courseQuiz.QuizID == qid {
-			return courseQuiz
-		}
-		// Try exact directory name match first.
-		if q := parseFirstYAML(filepath.Join(quizRoot, safePathPart(qid))); q != nil {
-			return q
-		}
-		// Fallback: scan all subdirectories for one whose YAML quiz_id matches.
-		// This handles the case where directory name differs from YAML quiz_id.
-		dirs, _ := os.ReadDir(quizRoot)
-		for _, d := range dirs {
-			if !d.IsDir() {
-				continue
-			}
-			if q := parseFirstYAML(filepath.Join(quizRoot, d.Name())); q != nil && q.QuizID == qid {
-				return q
-			}
-		}
-		return nil
+		return s.loadCourseQuizFromBank(courseID, course.TeacherID, course.Slug, qid)
 	}
 
 	var quizStats []ai.HistoryQuizStat
@@ -483,6 +444,54 @@ func (s *Server) quizBankTitles(teacherID, courseSlug string) map[string]string 
 		}
 	}
 	return result
+}
+
+func (s *Server) loadCourseQuizFromBank(courseID int, teacherID, courseSlug, quizID string) *domain.Quiz {
+	quizID = strings.TrimSpace(quizID)
+	if quizID == "" {
+		return nil
+	}
+
+	s.quizMu.RLock()
+	courseQuiz := s.courseQuizzes[courseID]
+	s.quizMu.RUnlock()
+	if courseQuiz != nil && courseQuiz.QuizID == quizID {
+		return courseQuiz
+	}
+
+	quizRoot := filepath.Join(s.metadataCourseDir(teacherID, courseSlug), "quiz")
+	parseFirstYAML := func(dirPath string) *domain.Quiz {
+		files, _ := os.ReadDir(dirPath)
+		for _, f := range files {
+			name := strings.ToLower(f.Name())
+			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dirPath, f.Name()))
+			if err != nil {
+				continue
+			}
+			q, err := quiz.Parse(data)
+			if err == nil {
+				return q
+			}
+		}
+		return nil
+	}
+
+	if q := parseFirstYAML(filepath.Join(quizRoot, safePathPart(quizID))); q != nil {
+		return q
+	}
+	dirs, _ := os.ReadDir(quizRoot)
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		if q := parseFirstYAML(filepath.Join(quizRoot, d.Name())); q != nil && q.QuizID == quizID {
+			return q
+		}
+	}
+	return nil
 }
 
 func (s *Server) courseMatchedPDFPath(courseSlug string, q *domain.Quiz) string {

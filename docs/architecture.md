@@ -61,13 +61,13 @@
 ## 并发与锁
 `Server` 结构体使用域作用域锁代替全局 `sync.RWMutex`，减少不相关子系统之间的虚假争用：
 
-| 锁 | 类型 | 保护字段 |
-|---|---|---|
-| `quizMu` | `sync.RWMutex` | `courseQuizzes`、`courseQuizAssetDirs`、`currentQuiz` |
-| `authMu` | `sync.RWMutex` | `authTokens` |
-| `serverMu` | `sync.RWMutex` | `shutdownFn`、`maintenanceMode` |
-| `snapshotMu` | `sync.Mutex` | 快照生成并发互斥 |
-| `settingMu` | `sync.Mutex` | 序列化 store 层 read-modify-write 操作（可见性设置等） |
+| 锁           | 类型           | 保护字段                                               |
+| ------------ | -------------- | ------------------------------------------------------ |
+| `quizMu`     | `sync.RWMutex` | `courseQuizzes`、`courseQuizAssetDirs`、`currentQuiz`  |
+| `authMu`     | `sync.RWMutex` | `authTokens`                                           |
+| `serverMu`   | `sync.RWMutex` | `shutdownFn`、`maintenanceMode`                        |
+| `snapshotMu` | `sync.Mutex`   | 快照生成并发互斥                                       |
+| `settingMu`  | `sync.Mutex`   | 序列化 store 层 read-modify-write 操作（可见性设置等） |
 
 原则：读多用 `RLock`，写用 `Lock`；每个域只锁自己涉及的字段。无内存状态的文件系统或纯 DB 操作不加锁（SQLite WAL 模式已提供事务隔离）。
 
@@ -131,6 +131,13 @@
 - `GET /api/teacher/mcp`：读取“其它 > MCP”里的长效 token 状态；仅在已开启时返回可复制 token
 - `POST /api/teacher/mcp`：开启/关闭教师专属长效 token；关闭后已有 MCP 配置立即失效，但 token 会保留供后续重新开启
 - `/mcp/sse`、`/mcp/message`：既支持现有教师登录态，也支持上述长效 token 直连，供 Trae / Cursor / Claude Desktop 使用
+  - 当前内置 MCP tools：
+    - `list_courses`：列出教师课程（含课程ID、标识、邀请码）
+    - `get_quiz_attempts`：课程小测记录（按“同一学生”保留最佳成绩）
+    - `get_summary_stats`：课程当前加载题库的统计概览（人数、均分等）
+    - `get_quiz_feedback`：单次小测反馈汇总（问卷题分布 + 简答题高频反馈）
+    - `get_quiz_question_stats`：单次小测逐题统计（正确率、作答数、常见错误）
+    - `get_homework_submissions`：课程作业提交情况（可按作业编号筛选）
 
 管理员接口（均需登录）：
 - `POST /api/admin/login`：登录

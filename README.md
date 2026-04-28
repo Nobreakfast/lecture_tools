@@ -122,23 +122,23 @@ snapshots/
 
 ## 路由表
 
-| URL                                                                    | 视图/Handler                                                              | 权限        |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------- |
-| `/`                                                                    | 学生入口（邀请码 + Tab：测验/资料/作业）                                  | 无          |
-| `/s/:code`                                                             | 301 → `/?code=:code`                                                      | 无          |
-| `/join`                                                                | 301 → `/`（旧 QR 码兼容）                                                 | 无          |
-| `/t` 或 `/teacher`                                                     | 教师面板                                                                  | 教师 cookie |
-| `/teacher/docs` 或 `/t/docs`                                           | 教师使用文档页（Markdown 渲染，适合单独打开对照操作）                     | 教师 cookie |
-| `/admin`                                                               | 系统管理                                                                  | role=admin  |
-| `/static/*`                                                            | 共享 CSS/JS                                                               | 无          |
-| `/api/auth/*`                                                          | 统一登录 / 登出 / me                                                      | —           |
-| `/api/system/*`                                                        | 系统管理 API（教师、AI、统计）                                            | role=admin  |
-| `/api/teacher/courses/*`                                               | 教师课程 API                                                              | 教师 cookie |
-| `/api/teacher/mcp`                                                     | 教师 MCP 长效 token 开关与配置读取                                        | 教师 cookie |
+| URL                                                                    | 视图/Handler                                                              | 权限                     |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------ |
+| `/`                                                                    | 学生入口（邀请码 + Tab：测验/资料/作业）                                  | 无                       |
+| `/s/:code`                                                             | 301 → `/?code=:code`                                                      | 无                       |
+| `/join`                                                                | 301 → `/`（旧 QR 码兼容）                                                 | 无                       |
+| `/t` 或 `/teacher`                                                     | 教师面板                                                                  | 教师 cookie              |
+| `/teacher/docs` 或 `/t/docs`                                           | 教师使用文档页（Markdown 渲染，适合单独打开对照操作）                     | 教师 cookie              |
+| `/admin`                                                               | 系统管理                                                                  | role=admin               |
+| `/static/*`                                                            | 共享 CSS/JS                                                               | 无                       |
+| `/api/auth/*`                                                          | 统一登录 / 登出 / me                                                      | —                        |
+| `/api/system/*`                                                        | 系统管理 API（教师、AI、统计）                                            | role=admin               |
+| `/api/teacher/courses/*`                                               | 教师课程 API                                                              | 教师 cookie              |
+| `/api/teacher/mcp`                                                     | 教师 MCP 长效 token 开关与配置读取                                        | 教师 cookie              |
 | `/mcp/sse` / `/mcp/message`                                            | MCP SSE 服务入口                                                          | 教师 cookie 或长效 token |
-| `/api/course?code=`                                                    | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无          |
-| `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话                                                | —           |
-| `/api/admin/*`（教学类）                                               | 410 Gone + 指向新路由                                                     | —           |
+| `/api/course?code=`                                                    | 邀请码解析（返回 `id/name/display_name/internal_name/slug/teacher_name`） | 无                       |
+| `/api/join` / `/api/entry-status?course_id=N` / `/api/student-signout` | 学生入场与退出当前答题会话                                                | —                        |
+| `/api/admin/*`（教学类）                                               | 410 Gone + 指向新路由                                                     | —                        |
 
 教师课程 API 约定：
 - `POST /api/teacher/courses`：请求体中的 `slug` 字段可直接填写带空格英文名，例如 `Machine Learning Intro`
@@ -147,6 +147,7 @@ snapshots/
 - `GET /api/teacher/courses/attempts`、`/attempts-check`、`/export-csv` 会按“同一学生 + 同一题库”自动去重，保留最高分；教师页可查看重复检查结果
 - 教师端作业下载（单个 PDF、单个学生压缩包、批量压缩包内学生目录/文件）统一使用 `班级_作业编号_姓名_学号` 命名
 - “其它 > MCP” 支持开启/关闭教师专属长效 token；开启后页面直接给出可复制的 MCP 配置，关闭后旧 token 立即失效
+  - 当前 MCP tools：`list_courses`、`get_quiz_attempts`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`
 
 ## 题库 YAML
 
