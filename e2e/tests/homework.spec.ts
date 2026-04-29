@@ -213,6 +213,80 @@ test.describe("Homework lifecycle", () => {
     await studentCtx.close();
   });
 
+  test("teacher grades homework and controls student visibility", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+    const assignmentId = `e2e_hw_grade_${Date.now()}`;
+    const studentName = "评分学生";
+    const studentNo = "2024GRADE";
+
+    const teacherCtx = await browser.newContext();
+    const teacherPage = new TeacherPage(await teacherCtx.newPage());
+    await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+    await teacherPage.selectCourse(seed.courseId);
+
+    await teacherPage.uploadHomeworkAssignment(
+      assignmentId,
+      path.resolve(__dirname, "../fixtures/sample.txt")
+    );
+
+    const studentCtx = await browser.newContext();
+    const studentPage = new StudentPage(await studentCtx.newPage());
+    await studentPage.enterCode(seed.inviteCode);
+    await studentPage.switchTab("tab-homework");
+    await studentPage.startHomeworkSession(
+      assignmentId,
+      studentName,
+      studentNo,
+      "评分班",
+      "grade-secret"
+    );
+    await studentPage.reportInput.setInputFiles(
+      path.resolve(__dirname, "../fixtures/sample.pdf")
+    );
+    await expect(studentPage.reportInfo).not.toContainText("暂未上传");
+
+    await teacherPage.switchSubTab("sub-homework");
+    await teacherPage.homeworkAssignmentFilter.selectOption(assignmentId);
+    await teacherPage.refreshHomeworkBtn.click();
+    const row = teacherPage.homeworkSubmissionsList
+      .locator("tr")
+      .filter({ hasText: studentNo });
+    await expect(row).toContainText("未评分");
+
+    const popupPromise = teacherPage.page.waitForEvent("popup");
+    await row.getByRole("button", { name: "评分" }).click();
+    const gradePage = await popupPromise;
+    await gradePage.waitForLoadState("domcontentloaded");
+    await gradePage.locator("#scoreInput").fill("88.5");
+    await gradePage.locator("#feedbackInput").fill("结构完整，继续加强分析。");
+    await gradePage.locator("#saveBtn").click();
+    await expect(gradePage.locator("#msg")).toContainText("评分已保存");
+    await gradePage.close();
+
+    await studentPage.page.locator("#refreshBtn").click();
+    await expect(studentPage.page.locator("#gradeResult")).toBeHidden();
+
+    await teacherPage.refreshHomeworkBtn.click();
+    await expect(row).toContainText("已评分");
+    await teacherPage.page.locator("#homeworkGradeVisibilityBtn").click();
+    await teacherPage.confirmOkBtn.click();
+
+    await studentPage.page.locator("#refreshBtn").click();
+    await expect(studentPage.page.locator("#gradeResult")).toBeVisible();
+    await expect(studentPage.page.locator("#gradeResult")).toContainText("88.5/100");
+    await expect(studentPage.page.locator("#gradeResult")).toContainText("结构完整");
+
+    await teacherPage.page.locator("#homeworkGradeVisibilityBtn").click();
+    await teacherPage.confirmOkBtn.click();
+    await studentPage.page.locator("#refreshBtn").click();
+    await expect(studentPage.page.locator("#gradeResult")).toBeHidden();
+
+    await teacherCtx.close();
+    await studentCtx.close();
+  });
+
   test("student can upload, list, rename, delete files in others/ via API", async ({
     browser,
   }) => {

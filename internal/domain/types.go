@@ -166,6 +166,10 @@ type HomeworkSubmission struct {
 	CodeUploadedAt     *time.Time
 	ExtraOriginalName  string
 	ExtraUploadedAt    *time.Time
+	Score              *float64
+	Feedback           string
+	GradedAt           *time.Time
+	GradeUpdatedAt     *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

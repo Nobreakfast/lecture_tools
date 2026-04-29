@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>作业评分</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    body { min-height: 100vh; background: #f8fafc; }
+    .grade-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 420px; }
+    .pdf-pane { background: #111827; min-height: 100vh; display: flex; flex-direction: column; }
+    .pdf-toolbar { min-height: 52px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #fff; border-bottom: 1px solid rgba(255,255,255,.12); }
+    .pdf-toolbar a { color: #bfdbfe; text-decoration: none; font-size: 13px; }
+    .pdf-frame { flex: 1; width: 100%; border: 0; background: #1f2937; }
+    .pdf-empty { flex: 1; display: grid; place-items: center; color: #cbd5e1; padding: 24px; text-align: center; }
+    .side-pane { background: #fff; border-left: 1px solid var(--border); padding: 18px; overflow: auto; }
+    .top-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .title { font-size: 20px; font-weight: 700; color: var(--text); }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
+    .meta-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font-size: 13px; color: var(--text-secondary); }
+    .meta-item strong { display: block; color: var(--text); font-size: 12px; margin-bottom: 3px; }
+    label { display: block; font-size: 13px; font-weight: 650; margin: 14px 0 6px; color: var(--text); }
+    input, textarea { width: 100%; font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    input:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    textarea { min-height: 220px; resize: vertical; line-height: 1.7; }
+    #aiNote { min-height: 86px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    button, .link-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 10px 14px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; }
+    button.secondary, .link-btn.secondary { background: #e2e8f0; color: #1e293b; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .message { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+    .message.show { display: block; }
+    .message.info { background: #eff6ff; color: #1d4ed8; }
+    .message.error { background: #fef2f2; color: #b91c1c; }
+    .badge { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-muted { background: #f1f5f9; color: var(--text-muted); }
+    @media (max-width: 900px) {
+      .grade-shell { grid-template-columns: 1fr; }
+      .pdf-pane { min-height: 55vh; }
+      .side-pane { border-left: 0; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <main class="grade-shell">
+    <section class="pdf-pane">
+      <div class="pdf-toolbar">
+        <div id="pdfTitle">报告 PDF</div>
+        <a id="pdfDownload" href="#" target="_blank" style="display:none;">下载 PDF</a>
+      </div>
+      <iframe id="pdfFrame" class="pdf-frame" title="报告 PDF" style="display:none;"></iframe>
+      <div id="pdfEmpty" class="pdf-empty">正在加载报告...</div>
+    </section>
+    <aside class="side-pane">
+      <div class="top-row">
+        <div>
+          <div class="title">作业评分</div>
+          <div id="publishBadge" class="badge badge-muted" style="margin-top:6px;">成绩未公布</div>
+        </div>
+        <a class="link-btn secondary" href="/teacher">返回</a>
+      </div>
+
+      <div class="meta-grid" id="studentMeta"></div>
+
+      <label for="scoreInput">总分（0-100）</label>
+      <input id="scoreInput" type="number" min="0" max="100" step="0.1" placeholder="例如 92.5" />
+
+      <label for="feedbackInput">评语</label>
+      <textarea id="feedbackInput" placeholder="请输入给学生的作业评价"></textarea>
+
+      <label for="aiNote">简短发言</label>
+      <textarea id="aiNote" placeholder="例如：结构完整，实验分析不够深入，请指出改进方向。"></textarea>
+      <div class="actions">
+        <button id="aiBtn" class="secondary">AI 生成评语</button>
+        <button id="saveBtn">保存评分</button>
+      </div>
+      <div id="msg" class="message info"></div>
+    </aside>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const courseId = params.get('course_id') || '';
+    const submissionId = params.get('submission_id') || '';
+    let submission = null;
+
+    function escapeHTML(s) {
+      return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+    function setMsg(type, text) {
+      const el = document.getElementById('msg');
+      if (!text) { el.className = 'message'; el.textContent = ''; return; }
+      el.className = 'message show ' + type;
+      el.textContent = text;
+    }
+    function formatTime(v) {
+      if (!v) return '—';
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN', { hour12: false });
+    }
+    function formatScore(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '';
+      return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    }
+
+    async function loadGrade() {
+      if (!courseId || !submissionId) {
+        setMsg('error', '缺少 course_id 或 submission_id。');
+        return;
+      }
+      const r = await fetch('/api/teacher/courses/homework/submissions/grade?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), { credentials: 'include' });
+      if (!r.ok) {
+        setMsg('error', await r.text());
+        return;
+      }
+      const data = await r.json();
+      submission = data.submission || {};
+      render(data.grade_published);
+    }
+
+    function render(published) {
+      document.getElementById('publishBadge').textContent = published ? '成绩已公布' : '成绩未公布';
+      document.getElementById('publishBadge').className = published ? 'badge badge-ok' : 'badge badge-muted';
+      document.getElementById('studentMeta').innerHTML =
+        '<div class="meta-item"><strong>作业</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
+        '<div class="meta-item"><strong>姓名</strong>' + escapeHTML(submission.name) + '</div>' +
+        '<div class="meta-item"><strong>学号</strong>' + escapeHTML(submission.student_no) + '</div>' +
+        '<div class="meta-item"><strong>班级</strong>' + escapeHTML(submission.class_name) + '</div>' +
+        '<div class="meta-item"><strong>更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
+        '<div class="meta-item"><strong>评分</strong>' + (submission.score !== undefined ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
+      document.getElementById('scoreInput').value = submission.score !== undefined && submission.score !== null ? formatScore(submission.score) : '';
+      document.getElementById('feedbackInput').value = submission.feedback || '';
+      const report = submission.files && submission.files.report;
+      if (report && report.uploaded && submission.report_preview_url) {
+        document.getElementById('pdfFrame').src = submission.report_preview_url;
+        document.getElementById('pdfFrame').style.display = '';
+        document.getElementById('pdfEmpty').style.display = 'none';
+        document.getElementById('pdfTitle').textContent = report.original_name || '报告 PDF';
+        document.getElementById('pdfDownload').href = submission.report_download_url || submission.report_preview_url;
+        document.getElementById('pdfDownload').style.display = '';
+      } else {
+        document.getElementById('pdfFrame').style.display = 'none';
+        document.getElementById('pdfEmpty').style.display = '';
+        document.getElementById('pdfEmpty').textContent = '该提交没有报告 PDF，可在右侧手动评分。';
+        document.getElementById('aiBtn').disabled = true;
+      }
+    }
+
+    async function saveGrade() {
+      const rawScore = document.getElementById('scoreInput').value.trim();
+      if (!rawScore) { setMsg('error', '请输入总分。'); return; }
+      const score = Number(rawScore);
+      if (!Number.isFinite(score) || score < 0 || score > 100) {
+        setMsg('error', '总分必须在 0 到 100 之间。');
+        return;
+      }
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      setMsg('info', '正在保存...');
+      try {
+        const r = await fetch('/api/teacher/courses/homework/submissions/grade?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ score, feedback: document.getElementById('feedbackInput').value.trim() })
+        });
+        if (!r.ok) { setMsg('error', await r.text()); return; }
+        const data = await r.json();
+        submission = data.submission || submission;
+        render(submission.grade_published);
+        setMsg('info', '评分已保存。');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function generateFeedback() {
+      const btn = document.getElementById('aiBtn');
+      btn.disabled = true;
+      setMsg('info', 'AI 正在生成评语...');
+      try {
+        const r = await fetch('/api/teacher/courses/homework/submissions/grade-ai?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ note: document.getElementById('aiNote').value.trim() })
+        });
+        if (!r.ok) { setMsg('error', await r.text()); return; }
+        const data = await r.json();
+        document.getElementById('feedbackInput').value = data.feedback || '';
+        setMsg('info', 'AI 评语已生成，可继续修改后保存。');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('saveBtn').onclick = saveGrade;
+    document.getElementById('aiBtn').onclick = generateFeedback;
+    loadGrade();
+  </script>
+</body>
+</html>

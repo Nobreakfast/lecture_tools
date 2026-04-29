@@ -171,6 +171,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/t", s.pageTeacher) // short alias
 	mux.HandleFunc("/teacher/docs", s.pageTeacherDocs)
 	mux.HandleFunc("/t/docs", s.pageTeacherDocs)
+	mux.HandleFunc("/teacher/homework-grade", s.pageTeacherHomeworkGrade)
+	mux.HandleFunc("/t/homework-grade", s.pageTeacherHomeworkGrade)
 	mux.HandleFunc("/student", s.redirectStudentToRoot)
 	mux.HandleFunc("/assets/", s.serveAsset)
 	mux.HandleFunc("/static/", s.serveStatic)
@@ -268,9 +270,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete-file", s.apiTeacherCourseHomeworkAssignmentDeleteFile)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/visibility", s.apiTeacherCourseHomeworkAssignmentVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
+	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade", s.apiTeacherCourseHomeworkSubmissionGrade)
+	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade-ai", s.apiTeacherCourseHomeworkSubmissionGradeAI)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/download", s.apiTeacherCourseHomeworkSubmissionDownload)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/archive", s.apiTeacherCourseHomeworkSubmissionArchive)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/delete", s.apiTeacherCourseHomeworkSubmissionDelete)
+	mux.HandleFunc("/api/teacher/courses/homework/grades/visibility", s.apiTeacherCourseHomeworkGradeVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/homework/qa", s.apiTeacherCourseHomeworkQA)
 	mux.HandleFunc("/api/teacher/courses/homework/qa/answer", s.apiTeacherCourseHomeworkQAAnswer)
@@ -726,6 +731,10 @@ func (s *Server) pageAdmin(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) pageTeacher(w http.ResponseWriter, _ *http.Request) {
 	s.servePage(w, "web/teacher.html")
+}
+
+func (s *Server) pageTeacherHomeworkGrade(w http.ResponseWriter, _ *http.Request) {
+	s.servePage(w, "web/homework-grade.html")
 }
 
 func (s *Server) pageTeacherDocs(w http.ResponseWriter, r *http.Request) {

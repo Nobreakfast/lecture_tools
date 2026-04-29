@@ -225,6 +225,23 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	if got.ReportUploadedAt == nil || got.CodeUploadedAt == nil {
 		t.Fatalf("expected uploaded timestamps: %+v", got)
 	}
+	score := 92.5
+	if err := st.SaveHomeworkGrade(ctx, submission.ID, &score, "完成度较好，分析还可以更深入。"); err != nil {
+		t.Fatalf("SaveHomeworkGrade failed: %v", err)
+	}
+	graded, err := st.GetHomeworkSubmissionByID(ctx, submission.ID)
+	if err != nil {
+		t.Fatalf("GetHomeworkSubmissionByID after grade failed: %v", err)
+	}
+	if graded.Score == nil || *graded.Score != score {
+		t.Fatalf("unexpected score: %+v", graded.Score)
+	}
+	if graded.Feedback != "完成度较好，分析还可以更深入。" {
+		t.Fatalf("unexpected feedback: %q", graded.Feedback)
+	}
+	if graded.GradedAt == nil || graded.GradeUpdatedAt == nil {
+		t.Fatalf("expected grade timestamps: %+v", graded)
+	}
 
 	items, err := st.ListHomeworkSubmissions(ctx, 0, "course-a", "task-1")
 	if err != nil {

@@ -428,6 +428,7 @@
           <div class="row" style="margin-bottom:8px;align-items:center;">
             <select id="homeworkAssignmentFilter" style="margin-top:0;flex:1;"><option value="">-- 全部作业 --</option></select>
             <button id="homeworkQABtn" class="small btn-secondary" style="margin-top:0;">Q&A</button>
+            <button id="homeworkGradeVisibilityBtn" class="small btn-secondary" style="margin-top:0;">公布成绩</button>
             <button id="downloadHomeworkBulkBtn" class="small" style="margin-top:0;background:#0f766e;">下载全部</button>
             <button id="refreshHomeworkBtn" class="small" style="margin-top:0;">刷新</button>
           </div>
@@ -1987,6 +1988,7 @@
       const data = await r.json();
       hwSubmissionsCache = data.items || [];
       renderHomeworkSubmissions();
+      updateHomeworkGradeVisibilityButton();
     }
 
     function renderHomeworkSubmissions() {
@@ -2010,6 +2012,10 @@
         if (item.archive_download_url && (dlLinks.length > 0 || hasOthers))
           dlLinks.push(`<a href="${escapeHTML(item.archive_download_url)}" target="_blank">全部</a>`);
         const dlCell = dlLinks.length ? dlLinks.join(' ') : '-';
+        const hasGrade = item.score !== undefined && item.score !== null;
+        const gradeStatus = hasGrade
+          ? `<span class="badge badge-success">已评分</span><span style="font-size:12px;color:var(--text-secondary);margin-left:6px;">${escapeHTML(formatScore(item.score))}/100</span>`
+          : '<span class="badge badge-warning">未评分</span>';
         const keyCell = item.secret_key
           ? `<span style="font-family:monospace;font-size:11px;user-select:all;cursor:pointer;" title="点击可选中复制">${escapeHTML(item.secret_key)}</span>`
           : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
@@ -2020,11 +2026,44 @@
           <td>${escapeHTML(item.class_name)}</td>
           <td>${keyCell}</td>
           <td>${dlCell}</td>
+          <td>${gradeStatus}</td>
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN',{hour12:false}) : '-')}</td>
-          <td><button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission('${escapeHTML(item.id)}','${escapeHTML(item.student_no)}','${escapeHTML(item.assignment_id)}')">删除</button></td>
+          <td>
+            <button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="openHomeworkGrade('${escapeHTML(item.id)}')">评分</button>
+            <button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission('${escapeHTML(item.id)}','${escapeHTML(item.student_no)}','${escapeHTML(item.assignment_id)}')">删除</button>
+          </td>
         </tr>`;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function formatScore(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '';
+      return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    }
+
+    function openHomeworkGrade(id) {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      window.open('/teacher/homework-grade?course_id=' + selectedCourseId + '&submission_id=' + encodeURIComponent(id), '_blank');
+    }
+
+    function updateHomeworkGradeVisibilityButton() {
+      const btn = document.getElementById('homeworkGradeVisibilityBtn');
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      if (!btn) return;
+      if (!assignmentID) {
+        btn.disabled = true;
+        btn.textContent = '公布成绩';
+        btn.className = 'small btn-secondary';
+        return;
+      }
+      btn.disabled = false;
+      const row = hwSubmissionsCache.find(item => item.assignment_id === assignmentID);
+      const published = !!(row && row.grade_published);
+      btn.dataset.published = published ? 'true' : 'false';
+      btn.textContent = published ? '隐藏成绩' : '公布成绩';
+      btn.className = published ? 'small btn-danger' : 'small btn-secondary';
     }
 
     async function uploadHomeworkAssignment() {
@@ -2190,6 +2229,22 @@
       const r = await fetch('/api/teacher/courses/homework/submissions/delete?course_id=' + selectedCourseId, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: id })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      loadHomeworkSubmissions();
+    }
+
+    async function toggleHomeworkGradeVisibility() {
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      if (!assignmentID) { alert('请先选择作业编号'); return; }
+      const btn = document.getElementById('homeworkGradeVisibilityBtn');
+      const published = !(btn.dataset.published === 'true');
+      const action = published ? '公布' : '隐藏';
+      if (!await showConfirm(action + '作业「' + assignmentID + '」的成绩与评语？', { title: action + '成绩', okLabel: '确认' + action })) return;
+      const r = await fetch('/api/teacher/courses/homework/grades/visibility?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ assignment_id: assignmentID, published: published })
       });
       if (!r.ok) { alert(await r.text()); return; }
       loadHomeworkSubmissions();
@@ -2364,9 +2419,11 @@
     document.getElementById('saveThresholdBtn').onclick = saveAttendanceThreshold;
     document.getElementById('homeworkAssignmentFilter').onchange = () => {
       loadHomeworkSubmissions();
+      updateHomeworkGradeVisibilityButton();
       if (document.getElementById('homeworkQAPanel').style.display !== 'none') loadHomeworkQA();
     };
     document.getElementById('homeworkQABtn').onclick = toggleHomeworkQA;
+    document.getElementById('homeworkGradeVisibilityBtn').onclick = toggleHomeworkGradeVisibility;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };
 

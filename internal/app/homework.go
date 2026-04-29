@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -21,7 +22,9 @@ import (
 
 	"strconv"
 
+	"course-assistant/internal/ai"
 	"course-assistant/internal/domain"
+	"course-assistant/internal/pdftext"
 	"course-assistant/internal/store"
 )
 
@@ -45,6 +48,7 @@ const (
 	homeworkQAImageMaxCount         = 5
 	homeworkOthersFolder            = "others"
 	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
+	homeworkGradeVisibilityKey      = "homework_grade_visibility"
 )
 
 var errHomeworkIdentityMismatch = errors.New("已存在同学号的作业记录，请使用原姓名和班级继续")
@@ -472,7 +476,15 @@ func (s *Server) apiHomeworkSubmission(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "未登录", http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, false, 0)})
+	payload := s.homeworkSubmissionPayload(submission, false, 0)
+	if s.homeworkGradePublished(r.Context(), submission.Course, submission.AssignmentID) && submission.Score != nil {
+		payload["score"] = *submission.Score
+		payload["feedback"] = submission.Feedback
+		payload["graded_at"] = submission.GradedAt
+		payload["grade_updated_at"] = submission.GradeUpdatedAt
+		payload["grade_published"] = true
+	}
+	writeJSON(w, map[string]any{"submission": payload})
 }
 
 func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
@@ -1083,6 +1095,160 @@ func (s *Server) apiAdminHomeworkSubmission(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]any{"submission": s.homeworkSubmissionPayload(submission, true, submission.CourseID)})
 }
 
+func (s *Server) apiTeacherCourseHomeworkSubmissionGrade(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	submission, err := s.teacherHomeworkSubmission(r, courseID, course)
+	if err != nil {
+		http.Error(w, "提交记录不存在", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]any{
+			"submission":      s.homeworkSubmissionPayload(submission, true, courseID),
+			"grade_published": s.homeworkGradePublished(r.Context(), course.Slug, submission.AssignmentID),
+		})
+	case http.MethodPost:
+		var req struct {
+			Score    *float64 `json:"score"`
+			Feedback string   `json:"feedback"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "请求格式错误", http.StatusBadRequest)
+			return
+		}
+		feedback := strings.TrimSpace(req.Feedback)
+		if len([]rune(feedback)) > 5000 {
+			http.Error(w, "评语不能超过 5000 字", http.StatusBadRequest)
+			return
+		}
+		if req.Score == nil {
+			http.Error(w, "请输入总分", http.StatusBadRequest)
+			return
+		}
+		score := *req.Score
+		if score < 0 || score > 100 {
+			http.Error(w, "总分必须在 0 到 100 之间", http.StatusBadRequest)
+			return
+		}
+		if math.Abs(score*10-math.Round(score*10)) > 0.000001 {
+			http.Error(w, "总分最多保留一位小数", http.StatusBadRequest)
+			return
+		}
+		if err := s.store.SaveHomeworkGrade(r.Context(), submission.ID, &score, feedback); err != nil {
+			http.Error(w, "保存评分失败", http.StatusInternalServerError)
+			return
+		}
+		updated, err := s.store.GetHomeworkSubmissionByID(r.Context(), submission.ID)
+		if err != nil {
+			http.Error(w, "读取评分失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(updated, true, courseID)})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) apiTeacherCourseHomeworkSubmissionGradeAI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	submission, err := s.teacherHomeworkSubmission(r, courseID, course)
+	if err != nil {
+		http.Error(w, "提交记录不存在", http.StatusNotFound)
+		return
+	}
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(submission.ReportOriginalName) == "" {
+		http.Error(w, "该提交没有报告 PDF，无法生成 AI 评语", http.StatusBadRequest)
+		return
+	}
+	reportPath := filepath.Join(s.resolveHomeworkSubmissionDirForCourse(course, submission), homeworkDiskFilename(domain.HomeworkSlotReport))
+	text, err := pdftext.ExtractText(reportPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		http.Error(w, "PDF 未提取到可用文本，无法生成 AI 评语", http.StatusBadRequest)
+		return
+	}
+	feedback, err := s.aiClient.GenerateHomeworkFeedback(r.Context(), ai.HomeworkGradeFeedbackInput{
+		CourseName:    course.DisplayName,
+		AssignmentID:  submission.AssignmentID,
+		StudentName:   submission.Name,
+		StudentNo:     submission.StudentNo,
+		ClassName:     submission.ClassName,
+		TeacherNote:   strings.TrimSpace(req.Note),
+		ReportContext: text,
+	})
+	if err != nil {
+		http.Error(w, "AI 生成失败: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{"feedback": feedback})
+}
+
+func (s *Server) apiTeacherCourseHomeworkGradeVisibility(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		AssignmentID string `json:"assignment_id"`
+		Published    bool   `json:"published"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	s.setHomeworkGradeVisibility(r.Context(), course.Slug, assignmentID, req.Published)
+	writeJSON(w, map[string]any{"ok": true, "published": req.Published})
+}
+
 func (s *Server) apiAdminHomeworkReport(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -1321,6 +1487,24 @@ func (s *Server) adminHomeworkSubmission(r *http.Request) (*domain.HomeworkSubmi
 	return submission, nil
 }
 
+func (s *Server) teacherHomeworkSubmission(r *http.Request, courseID int, course *domain.Course) (*domain.HomeworkSubmission, error) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		return nil, fmt.Errorf("file not found")
+	}
+	submission, err := s.store.GetHomeworkSubmissionByID(r.Context(), id)
+	if err != nil {
+		return nil, fmt.Errorf("file not found")
+	}
+	if courseID > 0 && submission.CourseID > 0 && submission.CourseID != courseID {
+		return nil, fmt.Errorf("file not found")
+	}
+	if submission.Course != "" && submission.Course != course.Slug {
+		return nil, fmt.Errorf("file not found")
+	}
+	return submission, nil
+}
+
 func (s *Server) requireHomeworkStudent(r *http.Request) (*domain.HomeworkSubmission, error) {
 	cookie, err := r.Cookie(homeworkCookieName)
 	if err != nil {
@@ -1381,6 +1565,38 @@ func (s *Server) renameHomeworkAssignmentVisibility(ctx context.Context, course,
 
 func homeworkAssignmentHidden(visibility map[string]bool, course, assignmentID string) bool {
 	return visibility[course+"/"+assignmentID]
+}
+
+func (s *Server) loadHomeworkGradeVisibility(ctx context.Context) map[string]bool {
+	raw, err := s.store.GetSetting(ctx, homeworkGradeVisibilityKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return map[string]bool{}
+	}
+	result := map[string]bool{}
+	_ = json.Unmarshal([]byte(raw), &result)
+	return result
+}
+
+func (s *Server) homeworkGradePublished(ctx context.Context, course, assignmentID string) bool {
+	return s.loadHomeworkGradeVisibility(ctx)[course+"/"+assignmentID]
+}
+
+func (s *Server) setHomeworkGradeVisibility(ctx context.Context, course, assignmentID string, published bool) {
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
+	raw, _ := s.store.GetSetting(ctx, homeworkGradeVisibilityKey)
+	visibility := map[string]bool{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &visibility)
+	}
+	key := course + "/" + assignmentID
+	if published {
+		visibility[key] = true
+	} else {
+		delete(visibility, key)
+	}
+	payload, _ := json.Marshal(visibility)
+	_ = s.store.SetSetting(ctx, homeworkGradeVisibilityKey, string(payload))
 }
 
 func (s *Server) setHomeworkCookie(w http.ResponseWriter, token string) {
@@ -1822,6 +2038,13 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		bulkParams.Set("course_id", cid)
 		bulkParams.Set("assignment_id", submission.AssignmentID)
 		payload["secret_key"] = submission.SecretKey
+		if submission.Score != nil {
+			payload["score"] = *submission.Score
+		}
+		payload["feedback"] = submission.Feedback
+		payload["graded_at"] = submission.GradedAt
+		payload["grade_updated_at"] = submission.GradeUpdatedAt
+		payload["grade_published"] = s.homeworkGradePublished(context.Background(), submission.Course, submission.AssignmentID)
 		payload["report_preview_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report")
 		payload["report_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report") + "&download=1"
 		payload["code_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("code")

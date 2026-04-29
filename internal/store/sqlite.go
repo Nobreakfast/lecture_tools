@@ -158,6 +158,9 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 	if err := s.ensureHomeworkCourseID(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureHomeworkGradeColumns(ctx); err != nil {
+		return err
+	}
 
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_attempts_quiz_status ON attempts(quiz_id, status);`,
@@ -819,13 +822,15 @@ func nullStr(s string) any {
 	return s
 }
 
+const homeworkSubmissionSelectCols = `id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, created_at, updated_at`
+
 func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *domain.HomeworkSubmission) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO homework_submissions(
 		id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key,
 		report_original_name, report_uploaded_at, code_original_name, code_uploaded_at,
-		extra_original_name, extra_uploaded_at,
+		extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at,
 		created_at, updated_at
-	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		submission.ID,
 		submission.SessionToken,
 		submission.Course,
@@ -841,6 +846,10 @@ func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *
 		formatTimePtr(submission.CodeUploadedAt),
 		submission.ExtraOriginalName,
 		formatTimePtr(submission.ExtraUploadedAt),
+		floatPtrValue(submission.Score),
+		submission.Feedback,
+		formatTimePtr(submission.GradedAt),
+		formatTimePtr(submission.GradeUpdatedAt),
 		submission.CreatedAt.Format(time.RFC3339Nano),
 		submission.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -848,7 +857,7 @@ func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *
 }
 
 func (s *SQLiteStore) GetHomeworkSubmissionByID(ctx context.Context, submissionID string) (*domain.HomeworkSubmission, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions WHERE id = ?`, submissionID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+homeworkSubmissionSelectCols+` FROM homework_submissions WHERE id = ?`, submissionID)
 	if err != nil {
 		return nil, err
 	}
@@ -860,7 +869,7 @@ func (s *SQLiteStore) GetHomeworkSubmissionByID(ctx context.Context, submissionI
 }
 
 func (s *SQLiteStore) GetHomeworkSubmissionByToken(ctx context.Context, token string) (*domain.HomeworkSubmission, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions WHERE session_token = ?`, token)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+homeworkSubmissionSelectCols+` FROM homework_submissions WHERE session_token = ?`, token)
 	if err != nil {
 		return nil, err
 	}
@@ -875,10 +884,10 @@ func (s *SQLiteStore) GetHomeworkSubmissionByScope(ctx context.Context, courseID
 	var query string
 	var args []any
 	if courseID > 0 {
-		query = `SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions WHERE course_id = ? AND assignment_id = ? AND student_no = ? LIMIT 1`
+		query = `SELECT ` + homeworkSubmissionSelectCols + ` FROM homework_submissions WHERE course_id = ? AND assignment_id = ? AND student_no = ? LIMIT 1`
 		args = []any{courseID, assignmentID, studentNo}
 	} else {
-		query = `SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions WHERE course = ? AND assignment_id = ? AND student_no = ? LIMIT 1`
+		query = `SELECT ` + homeworkSubmissionSelectCols + ` FROM homework_submissions WHERE course = ? AND assignment_id = ? AND student_no = ? LIMIT 1`
 		args = []any{course, assignmentID, studentNo}
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -909,7 +918,7 @@ func (s *SQLiteStore) UpdateHomeworkSubmissionSession(ctx context.Context, submi
 }
 
 func (s *SQLiteStore) ListHomeworkSubmissions(ctx context.Context, courseID int, course, assignmentID string) ([]domain.HomeworkSubmission, error) {
-	query := `SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions`
+	query := `SELECT ` + homeworkSubmissionSelectCols + ` FROM homework_submissions`
 	args := make([]any, 0, 2)
 	filters := make([]string, 0, 2)
 	if courseID > 0 {
@@ -972,6 +981,22 @@ func (s *SQLiteStore) DeleteHomeworkFileMetadata(ctx context.Context, submission
 	now := time.Now().Format(time.RFC3339Nano)
 	query := fmt.Sprintf(`UPDATE homework_submissions SET %s = '', %s = NULL, updated_at = ? WHERE id = ?`, nameCol, timeCol)
 	res, err := s.db.ExecContext(ctx, query, now, submissionID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (s *SQLiteStore) SaveHomeworkGrade(ctx context.Context, submissionID string, score *float64, feedback string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET score = ?, feedback = ?, graded_at = COALESCE(graded_at, ?), grade_updated_at = ?, updated_at = ? WHERE id = ?`, floatPtrValue(score), feedback, now, now, now, submissionID)
 	if err != nil {
 		return err
 	}
@@ -1179,6 +1204,9 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	var reportUploaded sql.NullString
 	var codeUploaded sql.NullString
 	var extraUploaded sql.NullString
+	var score sql.NullFloat64
+	var gradedAt sql.NullString
+	var gradeUpdatedAt sql.NullString
 	var created string
 	var updated string
 	if err := sc.Scan(
@@ -1197,6 +1225,10 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 		&codeUploaded,
 		&item.ExtraOriginalName,
 		&extraUploaded,
+		&score,
+		&item.Feedback,
+		&gradedAt,
+		&gradeUpdatedAt,
 		&created,
 		&updated,
 	); err != nil {
@@ -1207,6 +1239,11 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	item.ReportUploadedAt = parseTimePtr(reportUploaded)
 	item.CodeUploadedAt = parseTimePtr(codeUploaded)
 	item.ExtraUploadedAt = parseTimePtr(extraUploaded)
+	if score.Valid {
+		item.Score = &score.Float64
+	}
+	item.GradedAt = parseTimePtr(gradedAt)
+	item.GradeUpdatedAt = parseTimePtr(gradeUpdatedAt)
 	return &item, nil
 }
 
@@ -1319,6 +1356,10 @@ func (s *SQLiteStore) ensureHomeworkSubmissionSchema(ctx context.Context) error 
 		code_uploaded_at TEXT,
 		extra_original_name TEXT NOT NULL DEFAULT '',
 		extra_uploaded_at TEXT,
+		score REAL,
+		feedback TEXT NOT NULL DEFAULT '',
+		graded_at TEXT,
+		grade_updated_at TEXT,
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`)
@@ -1343,6 +1384,13 @@ func formatTimePtr(t *time.Time) any {
 		return nil
 	}
 	return t.Format(time.RFC3339Nano)
+}
+
+func floatPtrValue(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }
 
 func parseTimePtr(v sql.NullString) *time.Time {
@@ -1668,18 +1716,61 @@ func (s *SQLiteStore) ensureHomeworkCourseID(ctx context.Context) error {
 			code_uploaded_at TEXT,
 			extra_original_name TEXT NOT NULL DEFAULT '',
 			extra_uploaded_at TEXT,
+			score REAL,
+			feedback TEXT NOT NULL DEFAULT '',
+			graded_at TEXT,
+			grade_updated_at TEXT,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO homework_submissions SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, created_at, updated_at FROM homework_submissions_old`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO homework_submissions(id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, created_at, updated_at) SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, NULL, '', NULL, NULL, created_at, updated_at FROM homework_submissions_old`); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DROP TABLE homework_submissions_old`); err != nil {
 			return err
 		}
 		return tx.Commit()
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureHomeworkGradeColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(homework_submissions)`)
+	if err != nil {
+		return err
+	}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		cols[name] = true
+	}
+	rows.Close()
+	stmts := []struct {
+		name string
+		sql  string
+	}{
+		{"score", `ALTER TABLE homework_submissions ADD COLUMN score REAL`},
+		{"feedback", `ALTER TABLE homework_submissions ADD COLUMN feedback TEXT NOT NULL DEFAULT ''`},
+		{"graded_at", `ALTER TABLE homework_submissions ADD COLUMN graded_at TEXT`},
+		{"grade_updated_at", `ALTER TABLE homework_submissions ADD COLUMN grade_updated_at TEXT`},
+	}
+	for _, stmt := range stmts {
+		if cols[stmt.name] {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, stmt.sql); err != nil {
+			return err
+		}
 	}
 	return nil
 }

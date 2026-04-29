@@ -327,6 +327,7 @@
         <div class="section-title">3. 当前上传状态</div>
         <div class="section-hint">上传 PDF 会覆盖当前报告文件；其它文件区可上传任意文件（单个文件限 50 MB）。</div>
         <div class="meta-grid" id="submissionMeta"></div>
+        <div id="gradeResult" style="display:none;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;"></div>
         <div class="slot-grid">
           <div class="slot-card">
             <h3>📄 报告文件（PDF）</h3>
@@ -817,12 +818,17 @@
     }
     function renderSubmission(submission) {
       var card = document.getElementById('submissionCard');
-      if (!submission) { card.style.display = 'none'; return; }
+      if (!submission) {
+        card.style.display = 'none';
+        renderGradeResult(null);
+        return;
+      }
       card.style.display = 'block';
       document.getElementById('submissionMeta').innerHTML =
         '<div class="meta-item"><strong>课程</strong>' + escapeHTML(submission.course) + '</div>' +
         '<div class="meta-item"><strong>作业编号</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
         '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>';
+      renderGradeResult(submission);
       document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
       var slotFiles = document.querySelectorAll('.slot-card .slot-file');
       if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
@@ -831,6 +837,24 @@
       if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
       renderAssignmentFiles();
       saveHwToStorage();
+    }
+    function renderGradeResult(submission) {
+      var root = document.getElementById('gradeResult');
+      if (!root) return;
+      if (!submission || !submission.grade_published || submission.score === undefined || submission.score === null) {
+        root.style.display = 'none';
+        root.innerHTML = '';
+        return;
+      }
+      var score = Number(submission.score);
+      var scoreText = Number.isFinite(score) ? (Number.isInteger(score) ? String(score) : score.toFixed(1)) : String(submission.score);
+      root.style.display = 'block';
+      root.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">' +
+          '<strong style="font-size:15px;color:var(--text);">作业成绩</strong>' +
+          '<span style="font-size:20px;font-weight:800;color:var(--primary);">' + escapeHTML(scoreText) + '/100</span>' +
+        '</div>' +
+        '<div style="font-size:13px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;">' + escapeHTML(submission.feedback || '老师暂未填写评语。') + '</div>';
     }
     function renderOthersFileList(items) {
       var root = document.getElementById('othersFileList');

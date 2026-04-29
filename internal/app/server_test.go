@@ -361,6 +361,23 @@ func (m *memStore) DeleteHomeworkFileMetadata(_ context.Context, submissionID st
 	}
 	return errors.New("not implemented")
 }
+func (m *memStore) SaveHomeworkGrade(_ context.Context, submissionID string, score *float64, feedback string) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID != submissionID {
+			continue
+		}
+		now := time.Now()
+		if m.homeworkSubmissions[i].GradedAt == nil {
+			m.homeworkSubmissions[i].GradedAt = &now
+		}
+		m.homeworkSubmissions[i].Score = score
+		m.homeworkSubmissions[i].Feedback = feedback
+		m.homeworkSubmissions[i].GradeUpdatedAt = &now
+		m.homeworkSubmissions[i].UpdatedAt = now
+		return nil
+	}
+	return errors.New("not found")
+}
 func (m *memStore) DeleteHomeworkSubmission(_ context.Context, submissionID string) error {
 	for i := range m.homeworkSubmissions {
 		if m.homeworkSubmissions[i].ID == submissionID {
@@ -955,6 +972,89 @@ func TestTeacherHomeworkDownloadUsesStructuredFilename(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="计科1班_task_1_张三_2023001.pdf"`) {
 		t.Fatalf("unexpected content disposition: %s", got)
+	}
+}
+
+func TestHomeworkGradeHiddenUntilPublished(t *testing.T) {
+	now := time.Now()
+	score := 88.5
+	st := &memStore{
+		settings: map[string]string{},
+		teachers: []domain.Teacher{
+			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
+		},
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
+		},
+		homeworkSubmissions: []domain.HomeworkSubmission{
+			{
+				ID:             "sub-grade-1",
+				SessionToken:   "hw-token",
+				CourseID:       1,
+				Course:         "course_a",
+				AssignmentID:   "task_1",
+				Name:           "李四",
+				StudentNo:      "2023002",
+				ClassName:      "计科1班",
+				Score:          &score,
+				Feedback:       "结构完整，继续加强分析。",
+				GradedAt:       &now,
+				GradeUpdatedAt: &now,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+		},
+	}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "t1",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(time.Hour),
+	}
+
+	studentReq := httptest.NewRequest(http.MethodGet, "/api/homework/submission", nil)
+	studentReq.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "hw-token"})
+	studentRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(studentRR, studentReq)
+	if studentRR.Code != http.StatusOK {
+		t.Fatalf("student hidden status: %d body=%s", studentRR.Code, studentRR.Body.String())
+	}
+	var hiddenResp map[string]map[string]any
+	if err := json.Unmarshal(studentRR.Body.Bytes(), &hiddenResp); err != nil {
+		t.Fatalf("unmarshal hidden response failed: %v", err)
+	}
+	if _, ok := hiddenResp["submission"]["score"]; ok {
+		t.Fatalf("score leaked before publish: %s", studentRR.Body.String())
+	}
+	if _, ok := hiddenResp["submission"]["feedback"]; ok {
+		t.Fatalf("feedback leaked before publish: %s", studentRR.Body.String())
+	}
+
+	publishReq := httptest.NewRequest(http.MethodPost, "/api/teacher/courses/homework/grades/visibility?course_id=1", strings.NewReader(`{"assignment_id":"task_1","published":true}`))
+	publishReq.Header.Set("Content-Type", "application/json")
+	publishReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	publishRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(publishRR, publishReq)
+	if publishRR.Code != http.StatusOK {
+		t.Fatalf("publish status: %d body=%s", publishRR.Code, publishRR.Body.String())
+	}
+
+	studentReq2 := httptest.NewRequest(http.MethodGet, "/api/homework/submission", nil)
+	studentReq2.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "hw-token"})
+	studentRR2 := httptest.NewRecorder()
+	s.Routes().ServeHTTP(studentRR2, studentReq2)
+	if studentRR2.Code != http.StatusOK {
+		t.Fatalf("student published status: %d body=%s", studentRR2.Code, studentRR2.Body.String())
+	}
+	var shownResp map[string]map[string]any
+	if err := json.Unmarshal(studentRR2.Body.Bytes(), &shownResp); err != nil {
+		t.Fatalf("unmarshal shown response failed: %v", err)
+	}
+	if shownResp["submission"]["score"] != score {
+		t.Fatalf("expected published score, got %v body=%s", shownResp["submission"]["score"], studentRR2.Body.String())
+	}
+	if shownResp["submission"]["feedback"] != "结构完整，继续加强分析。" {
+		t.Fatalf("expected published feedback, got %v", shownResp["submission"]["feedback"])
 	}
 }
 
