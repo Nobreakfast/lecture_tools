@@ -457,6 +457,38 @@ func (m *memStore) SetHomeworkQuestionHidden(_ context.Context, id string, hidde
 	return sql.ErrNoRows
 }
 
+// QAIssueStore stubs
+func (m *memStore) CreateQAIssue(_ context.Context, _ *domain.QAIssue) (int64, error) {
+	return 0, nil
+}
+func (m *memStore) GetQAIssueByID(_ context.Context, _ int) (*domain.QAIssue, error) {
+	return nil, nil
+}
+func (m *memStore) ListQAIssues(_ context.Context, _ int, _ string, _ bool) ([]domain.QAIssue, error) {
+	return nil, nil
+}
+func (m *memStore) ListQAIssuesByCourse(_ context.Context, _ int, _ bool) ([]domain.QAIssue, error) {
+	return nil, nil
+}
+func (m *memStore) UpdateQAIssueStatus(_ context.Context, _ int, _ string) error {
+	return nil
+}
+func (m *memStore) SetQAIssuePinned(_ context.Context, _ int, _ bool) error {
+	return nil
+}
+func (m *memStore) SetQAIssueHidden(_ context.Context, _ int, _ bool) error {
+	return nil
+}
+func (m *memStore) IncrementQAIssueMessageCount(_ context.Context, _ int) error {
+	return nil
+}
+func (m *memStore) CreateQAMessage(_ context.Context, _ *domain.QAMessage) (int64, error) {
+	return 0, nil
+}
+func (m *memStore) ListQAMessages(_ context.Context, _ int) ([]domain.QAMessage, error) {
+	return nil, nil
+}
+
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{
 		QuizID: "w2",

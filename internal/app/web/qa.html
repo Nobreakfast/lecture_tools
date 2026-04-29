@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Q&A - 课程助手</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/app.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: var(--font-body, 'Noto Sans SC', sans-serif);
+            background: var(--bg, #f5f7fa);
+            color: var(--text, #1a1a2e);
+        }
+
+        .qa-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px 16px;
+        }
+
+        .qa-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .qa-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .qa-header .back-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            color: var(--text-muted, #6b7280);
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        .qa-header .back-btn:hover {
+            background: var(--border, #e5e7eb);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius, 8px);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary, #4f46e5) 0%, var(--primary-dim, #6366f1) 100%);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #1e293b;
+            border: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e1;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f87171, #ef4444);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 16px rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-success {
+            background: #22c55e;
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 16px rgba(34, 197, 94, 0.2);
+        }
+
+        .card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .issue-list-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .issue-list-item:hover {
+            border-color: var(--primary, #4f46e5);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .issue-list-item.pinned {
+            border-left: 3px solid var(--primary, #4f46e5);
+        }
+
+        .issue-list-item.hidden-item {
+            opacity: 0.55;
+        }
+
+        .issue-icon {
+            font-size: 18px;
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+
+        .issue-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .issue-title {
+            font-weight: 600;
+            font-size: 15px;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .issue-title .issue-id {
+            color: var(--text-muted, #6b7280);
+            font-weight: 400;
+            margin-right: 6px;
+        }
+
+        .issue-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 6px;
+            font-size: 12px;
+            color: var(--text-muted, #6b7280);
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-open {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-resolved {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .badge-pinned {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-hidden {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .msg-count {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* New Issue Form */
+        .new-issue-form {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            padding: 16px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .new-issue-form.show {
+            display: block;
+        }
+
+        .new-issue-form textarea {
+            width: 100%;
+            min-height: 100px;
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius, 8px);
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+            background: var(--bg, #f5f7fa);
+            color: var(--text, #1a1a2e);
+        }
+
+        .new-issue-form textarea:focus {
+            outline: none;
+            border-color: var(--primary, #4f46e5);
+        }
+
+        .form-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Issue Detail */
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .detail-title {
+            font-size: 18px;
+            font-weight: 700;
+            flex: 1;
+            min-width: 0;
+            word-break: break-word;
+        }
+
+        .detail-status {
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .detail-status.open {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .detail-status.resolved {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .share-btn {
+            background: none;
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            color: var(--text-muted, #6b7280);
+        }
+
+        .share-btn:hover {
+            background: var(--bg, #f5f7fa);
+        }
+
+        /* Teacher action bar */
+        .teacher-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+
+        .teacher-actions .btn-sm {
+            white-space: nowrap;
+        }
+
+        /* Message Thread */
+        .msg-item {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .msg-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            flex-shrink: 0;
+            color: #fff;
+        }
+
+        .msg-avatar.student {
+            background: var(--primary, #4f46e5);
+        }
+
+        .msg-avatar.teacher {
+            background: #059669;
+        }
+
+        .msg-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .msg-bubble {
+            background: var(--bg, #f5f7fa);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: 12px;
+            padding: 12px 14px;
+        }
+
+        .msg-sender {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .msg-sender.teacher {
+            color: #059669;
+        }
+
+        .msg-text {
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .msg-time {
+            font-size: 11px;
+            color: var(--text-muted, #6b7280);
+            margin-top: 4px;
+        }
+
+        .msg-images {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .msg-images img {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid var(--border, #e5e7eb);
+        }
+
+        /* Reply Form */
+        .reply-form {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            padding: 14px;
+            margin-top: 12px;
+        }
+
+        .reply-form textarea {
+            width: 100%;
+            min-height: 80px;
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius, 8px);
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+            background: var(--bg, #f5f7fa);
+            color: var(--text, #1a1a2e);
+        }
+
+        .reply-form textarea:focus {
+            outline: none;
+            border-color: var(--primary, #4f46e5);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted, #6b7280);
+        }
+
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .msg-info {
+            font-size: 11px;
+            color: var(--text-muted, #6b7280);
+            margin-top: 6px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .course-banner {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: var(--text-muted, #6b7280);
+        }
+
+        .course-banner strong {
+            color: var(--text, #1a1a2e);
+        }
+
+        .student-info {
+            font-size: 12px;
+            color: var(--text-muted, #6b7280);
+            margin-top: 2px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="qa-container">
+        <!-- List View -->
+        <div id="listView">
+            <div class="qa-header">
+                <h1 id="pageTitle">📋 Q&A</h1>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-primary" id="newIssueBtn" onclick="toggleNewForm()">➕ 新建提问</button>
+                    <button class="btn btn-secondary" id="backBtn" onclick="goBack()">← 返回</button>
+                </div>
+            </div>
+            <div id="courseBanner" class="course-banner" style="display:none;"></div>
+            <div id="newIssueForm" class="new-issue-form">
+                <div
+                    style="margin-bottom:10px;padding:8px 12px;background:#fef3c7;border-radius:8px;font-size:13px;color:#92400e;">
+                    💡 提交后教师会审核你的提问，回答后才会对其他同学可见。请勿重复提交相同问题。
+                </div>
+                <textarea id="newIssueMsg" placeholder="描述你的问题..." maxlength="3000"></textarea>
+                <div class="form-actions">
+                    <input id="newIssueImages" type="file" accept="image/*" multiple style="display:none;" />
+                    <button class="btn btn-secondary btn-sm"
+                        onclick="document.getElementById('newIssueImages').click()">📷 图片</button>
+                    <span id="newIssueImgInfo" style="font-size:12px;color:var(--text-muted,#6b7280);">最多 5 张</span>
+                    <div style="flex:1;"></div>
+                    <button class="btn btn-secondary btn-sm" onclick="toggleNewForm()">取消</button>
+                    <button class="btn btn-primary btn-sm" onclick="submitNewIssue()">提交</button>
+                </div>
+            </div>
+            <div id="issueList"></div>
+        </div>
+        <!-- Detail View -->
+        <div id="detailView" style="display:none;">
+            <div class="qa-header">
+                <button class="back-btn" onclick="showList()">← 返回列表</button>
+                <div style="display:flex;gap:6px;">
+                    <button class="share-btn" onclick="copyShareLink()">🔗 分享链接</button>
+                    <button class="btn btn-secondary btn-sm" id="detailBackBtn" onclick="goBack()">← 返回页面</button>
+                </div>
+            </div>
+            <div id="detailHeader"></div>
+            <div id="teacherActions" class="teacher-actions" style="display:none;"></div>
+            <div id="detailMessages"></div>
+            <div id="replyForm" class="reply-form">
+                <textarea id="replyMsg" placeholder="添加回复..." maxlength="3000"></textarea>
+                <div class="form-actions">
+                    <input id="replyImages" type="file" accept="image/*" multiple style="display:none;" />
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('replyImages').click()">📷
+                        图片</button>
+                    <span id="replyImgInfo" style="font-size:12px;color:var(--text-muted,#6b7280);">最多 5 张</span>
+                    <div style="flex:1;"></div>
+                    <button class="btn btn-primary btn-sm" onclick="submitReply()">回复</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="toast" class="toast"></div>
+
+    <script>
+        var params = new URLSearchParams(window.location.search);
+        var path = window.location.pathname;
+
+        // Detect mode: teacher, student, or share
+        var isTeacherMode = path.indexOf('/teacher/qa') >= 0;
+        var inviteCode = params.get('invite') || '';
+        var isShareView = !!inviteCode && !isTeacherMode;
+        var isStudentMode = !isTeacherMode && !isShareView;
+
+        var courseId = params.get('course_id') || '';
+        var assignmentId = params.get('assignment_id') || '';
+        var issueId = params.get('issue_id') || '';
+        var currentIssue = null;
+
+        function escapeHTML(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+        }
+
+        function formatTime(t) {
+            if (!t) return '';
+            var d = new Date(t);
+            if (isNaN(d.getTime())) return String(t);
+            var now = new Date();
+            var diff = (now - d) / 1000;
+            if (diff < 60) return '刚刚';
+            if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+            return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function showToast(msg) {
+            var el = document.getElementById('toast');
+            el.textContent = msg;
+            el.classList.add('show');
+            setTimeout(function () { el.classList.remove('show'); }, 2500);
+        }
+
+        // ── Navigation ──
+        function goBack() {
+            if (isTeacherMode) {
+                window.location.href = '/teacher';
+            } else if (isStudentMode) {
+                var url = '/';
+                var parts = [];
+                if (courseId) parts.push('code=' + encodeURIComponent(getInviteCodeFromStorage() || ''));
+                if (parts.length) url += '?' + parts.join('&');
+                window.location.href = url;
+            }
+        }
+
+        function getInviteCodeFromStorage() {
+            // Try to get invite code from the course data we may have fetched
+            try {
+                return window.__inviteCode || '';
+            } catch (e) { return ''; }
+        }
+
+        // ── List View ──
+        async function loadIssues() {
+            if (isShareView) return;
+            if (!courseId) {
+                document.getElementById('issueList').innerHTML = '<div class="empty-state"><div class="icon">❓</div><div>缺少课程参数</div></div>';
+                return;
+            }
+            var url;
+            if (isTeacherMode) {
+                url = '/api/teacher/qa/issues?course_id=' + encodeURIComponent(courseId);
+            } else {
+                url = '/api/qa/issues?course_id=' + encodeURIComponent(courseId);
+            }
+            if (assignmentId) url += '&assignment_id=' + encodeURIComponent(assignmentId);
+            try {
+                var r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) { document.getElementById('issueList').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><div>加载失败</div></div>'; return; }
+                var data = await r.json();
+                renderIssueList(data.items || []);
+            } catch (e) {
+                document.getElementById('issueList').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><div>网络错误</div></div>';
+            }
+        }
+
+        function renderIssueList(items) {
+            var root = document.getElementById('issueList');
+            if (!items.length) {
+                var emptyMsg = isTeacherMode ? '暂无提问' : '暂无讨论，点击上方按钮发起第一个提问';
+                root.innerHTML = '<div class="empty-state"><div class="icon">💬</div><div>' + emptyMsg + '</div></div>';
+                return;
+            }
+            // Sort: pinned first, then by updated_at desc
+            items.sort(function (a, b) {
+                if (a.pinned !== b.pinned) return b.pinned ? 1 : -1;
+                return new Date(b.updated_at) - new Date(a.updated_at);
+            });
+            root.innerHTML = items.map(function (item) {
+                var icon = item.status === 'resolved' ? '✅' : '💬';
+                var badge = '<span class="badge badge-' + item.status + '">' + (item.status === 'open' ? '进行中' : '已解决') + '</span>';
+                var pinBadge = item.pinned ? ' <span class="badge badge-pinned">📌 置顶</span>' : '';
+                var hiddenBadge = item.hidden ? ' <span class="badge badge-hidden">🙈 隐藏</span>' : '';
+                var hiddenClass = item.hidden ? ' hidden-item' : '';
+                var studentInfo = '';
+                if (isTeacherMode && item.student_no) {
+                    studentInfo = '<div class="student-info">学生: ' + escapeHTML(item.student_no) + (item.assignment_id ? ' · 作业: ' + escapeHTML(item.assignment_id) : '') + '</div>';
+                }
+                return '<div class="issue-list-item' + (item.pinned ? ' pinned' : '') + hiddenClass + '" onclick="openIssue(' + item.id + ')">' +
+                    '<div class="issue-icon">' + icon + '</div>' +
+                    '<div class="issue-body">' +
+                    '<div class="issue-title"><span class="issue-id">#' + item.id + '</span>' + escapeHTML(item.title) + '</div>' +
+                    studentInfo +
+                    '<div class="issue-meta">' + badge + pinBadge + hiddenBadge +
+                    '<span class="msg-count">💬 ' + item.message_count + '</span>' +
+                    '<span>' + formatTime(item.updated_at) + '</span>' +
+                    '</div>' +
+                    '</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function toggleNewForm() {
+            var form = document.getElementById('newIssueForm');
+            form.classList.toggle('show');
+            if (form.classList.contains('show')) {
+                document.getElementById('newIssueMsg').focus();
+            }
+        }
+
+        async function submitNewIssue() {
+            var msg = document.getElementById('newIssueMsg').value.trim();
+            if (!msg) { showToast('请输入提问内容'); return; }
+            var fd = new FormData();
+            fd.append('course_id', courseId);
+            fd.append('assignment_id', assignmentId);
+            fd.append('message', msg);
+            var files = document.getElementById('newIssueImages').files;
+            for (var i = 0; i < files.length && i < 5; i++) fd.append('images', files[i]);
+            try {
+                var r = await fetch('/api/qa/issue/create', { method: 'POST', credentials: 'include', body: fd });
+                if (!r.ok) { showToast(await r.text()); return; }
+                var data = await r.json();
+                document.getElementById('newIssueMsg').value = '';
+                document.getElementById('newIssueImages').value = '';
+                document.getElementById('newIssueForm').classList.remove('show');
+                showToast('提问已创建');
+                openIssue(data.issue_id);
+            } catch (e) { showToast('提交失败'); }
+        }
+
+        // ── Detail View ──
+        async function openIssue(id) {
+            currentIssue = null;
+            var url;
+            if (isShareView) {
+                url = '/api/qa/issue/by-invite?invite=' + encodeURIComponent(inviteCode) + '&issue_id=' + id;
+            } else if (isTeacherMode) {
+                url = '/api/qa/issue/get?id=' + id;
+            } else {
+                url = '/api/qa/issue/get?id=' + id;
+            }
+            try {
+                var r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) { showToast('加载失败'); return; }
+                currentIssue = await r.json();
+                renderDetail();
+                document.getElementById('listView').style.display = 'none';
+                document.getElementById('detailView').style.display = 'block';
+                if (!isShareView) {
+                    history.pushState({ issue: id }, '', buildURL({ focus: id }));
+                }
+            } catch (e) { showToast('网络错误'); }
+        }
+
+        function renderDetail() {
+            if (!currentIssue) return;
+            var iss = currentIssue;
+            // Header
+            var statusClass = iss.status;
+            var statusText = iss.status === 'open' ? '🟢 进行中' : '🟣 已解决';
+            var studentInfo = '';
+            if (isTeacherMode && iss.student_no) {
+                studentInfo = '<div style="font-size:13px;color:var(--text-muted,#6b7280);margin-bottom:4px;">学生: ' + escapeHTML(iss.student_no) + (iss.assignment_id ? ' · 作业: ' + escapeHTML(iss.assignment_id) : '') + '</div>';
+            }
+            var header = studentInfo + '<div class="detail-header">' +
+                '<div class="detail-title">#' + iss.id + ' ' + escapeHTML(iss.title) + '</div>' +
+                '<span class="detail-status ' + statusClass + '">' + statusText + '</span>' +
+                '</div>';
+            document.getElementById('detailHeader').innerHTML = header;
+
+            // Teacher actions
+            renderTeacherActions(iss);
+
+            // Messages
+            var msgs = iss.messages || [];
+            var root = document.getElementById('detailMessages');
+            if (!msgs.length) {
+                root.innerHTML = '<div class="empty-state"><div class="icon">💬</div><div>暂无消息</div></div>';
+            } else {
+                root.innerHTML = msgs.map(function (m) {
+                    var avatarClass = m.sender;
+                    var avatarText = m.sender === 'student' ? '学' : '师';
+                    var senderText = m.sender === 'student' ? '学生' : '教师';
+                    var senderClass = m.sender === 'teacher' ? ' teacher' : '';
+                    var images = '';
+                    if (m.images && m.images.length) {
+                        images = '<div class="msg-images">' + m.images.map(function (url) {
+                            return '<a href="' + escapeHTML(url) + '" target="_blank"><img src="' + escapeHTML(url) + '" alt="图片" /></a>';
+                        }).join('') + '</div>';
+                    }
+                    return '<div class="msg-item">' +
+                        '<div class="msg-avatar ' + avatarClass + '">' + avatarText + '</div>' +
+                        '<div class="msg-content">' +
+                        '<div class="msg-sender' + senderClass + '">' + senderText + '</div>' +
+                        '<div class="msg-bubble">' +
+                        '<div class="msg-text">' + escapeHTML(m.content) + '</div>' +
+                        images +
+                        '</div>' +
+                        '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
+                        '</div>' +
+                        '</div>';
+                }).join('');
+            }
+
+            // Reply form visibility
+            var replyForm = document.getElementById('replyForm');
+            if (isShareView) {
+                replyForm.style.display = 'none';
+            } else {
+                replyForm.style.display = 'block';
+            }
+
+            // Scroll to bottom
+            setTimeout(function () { window.scrollTo(0, document.body.scrollHeight); }, 100);
+        }
+
+        function renderTeacherActions(iss) {
+            var container = document.getElementById('teacherActions');
+            if (!isTeacherMode) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'flex';
+            var html = '';
+            // Pin/Unpin
+            if (iss.pinned) {
+                html += '<button class="btn btn-secondary btn-sm" onclick="togglePin(false)">📌 取消置顶</button>';
+            } else {
+                html += '<button class="btn btn-secondary btn-sm" onclick="togglePin(true)">📌 置顶</button>';
+            }
+            // Hide/Show
+            if (iss.hidden) {
+                html += '<button class="btn btn-secondary btn-sm" onclick="toggleHide(false)">👁 取消隐藏</button>';
+            } else {
+                html += '<button class="btn btn-secondary btn-sm" onclick="toggleHide(true)">🙈 隐藏</button>';
+            }
+            // Resolve/Reopen
+            if (iss.status === 'open') {
+                html += '<button class="btn btn-success btn-sm" onclick="resolveIssue()">✅ 标记已解决</button>';
+            } else {
+                html += '<button class="btn btn-secondary btn-sm" onclick="reopenIssue()">🔄 重新打开</button>';
+            }
+            container.innerHTML = html;
+        }
+
+        async function togglePin(value) {
+            if (!currentIssue) return;
+            try {
+                var r = await fetch('/api/teacher/qa/issue/pin?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentIssue.id, value: value })
+                });
+                if (!r.ok) { showToast('操作失败'); return; }
+                showToast(value ? '已置顶' : '已取消置顶');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('操作失败'); }
+        }
+
+        async function toggleHide(value) {
+            if (!currentIssue) return;
+            try {
+                var r = await fetch('/api/teacher/qa/issue/hide?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentIssue.id, value: value })
+                });
+                if (!r.ok) { showToast('操作失败'); return; }
+                showToast(value ? '已隐藏' : '已取消隐藏');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('操作失败'); }
+        }
+
+        async function resolveIssue() {
+            if (!currentIssue) return;
+            try {
+                var r = await fetch('/api/teacher/qa/issue/resolve?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentIssue.id })
+                });
+                if (!r.ok) { showToast('操作失败'); return; }
+                showToast('已标记为已解决');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('操作失败'); }
+        }
+
+        async function reopenIssue() {
+            if (!currentIssue) return;
+            try {
+                var r = await fetch('/api/teacher/qa/issue/reopen?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentIssue.id })
+                });
+                if (!r.ok) { showToast('操作失败'); return; }
+                showToast('已重新打开');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('操作失败'); }
+        }
+
+        async function submitReply() {
+            if (!currentIssue) return;
+            var msg = document.getElementById('replyMsg').value.trim();
+            if (!msg) { showToast('请输入回复内容'); return; }
+            var fd = new FormData();
+            fd.append('issue_id', currentIssue.id);
+            fd.append('message', msg);
+            var files = document.getElementById('replyImages').files;
+            for (var i = 0; i < files.length && i < 5; i++) fd.append('images', files[i]);
+            try {
+                var r = await fetch('/api/qa/issue/message', { method: 'POST', credentials: 'include', body: fd });
+                if (!r.ok) { showToast(await r.text()); return; }
+                document.getElementById('replyMsg').value = '';
+                document.getElementById('replyImages').value = '';
+                showToast('回复已发送');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('发送失败'); }
+        }
+
+        function showList() {
+            document.getElementById('detailView').style.display = 'none';
+            document.getElementById('listView').style.display = 'block';
+            currentIssue = null;
+            if (!isShareView) {
+                history.pushState({}, '', buildURL({}));
+            }
+            loadIssues();
+        }
+
+        function copyShareLink() {
+            if (!currentIssue) {
+                showToast('无法生成分享链接');
+                return;
+            }
+            // Build share link: domain + invite_code + issue_id
+            // Need invite code: use current inviteCode or fetch from course
+            var ic = inviteCode || window.__inviteCode || '';
+            if (!ic) {
+                showToast('无法生成分享链接（缺少邀请码）');
+                return;
+            }
+            var url = window.location.origin + '/student/qa?invite=' + encodeURIComponent(ic) + '&issue_id=' + currentIssue.id;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(url).then(function () { showToast('链接已复制'); });
+            } else {
+                var input = document.createElement('input');
+                input.value = url;
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                showToast('链接已复制');
+            }
+        }
+
+        // ── URL Builder ──
+        function buildURL(overrides) {
+            var base = isTeacherMode ? '/teacher/qa' : '/student/qa';
+            var q = [];
+            if (courseId) q.push('course_id=' + encodeURIComponent(courseId));
+            if (assignmentId) q.push('assignment_id=' + encodeURIComponent(assignmentId));
+            if (inviteCode) q.push('invite=' + encodeURIComponent(inviteCode));
+            for (var k in overrides) {
+                if (overrides.hasOwnProperty(k) && overrides[k]) {
+                    q.push(k + '=' + encodeURIComponent(overrides[k]));
+                }
+            }
+            return base + (q.length ? '?' + q.join('&') : '');
+        }
+
+        // ── Init ──
+        window.addEventListener('popstate', function (e) {
+            if (e.state && e.state.issue) {
+                openIssue(e.state.issue);
+            } else {
+                showList();
+            }
+        });
+
+        (async function () {
+            // Set up page title and back button
+            if (isTeacherMode) {
+                document.getElementById('pageTitle').textContent = '📋 Q&A 管理';
+                document.getElementById('newIssueBtn').style.display = 'none';
+                document.getElementById('backBtn').textContent = '← 返回教师面板';
+            } else if (isShareView) {
+                document.getElementById('newIssueBtn').style.display = 'none';
+                document.getElementById('backBtn').style.display = 'none';
+                document.getElementById('courseBanner').style.display = 'block';
+                document.getElementById('courseBanner').innerHTML = '🔗 分享链接访问模式';
+                if (issueId) {
+                    await openIssue(parseInt(issueId));
+                } else {
+                    document.getElementById('issueList').innerHTML = '<div class="empty-state"><div class="icon">🔗</div><div>请提供提问 ID 参数</div></div>';
+                }
+                return;
+            }
+
+            // Student mode: try to get course context
+            if (isStudentMode && !courseId) {
+                // Try to get from homework submission
+                try {
+                    var r = await fetch('/api/homework/submission', { credentials: 'include' });
+                    if (r.ok) {
+                        var data = await r.json();
+                        if (data.submission) {
+                            courseId = data.submission.course_id || '';
+                            assignmentId = data.submission.assignment_id || assignmentId;
+                            if (data.submission.invite_code) {
+                                inviteCode = data.submission.invite_code;
+                                window.__inviteCode = inviteCode;
+                            }
+                        }
+                    }
+                } catch (e) { }
+            }
+
+            // Get invite code for share links (teacher/student)
+            if (courseId && !inviteCode) {
+                try {
+                    var r = await fetch('/api/course?code=&course_id=' + courseId, { credentials: 'include' });
+                    if (r.ok) {
+                        var data = await r.json();
+                        if (data.invite_code) {
+                            inviteCode = data.invite_code;
+                            window.__inviteCode = inviteCode;
+                        }
+                    }
+                } catch (e) { }
+            }
+
+            // Show assignment info
+            if (assignmentId) {
+                document.getElementById('courseBanner').style.display = 'block';
+                document.getElementById('courseBanner').innerHTML = '作业: <strong>' + escapeHTML(assignmentId) + '</strong>';
+            }
+
+            if (!courseId && !isShareView) {
+                document.getElementById('issueList').innerHTML = '<div class="empty-state"><div class="icon">❓</div><div>缺少课程参数，请从学生或教师页面进入</div></div>';
+                return;
+            }
+
+            // Check if we should open a specific issue
+            var focusId = params.get('focus');
+            if (focusId) {
+                await openIssue(parseInt(focusId));
+            } else {
+                loadIssues();
+            }
+        })();
+    </script>
+</body>
+
+</html>

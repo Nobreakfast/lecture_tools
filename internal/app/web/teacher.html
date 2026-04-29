@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,80 +12,268 @@
     /* Default button appearance (matches .btn from app.css so that
        JS-generated buttons without explicit .btn class look correct) */
     button:not(.tab-btn):not(.sub-tab-btn) {
-      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-      color: #fff; border: none; font-family: inherit; font-size: 14px; font-weight: 500;
-      padding: 10px 18px; border-radius: var(--radius); cursor: pointer;
+      color: #fff;
+      border: none;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 10px 18px;
+      border-radius: var(--radius);
+      cursor: pointer;
       transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
     }
-    button:not(.tab-btn):not(.sub-tab-btn):hover {
-      transform: translateY(-1px); box-shadow: 0 8px 16px rgba(79,70,229,0.2);
-    }
-    button:not(.tab-btn):not(.sub-tab-btn):disabled {
-      opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none;
-    }
-    button.small { padding: 5px 12px; font-size: 12px; }
 
-    .btn-secondary { background: #e2e8f0 !important; color: #1e293b !important; box-shadow: none !important; }
-    .btn-secondary:hover { background: #cbd5e1 !important; }
-    .btn-danger { background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%) !important; }
+    button:not(.tab-btn):not(.sub-tab-btn):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+    }
+
+    button:not(.tab-btn):not(.sub-tab-btn):disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    button.small {
+      padding: 5px 12px;
+      font-size: 12px;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0 !important;
+      color: #1e293b !important;
+      box-shadow: none !important;
+    }
+
+    .btn-secondary:hover {
+      background: #cbd5e1 !important;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%) !important;
+    }
 
     /* Form inputs */
     input:not([type="file"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
-    select, textarea {
-      width: 100%; font-family: inherit; font-size: 14px; padding: 9px 12px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      color: var(--text); transition: border-color 0.12s, box-shadow 0.12s;
+    select,
+    textarea {
+      width: 100%;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 9px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      transition: border-color 0.12s, box-shadow 0.12s;
     }
-    input:focus, select:focus, textarea:focus {
-      outline: none; border-color: var(--primary);
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
     }
-    textarea { min-height: 180px; font-family: var(--mono); resize: vertical; }
-    select { cursor: pointer; }
 
-    .tab-page { display: none; }
-    .tab-page.active { display: block; }
+    textarea {
+      min-height: 180px;
+      font-family: var(--mono);
+      resize: vertical;
+    }
+
+    select {
+      cursor: pointer;
+    }
+
+    .tab-page {
+      display: none;
+    }
+
+    .tab-page.active {
+      display: block;
+    }
 
     /* Badges */
-    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; line-height: 1.4; }
-    .badge-success { background: var(--success-bg); color: var(--success); }
-    .badge-warning { background: var(--warning-bg); color: var(--warning); }
-    .badge-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .badge-success {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .badge-warning {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .badge-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
 
     /* Entry status badge */
-    .entry-badge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
-    .entry-badge.open { background: var(--success-bg); color: var(--success); }
-    .entry-badge.closed { background: var(--danger-bg); color: var(--danger); }
+    .entry-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .entry-badge.open {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .entry-badge.closed {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
 
     /* Course cards */
-    .course-card { padding: 14px 0; border-bottom: 1px solid var(--border); }
-    .course-card:last-child { border-bottom: none; }
-    .course-card-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .course-card-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-    .course-card-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-    .course-card-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-    .course-name { font-size: 15px; font-weight: 600; }
-    .course-meta { font-size: 11px; color: var(--text-muted); background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-family: var(--mono); }
+    .course-card {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .course-card:last-child {
+      border-bottom: none;
+    }
+
+    .course-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .course-card-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .course-card-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .course-card-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .course-name {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .course-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: #f1f5f9;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--mono);
+    }
 
     /* Score bars */
-    .score-bar-wrap { display: flex; align-items: center; gap: 6px; }
-    .score-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-    .score-bar-fill { height: 100%; border-radius: 3px; }
-    .score-text { font-size: 12px; white-space: nowrap; }
+    .score-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .score-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    .score-text {
+      font-size: 12px;
+      white-space: nowrap;
+    }
 
     /* Tables */
-    table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
-    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { background: rgba(79,70,229,0.06); font-weight: 600; color: var(--text-muted); }
-    tbody tr:hover { background: rgba(79,70,229,0.04); }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: rgba(79, 70, 229, 0.06);
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    tbody tr:hover {
+      background: rgba(79, 70, 229, 0.04);
+    }
 
     /* Attendance matrix table */
-    .attendance-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .attendance-table-wrap table { min-width: max-content; }
-    .attendance-table-wrap th, .attendance-table-wrap td { white-space: nowrap; }
+    .attendance-table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .attendance-table-wrap table {
+      min-width: max-content;
+    }
+
+    .attendance-table-wrap th,
+    .attendance-table-wrap td {
+      white-space: nowrap;
+    }
+
     .attendance-table-wrap table th,
-    .attendance-table-wrap table td { padding: 8px 10px; }
+    .attendance-table-wrap table td {
+      padding: 8px 10px;
+    }
 
     /* Sticky first columns: 姓名 / 出勤率 / 均分 (keep sticky minimal for mobile scroll) */
     .attendance-table-wrap th:nth-child(-n+3),
@@ -94,89 +283,303 @@
       z-index: 2;
       box-shadow: 1px 0 0 var(--border);
     }
-    .attendance-table-wrap th:nth-child(1), .attendance-table-wrap td:nth-child(1) { left: 0; }
-    .attendance-table-wrap th:nth-child(2), .attendance-table-wrap td:nth-child(2) { left: 64px; }
-    .attendance-table-wrap th:nth-child(3), .attendance-table-wrap td:nth-child(3) { left: 164px; }
-    .att-badge { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius: 999px; font-weight:700; font-size:13px; }
-    .att-ok { background: var(--success-bg); color: var(--success); }
-    .att-no { background: #f1f5f9; color: var(--text-muted); }
-    .att-score { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
-    .att-row-low td { background-color: #fff1f2 !important; }
-    .att-row-low td:nth-child(-n+3) { background-color: #fff1f2 !important; }
+
+    .attendance-table-wrap th:nth-child(1),
+    .attendance-table-wrap td:nth-child(1) {
+      left: 0;
+    }
+
+    .attendance-table-wrap th:nth-child(2),
+    .attendance-table-wrap td:nth-child(2) {
+      left: 64px;
+    }
+
+    .attendance-table-wrap th:nth-child(3),
+    .attendance-table-wrap td:nth-child(3) {
+      left: 164px;
+    }
+
+    .att-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .att-ok {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .att-no {
+      background: #f1f5f9;
+      color: var(--text-muted);
+    }
+
+    .att-score {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    .att-row-low td {
+      background-color: #fff1f2 !important;
+    }
+
+    .att-row-low td:nth-child(-n+3) {
+      background-color: #fff1f2 !important;
+    }
 
     @media (max-width: 520px) {
+
       /* On narrow screens, disable sticky to ensure smooth horizontal scroll. */
-      .attendance-table-wrap th, .attendance-table-wrap td { position: static !important; box-shadow: none !important; }
-      .attendance-table-wrap table th, .attendance-table-wrap table td { padding: 6px 8px; font-size: 13px; }
-      .att-badge { min-width: 22px; height: 22px; font-size: 12px; }
+      .attendance-table-wrap th,
+      .attendance-table-wrap td {
+        position: static !important;
+        box-shadow: none !important;
+      }
+
+      .attendance-table-wrap table th,
+      .attendance-table-wrap table td {
+        padding: 6px 8px;
+        font-size: 13px;
+      }
+
+      .att-badge {
+        min-width: 22px;
+        height: 22px;
+        font-size: 12px;
+      }
     }
 
     /* Modals */
-    .modal { position: fixed; inset: 0; background: rgba(15,23,42,.4); backdrop-filter: blur(4px);
-      display: none; align-items: center; justify-content: center; padding: 16px;
-      z-index: 9000; }
-    .modal.show { display: flex; }
-    .modal-box { max-width: 440px; width: 100%; max-height: 88vh; overflow: auto;
-      background: #fff; border-radius: var(--radius-lg); padding: 24px;
-      border: 1px solid var(--card-border); box-shadow: 0 24px 60px rgba(0,0,0,.18);
-      animation: popin 0.18s ease-out; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .4);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 9000;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-box {
+      max-width: 440px;
+      width: 100%;
+      max-height: 88vh;
+      overflow: auto;
+      background: #fff;
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .18);
+      animation: popin 0.18s ease-out;
+    }
 
     /* Detail items */
-    .qitem { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 8px; background: var(--bg); }
-    .good { color: var(--success); font-weight: 500; margin-top: 4px; }
-    .bad { color: var(--danger); font-weight: 500; margin-top: 4px; }
+    .qitem {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-top: 8px;
+      background: var(--bg);
+    }
+
+    .good {
+      color: var(--success);
+      font-weight: 500;
+      margin-top: 4px;
+    }
+
+    .bad {
+      color: var(--danger);
+      font-weight: 500;
+      margin-top: 4px;
+    }
 
     /* Styled file input */
-    .file-input-wrap { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
-    .file-input-wrap input[type="file"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-    .file-input-label {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 16px; font-size: 13px; font-weight: 500; font-family: inherit;
-      background: #e2e8f0; color: #1e293b; border-radius: var(--radius);
-      cursor: pointer; transition: background 0.12s; white-space: nowrap;
+    .file-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      flex-wrap: wrap;
     }
-    .file-input-label:hover { background: #cbd5e1; }
-    .file-input-name { font-size: 13px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .file-input-wrap input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    .file-input-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      background: #e2e8f0;
+      color: #1e293b;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.12s;
+      white-space: nowrap;
+    }
+
+    .file-input-label:hover {
+      background: #cbd5e1;
+    }
+
+    .file-input-name {
+      font-size: 13px;
+      color: var(--text-muted);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     /* Course pills */
-    .course-pills { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
-    .course-pills::-webkit-scrollbar { display: none; }
+    .course-pills {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .course-pills::-webkit-scrollbar {
+      display: none;
+    }
+
     .course-pill {
-      padding: 5px 14px !important; font-size: 13px !important; border-radius: 20px !important;
-      background: #e2e8f0 !important; color: #1e293b !important;
-      white-space: nowrap; flex-shrink: 0; box-shadow: none !important;
+      padding: 5px 14px !important;
+      font-size: 13px !important;
+      border-radius: 20px !important;
+      background: #e2e8f0 !important;
+      color: #1e293b !important;
+      white-space: nowrap;
+      flex-shrink: 0;
+      box-shadow: none !important;
       transition: background 0.15s, color 0.15s, transform 0.12s !important;
     }
-    .course-pill:hover { background: #cbd5e1 !important; transform: none !important; }
+
+    .course-pill:hover {
+      background: #cbd5e1 !important;
+      transform: none !important;
+    }
+
     .course-pill.active {
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%) !important;
       color: #fff !important;
     }
-    .opt-image-teacher { max-width:100%; max-height:120px; object-fit:contain; border-radius:6px; margin-top:2px; }
+
+    .opt-image-teacher {
+      max-width: 100%;
+      max-height: 120px;
+      object-fit: contain;
+      border-radius: 6px;
+      margin-top: 2px;
+    }
 
     /* ── Responsive ── */
     @media (max-width: 720px) {
-      .login-wrap { padding: 16px 12px; }
-      .logout-row { flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-      .tab-bar { font-size: 13px; }
-      .tab-btn { padding: 8px 10px; font-size: 13px; }
-      .course-card-header { flex-wrap: wrap; }
-      .course-card-actions { flex-wrap: wrap; }
-      .modal-box { max-width: calc(100vw - 24px); padding: 20px; }
-      .file-input-wrap { gap: 8px; }
-      .badge { font-size: 11px; padding: 2px 8px; }
-      button:not(.tab-btn):not(.sub-tab-btn) { padding: 8px 14px; font-size: 13px; }
-      button.small { padding: 4px 10px; font-size: 11px; }
+      .login-wrap {
+        padding: 16px 12px;
+      }
+
+      .logout-row {
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .tab-bar {
+        font-size: 13px;
+      }
+
+      .tab-btn {
+        padding: 8px 10px;
+        font-size: 13px;
+      }
+
+      .course-card-header {
+        flex-wrap: wrap;
+      }
+
+      .course-card-actions {
+        flex-wrap: wrap;
+      }
+
+      .modal-box {
+        max-width: calc(100vw - 24px);
+        padding: 20px;
+      }
+
+      .file-input-wrap {
+        gap: 8px;
+      }
+
+      .badge {
+        font-size: 11px;
+        padding: 2px 8px;
+      }
+
+      button:not(.tab-btn):not(.sub-tab-btn) {
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+
+      button.small {
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+
       /* Sub-tab buttons wrap on mobile */
-      .sub-tab-bar { flex-wrap: wrap; }
-      .sub-tab-btn { padding: 6px 10px; font-size: 12px; }
+      .sub-tab-bar {
+        flex-wrap: wrap;
+      }
+
+      .sub-tab-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+
       /* Table horizontal scroll on narrow screens */
-      .card { overflow-x: auto; }
-      table { min-width: max-content; }
-      th, td { white-space: nowrap; padding: 8px 10px; }
+      .card {
+        overflow-x: auto;
+      }
+
+      table {
+        min-width: max-content;
+      }
+
+      th,
+      td {
+        white-space: nowrap;
+        padding: 8px 10px;
+      }
     }
+
     @media (hover: none) {
-      button:not(.tab-btn):not(.sub-tab-btn):hover { transform: none; }
+      button:not(.tab-btn):not(.sub-tab-btn):hover {
+        transform: none;
+      }
     }
   </style>
   <script>
@@ -204,6 +607,7 @@
     });
   </script>
 </head>
+
 <body>
   <script src="/static/app.js"></script>
 
@@ -253,14 +657,17 @@
     <div class="tab-page active" id="tab-courses">
       <div class="card">
         <p><strong>我的课程</strong></p>
-        <div id="courseList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">加载中…</p></div>
+        <div id="courseList">
+          <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">加载中…</p>
+        </div>
       </div>
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <label for="newCourseName" style="font-size:14px;font-weight:600;white-space:nowrap;">课程名称</label>
           <input type="text" id="newCourseName" placeholder="如：机器学习导论" style="flex:1;min-width:120px;" />
           <label for="newCourseSlug" style="font-size:14px;font-weight:600;white-space:nowrap;">英文名称</label>
-          <input type="text" id="newCourseSlug" placeholder="如：Machine Learning Intro" style="flex:1;min-width:100px;" />
+          <input type="text" id="newCourseSlug" placeholder="如：Machine Learning Intro"
+            style="flex:1;min-width:100px;" />
           <button id="createCourseBtn">创建课程</button>
         </div>
       </div>
@@ -301,7 +708,8 @@
       </div>
 
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+        <div
+          style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
           <p style="margin:0;"><strong>答题记录</strong></p>
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:12px;color:var(--text-secondary);">筛选题库</span>
@@ -339,7 +747,9 @@
 
       <div class="card">
         <div class="attendance-table-wrap">
-          <div id="attendanceTable"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
+          <div id="attendanceTable">
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>
+          </div>
         </div>
       </div>
     </div>
@@ -381,10 +791,15 @@
         </div>
         <div class="card">
           <p style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
-            <span><strong>已上传题库</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">点击"加载"即可作为当前随堂测验</span></span>
-            <button id="downloadAllQuizBankBtn" class="small btn-secondary" style="font-size:11px;padding:3px 10px;margin:0;display:none;" onclick="downloadAllQuizBanks()">下载全部</button>
+            <span><strong>已上传题库</strong><span
+                style="font-size:12px;color:var(--text-secondary);margin-left:8px;">点击"加载"即可作为当前随堂测验</span></span>
+            <button id="downloadAllQuizBankBtn" class="small btn-secondary"
+              style="font-size:11px;padding:3px 10px;margin:0;display:none;"
+              onclick="downloadAllQuizBanks()">下载全部</button>
           </p>
-          <div id="quizBankList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
+          <div id="quizBankList">
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>
+          </div>
         </div>
       </div>
 
@@ -402,7 +817,9 @@
         </div>
         <div class="card">
           <p><strong>已上传材料</strong></p>
-          <div id="materialList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
+          <div id="materialList">
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>
+          </div>
         </div>
       </div>
 
@@ -421,18 +838,24 @@
         </div>
         <div class="card">
           <p><strong>已发布作业</strong></p>
-          <div id="homeworkAssignmentsList"><p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p></div>
+          <div id="homeworkAssignmentsList">
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>
+          </div>
         </div>
         <div class="card">
           <p><strong>学生提交</strong></p>
           <div class="row" style="margin-bottom:8px;align-items:center;">
-            <select id="homeworkAssignmentFilter" style="margin-top:0;flex:1;"><option value="">-- 全部作业 --</option></select>
+            <select id="homeworkAssignmentFilter" style="margin-top:0;flex:1;">
+              <option value="">-- 全部作业 --</option>
+            </select>
             <button id="homeworkQABtn" class="small btn-secondary" style="margin-top:0;">Q&A</button>
             <button id="homeworkGradeVisibilityBtn" class="small btn-secondary" style="margin-top:0;">公布成绩</button>
             <button id="downloadHomeworkBulkBtn" class="small" style="margin-top:0;background:#0f766e;">下载全部</button>
             <button id="refreshHomeworkBtn" class="small" style="margin-top:0;">刷新</button>
           </div>
-          <div id="homeworkQAPanel" style="display:none;margin-bottom:10px;padding:12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;"></div>
+          <div id="homeworkQAPanel"
+            style="display:none;margin-bottom:10px;padding:12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;">
+          </div>
           <div id="homeworkSubmissionsList"></div>
         </div>
       </div>
@@ -442,7 +865,8 @@
     <div class="tab-page" id="tab-summary">
       <!-- 当前题库总结 -->
       <div class="card">
-        <p><strong>当前题库总结</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">基于当前加载的题库和已提交答题</span></p>
+        <p><strong>当前题库总结</strong><span
+            style="font-size:12px;color:var(--text-secondary);margin-left:8px;">基于当前加载的题库和已提交答题</span></p>
         <div class="row">
           <button id="genSummaryBtn">生成 AI 总结</button>
           <button id="refreshSummaryBtn" class="small btn-secondary" style="margin-top:8px;">刷新</button>
@@ -455,11 +879,13 @@
             <button id="downloadSummaryMdBtn" class="small" style="margin-top:0;">下载 .md</button>
             <button id="clearSummaryBtn" class="small btn-danger" style="margin-top:0;">清除总结</button>
           </div>
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <div
+            style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
             <p style="font-weight:600;margin-bottom:6px;">答题情况与错题总结</p>
             <div id="answerAnalysis" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
           </div>
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <div
+            style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
             <p style="font-weight:600;margin-bottom:6px;">学生反馈总结</p>
             <div id="feedbackSummary" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
           </div>
@@ -471,7 +897,8 @@
       </div>
       <!-- 历史趋势总结 -->
       <div class="card">
-        <p><strong>历史趋势总结</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">纵向分析本课程所有小测的学生表现</span></p>
+        <p><strong>历史趋势总结</strong><span
+            style="font-size:12px;color:var(--text-secondary);margin-left:8px;">纵向分析本课程所有小测的学生表现</span></p>
         <div class="row">
           <button id="genHistoryBtn">生成历史 AI 总结</button>
           <button id="refreshHistoryBtn" class="small btn-secondary" style="margin-top:8px;">刷新</button>
@@ -483,11 +910,13 @@
             <button id="downloadHistoryMdBtn" class="small" style="margin-top:0;">下载 .md</button>
             <button id="clearHistoryBtn" class="small btn-danger" style="margin-top:0;">清除历史总结</button>
           </div>
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <div
+            style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
             <p style="font-weight:600;margin-bottom:6px;">总体趋势分析</p>
             <div id="historyOverallTrend" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
           </div>
-          <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
+          <div
+            style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--bg);">
             <p style="font-weight:600;margin-bottom:6px;">表现洞察</p>
             <div id="historyInsights" style="font-size:14px;white-space:pre-wrap;line-height:1.7;"></div>
           </div>
@@ -499,8 +928,10 @@
       </div>
       <!-- MCP 智能助手配置 -->
       <div class="card">
-        <p><strong>MCP 智能助手配置</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">在 Claude Desktop / Cursor 中配置后即可用自然语言查询课程数据</span></p>
-        <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+        <p><strong>MCP 智能助手配置</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">在 Claude
+            Desktop / Cursor 中配置后即可用自然语言查询课程数据</span></p>
+        <div
+          style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
           <div class="row" style="align-items:center;gap:12px;margin-bottom:8px;">
             <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;">
               <input id="mcpEnabledToggle" type="checkbox" />
@@ -510,8 +941,10 @@
           </div>
           <p id="mcpStatus" style="font-size:12px;color:var(--text-secondary);margin:0 0 8px 0;">加载中…</p>
           <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Claude Desktop / Cursor 配置示例</p>
-          <pre id="mcpConfig" style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;"></pre>
-          <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">将以上内容粘贴到 Claude Desktop 的 <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。</p>
+          <pre id="mcpConfig"
+            style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;"></pre>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">将以上内容粘贴到 Claude Desktop 的
+            <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。</p>
         </div>
       </div>
     </div>
@@ -550,12 +983,13 @@
     <div class="modal-box" style="width:min(440px,100%);">
       <h3 style="margin-bottom:16px;">新建题库</h3>
       <div style="margin-bottom:12px;">
-        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px;">题库 ID（英文，如 week7_l1）</label>
-        <input type="text" id="newQuizIdInput" placeholder="week7_l1" style="width:100%;"/>
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px;">题库 ID（英文，如
+          week7_l1）</label>
+        <input type="text" id="newQuizIdInput" placeholder="week7_l1" style="width:100%;" />
       </div>
       <div style="margin-bottom:16px;">
         <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px;">标题</label>
-        <input type="text" id="newQuizTitleInput" placeholder="第七周课堂反馈" style="width:100%;"/>
+        <input type="text" id="newQuizTitleInput" placeholder="第七周课堂反馈" style="width:100%;" />
       </div>
       <div id="newQuizError" style="color:var(--danger);font-size:13px;margin-bottom:12px;min-height:18px;"></div>
       <div style="display:flex;gap:12px;">
@@ -586,7 +1020,8 @@
       <div id="shareContent">
         <div style="margin-bottom:16px;">
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-            <input type="text" id="shareUrlInput" readonly style="flex:1;font-family:var(--mono);font-size:13px;padding:8px 10px;" />
+            <input type="text" id="shareUrlInput" readonly
+              style="flex:1;font-family:var(--mono);font-size:13px;padding:8px 10px;" />
             <button class="small btn-secondary" id="copyShareUrlBtn">复制</button>
           </div>
           <p style="font-size:12px;color:var(--text-muted);margin:0;">任何人获得此链接均可查看该小测的所有答题记录</p>
@@ -605,14 +1040,14 @@
   <script>
     /* ── helpers ── */
     function escapeHTML(s) {
-      return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+      return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
     function jsArg(s) { return encodeURIComponent(String(s || '')); }
     function showToast(msg) { if (window.App) App.toast(msg); }
     function formatSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
-      return (bytes/(1024*1024)).toFixed(1) + ' MB';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
     function scoreBarColor(ratio) {
       if (ratio >= 0.8) return 'var(--success)';
@@ -690,7 +1125,7 @@
       if (!courseId) return;
       try {
         localStorage.setItem(teacherLastCourseKey(), String(courseId));
-      } catch (_) {}
+      } catch (_) { }
     }
 
     /* ── auth ── */
@@ -703,7 +1138,7 @@
           currentTeacher = data;
           enterPanel();
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function doLogin() {
@@ -774,7 +1209,7 @@
         coursesCache = data.items || [];
         renderCourses();
         syncCoursePills();
-      } catch (_) {}
+      } catch (_) { }
     }
 
     function syncCoursePills() {
@@ -887,7 +1322,7 @@
             if (prev) sel.value = prev;
           }
         }
-      } catch (_) {}
+      } catch (_) { }
       try {
         const r = await fetch('/api/teacher/courses/state?course_id=' + courseId, { credentials: 'include' });
         if (r.ok) {
@@ -903,7 +1338,7 @@
             if (sel) sel.value = data.quiz_id;
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function quickLoadQuiz(courseId) {
@@ -1013,10 +1448,10 @@
 
     function refreshActiveTab() {
       const tab = getActiveTab();
-      if (tab === 'tab-attempts')    refreshAttemptsTab();
+      if (tab === 'tab-attempts') refreshAttemptsTab();
       else if (tab === 'tab-attendance') refreshAttendanceTab();
       else if (tab === 'tab-summary') refreshSummaryTab();
-      else if (tab === 'tab-upload')  refreshUploadTab();
+      else if (tab === 'tab-upload') refreshUploadTab();
     }
 
     function attendanceModeValue() {
@@ -1041,7 +1476,7 @@
           document.getElementById('attendanceThreshold').value = data.threshold;
         }
         _attendanceThresholdLoaded = true;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function saveAttendanceThreshold() {
@@ -1056,7 +1491,7 @@
           _attendanceThresholdLoaded = true;
           refreshAttendanceTab();
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function refreshAttendanceTab() {
@@ -1212,15 +1647,15 @@
       const sub = getActiveSubTab();
       if (sub === 'sub-quiz' || !sub) loadSubQuiz();
       if (sub === 'sub-materials') loadSubMaterials();
-      if (sub === 'sub-homework')  loadSubHomework();
+      if (sub === 'sub-homework') loadSubHomework();
     }
 
     // Route each sub-tab to its real loader. We deliberately avoid naming
     // wrappers after existing loaders (e.g. loadMaterials already exists
     // further down this file) so function hoisting doesn't shadow anything.
-    function loadSubQuiz()      { loadQuizBankList(); }
+    function loadSubQuiz() { loadQuizBankList(); }
     function loadSubMaterials() { if (typeof loadMaterials === 'function') loadMaterials(); }
-    function loadSubHomework()  { if (typeof loadHomeworkAssignments === 'function') { loadHomeworkAssignments(); loadHomeworkSubmissions(); } }
+    function loadSubHomework() { if (typeof loadHomeworkAssignments === 'function') { loadHomeworkAssignments(); loadHomeworkSubmissions(); } }
 
     function refreshAttemptsTab() {
       if (!selectedCourseId) {
@@ -1246,7 +1681,7 @@
         const data = await r.json();
         attemptsQuizBanks = data.items || [];
         syncAttemptsQuizFilter();
-      } catch (_) {}
+      } catch (_) { }
     }
 
     function syncAttemptsQuizFilter() {
@@ -1277,7 +1712,7 @@
       }
       await fetch('/api/teacher/courses/fix-all-legacy?course_id=' + selectedCourseId, {
         method: 'POST', credentials: 'include'
-      }).catch(() => {});
+      }).catch(() => { });
       loadSummary();
       loadHistorySummary();
     }
@@ -1337,7 +1772,7 @@
           </div>`;
         }
         root.innerHTML = html;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function loadQuizBank(quizId) {
@@ -1376,7 +1811,7 @@
         if (!r.ok) { alert(await r.text()); return; }
         showToast('重命名成功');
         loadQuizBankList();
-      } catch(e) { alert('重命名失败: ' + e.message); }
+      } catch (e) { alert('重命名失败: ' + e.message); }
     }
 
     function downloadQuizBank(quizId) {
@@ -1436,7 +1871,7 @@
         }).then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); });
         closeNewQuizModal();
         location.href = '/quiz-editor?course_id=' + selectedCourseId + '&quiz_id=' + encodeURIComponent(qid) + (title ? '&title=' + encodeURIComponent(title) : '');
-      } catch(e) {
+      } catch (e) {
         errEl.textContent = '创建失败: ' + e.message;
       } finally {
         btn.disabled = false;
@@ -1455,7 +1890,7 @@
         updateEntryBadge(data.entry_open);
         document.getElementById('liveStarted').textContent = data.started || 0;
         document.getElementById('liveSubmitted').textContent = data.submitted || 0;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     function startLiveSSE() {
@@ -1560,7 +1995,7 @@
       if (!selectedCourseId) return;
       await fetch('/api/teacher/courses/fix-legacy-attempts?course_id=' + selectedCourseId, {
         method: 'POST', credentials: 'include'
-      }).catch(() => {});
+      }).catch(() => { });
       const r = await fetch('/api/teacher/courses/attempts?course_id=' + selectedCourseId, { credentials: 'include' });
       if (!r.ok) return;
       const data = await r.json();
@@ -1596,16 +2031,16 @@
               <summary style="cursor:pointer;color:var(--primary);font-weight:600;list-style-position:inside;">${escapeHTML(item.name)}</summary>
               <div style="margin-top:8px;display:grid;gap:6px;min-width:220px;">
                 ${history.map(a => {
-                  const label = a.attempt_no ? '第' + a.attempt_no + '次' : '未编号';
-                  const time = a.submitted_at || a.updated_at || '';
-                  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+            const label = a.attempt_no ? '第' + a.attempt_no + '次' : '未编号';
+            const time = a.submitted_at || a.updated_at || '';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
                     <div style="font-size:12px;line-height:1.4;">
                       <div><strong>${escapeHTML(label)}</strong> ${statusBadge(a.status)}</div>
                       <div style="color:var(--text-secondary);">${escapeHTML(time)}</div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">${attemptScoreCell(a)}<button class="small" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="viewAttemptDetail('${jsArg(a.id)}')">查看</button></div>
                   </div>`;
-                }).join('')}
+          }).join('')}
               </div>
             </details>`
           : `<button class="link-btn" style="padding:0;font-weight:600;" onclick="viewAttemptDetail('${jsArg(item.id)}')">${escapeHTML(item.name)}</button>`;
@@ -1614,7 +2049,7 @@
           <td>${escapeHTML(item.student_no)}</td>
           <td>${escapeHTML(item.class_name)}</td>
           ${quizCol}
-          <td>${item.attempt_no ? '第'+item.attempt_no+'次' : '-'}</td>
+          <td>${item.attempt_no ? '第' + item.attempt_no + '次' : '-'}</td>
           <td>${statusBadge(item.status)}</td>
           <td>${scoreCell}</td>
           <td><button class="small" onclick="viewAttemptDetail('${jsArg(item.id)}')">查看</button></td>
@@ -1669,7 +2104,7 @@
       if (!stats) return '';
       const count = stats.student_count || (stats.students || []).length;
       if (!count) return '<p style="font-size:13px;color:var(--text-secondary);">暂无已提交记录</p>';
-      return `<p style="font-size:13px;color:var(--text-secondary);">答题人数：${count}　均分：${(stats.avg_score||0).toFixed(2)} / ${(stats.avg_total||0).toFixed(1)}</p>`;
+      return `<p style="font-size:13px;color:var(--text-secondary);">答题人数：${count}　均分：${(stats.avg_score || 0).toFixed(2)} / ${(stats.avg_total || 0).toFixed(1)}</p>`;
     }
 
     async function loadSummary() {
@@ -1690,7 +2125,7 @@
         } else {
           document.getElementById('summaryContent').style.display = 'none';
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     async function generateSummary() {
@@ -1711,7 +2146,7 @@
     function renderHistoryStats(quizStats) {
       if (!quizStats || !quizStats.length) return '<p style="font-size:13px;color:var(--text-secondary);">暂无历史小测数据</p>';
       const rows = quizStats.map(q =>
-        `<tr><td>${escapeHTML(q.quiz_title || q.quiz_id)}</td><td>${q.student_count}</td><td>${(q.avg_score||0).toFixed(2)}/${(q.avg_total||0).toFixed(1)}</td></tr>`
+        `<tr><td>${escapeHTML(q.quiz_title || q.quiz_id)}</td><td>${q.student_count}</td><td>${(q.avg_score || 0).toFixed(2)}/${(q.avg_total || 0).toFixed(1)}</td></tr>`
       ).join('');
       return `<table style="font-size:13px;width:100%;border-collapse:collapse;">
   <thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th>题库</th><th>答题人数</th><th>均分</th></tr></thead>
@@ -1888,7 +2323,7 @@
       });
       const text = await r.text();
       let data = null;
-      try { data = JSON.parse(text); } catch (_) {}
+      try { data = JSON.parse(text); } catch (_) { }
       const resultBox = document.getElementById('materialUploadResults');
       if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
       const lines = [];
@@ -1953,13 +2388,13 @@
       root.innerHTML = hwAssignmentsCache.map(item => {
         const hiddenBadge = item.hidden ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:6px;">已隐藏</span>' : '';
         const files = (item.files || []).map(f =>
-          `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px;">${escapeHTML(f.name)} (${formatSize(f.size||0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a> <a href="javascript:void(0)" style="color:#b91c1c;cursor:pointer;" onclick="deleteHwFile(decodeURIComponent('${jsArg(item.assignment_id)}'),decodeURIComponent('${jsArg(f.name)}'))">删除</a></div>`
+          `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px;">${escapeHTML(f.name)} (${formatSize(f.size || 0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a> <a href="javascript:void(0)" style="color:#b91c1c;cursor:pointer;" onclick="deleteHwFile(decodeURIComponent('${jsArg(item.assignment_id)}'),decodeURIComponent('${jsArg(f.name)}'))">删除</a></div>`
         ).join('');
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count||0} 个文件</span></div>
+            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span></div>
             <div class="row" style="gap:6px;flex-wrap:wrap;">
-              <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.hidden?'var(--primary)':'#6b7280'};" onclick="toggleHwVis(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.hidden?'false':'true'})">${item.hidden?'显示':'隐藏'}</button>
+              <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.hidden ? 'var(--primary)' : '#6b7280'};" onclick="toggleHwVis(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.hidden ? 'false' : 'true'})">${item.hidden ? '显示' : '隐藏'}</button>
               <button class="small btn-danger" style="margin-top:0;font-size:11px;padding:3px 8px;" onclick="deleteHwAssignment(decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
             </div>
           </div>
@@ -2027,7 +2462,7 @@
           <td>${keyCell}</td>
           <td>${dlCell}</td>
           <td>${gradeStatus}</td>
-          <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN',{hour12:false}) : '-')}</td>
+          <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '-')}</td>
           <td>
             <button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="openHomeworkGrade('${escapeHTML(item.id)}')">评分</button>
             <button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission('${escapeHTML(item.id)}','${escapeHTML(item.student_no)}','${escapeHTML(item.assignment_id)}')">删除</button>
@@ -2081,7 +2516,7 @@
       });
       const text = await r.text();
       let data = null;
-      try { data = JSON.parse(text); } catch (_) {}
+      try { data = JSON.parse(text); } catch (_) { }
       const resultBox = document.getElementById('homeworkUploadResults');
       if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
       const lines = [];
@@ -2302,7 +2737,7 @@
           const opts = q.options || [];
           if (opts.length) {
             const selectedKeys = q.answer ? q.answer.split(',').map(s => s.trim()) : [];
-            const correctKeys  = q.correct  ? q.correct.split(',').map(s => s.trim())  : [];
+            const correctKeys = q.correct ? q.correct.split(',').map(s => s.trim()) : [];
             opts.forEach(op => {
               const sel = selectedKeys.includes(op.key);
               const isCorrect = correctKeys.includes(op.key);
@@ -2333,7 +2768,7 @@
         content.innerHTML = html;
         if (window.MathJax && window.MathJax.typesetPromise) {
           if (window.MathJax.typesetClear) window.MathJax.typesetClear([content]);
-          window.MathJax.typesetPromise([content]).catch(() => {});
+          window.MathJax.typesetPromise([content]).catch(() => { });
         }
       } catch (e) {
         content.innerHTML = '<p style="color:var(--danger);">网络异常：' + escapeHTML(String(e)) + '</p>';
@@ -2378,9 +2813,9 @@
         document.getElementById(btn.dataset.subtab).style.display = '';
         // Trigger the relevant data loader for the freshly shown sub-tab.
         if (!selectedCourseId) return;
-        if (btn.dataset.subtab === 'sub-quiz')      loadSubQuiz();
+        if (btn.dataset.subtab === 'sub-quiz') loadSubQuiz();
         if (btn.dataset.subtab === 'sub-materials') loadSubMaterials();
-        if (btn.dataset.subtab === 'sub-homework')  loadSubHomework();
+        if (btn.dataset.subtab === 'sub-homework') loadSubHomework();
       };
     });
 
@@ -2422,7 +2857,13 @@
       updateHomeworkGradeVisibilityButton();
       if (document.getElementById('homeworkQAPanel').style.display !== 'none') loadHomeworkQA();
     };
-    document.getElementById('homeworkQABtn').onclick = toggleHomeworkQA;
+    document.getElementById('homeworkQABtn').onclick = function () {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      var aid = document.getElementById('homeworkAssignmentFilter').value;
+      var url = '/teacher/qa?course_id=' + encodeURIComponent(selectedCourseId);
+      if (aid) url += '&assignment_id=' + encodeURIComponent(aid);
+      window.location.href = url;
+    };
     document.getElementById('homeworkGradeVisibilityBtn').onclick = toggleHomeworkGradeVisibility;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };
@@ -2593,7 +3034,7 @@
       ta.style.left = '-9999px';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); showToast('已复制到剪贴板'); } catch(e) { alert('复制失败，请手动复制'); }
+      try { document.execCommand('copy'); showToast('已复制到剪贴板'); } catch (e) { alert('复制失败，请手动复制'); }
       document.body.removeChild(ta);
     }
 
@@ -2648,7 +3089,7 @@
       btn.style.display = '';
       status.textContent = '当前已启用长效 Token，可直接复制到 Trae、Cursor 或 Claude Desktop。';
       if (btn) {
-        btn.onclick = function() {
+        btn.onclick = function () {
           navigator.clipboard.writeText(pre.textContent).then(() => {
             btn.textContent = '已复制';
             setTimeout(() => btn.textContent = '复制配置', 2000);
@@ -2710,4 +3151,5 @@
     }
   </script>
 </body>
+
 </html>

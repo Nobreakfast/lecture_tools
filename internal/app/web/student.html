@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,87 +10,255 @@
   <style>
     /* Page-specific styles — base design from /static/app.css */
 
-    .tab-page { display: none; }
-    .tab-page.active { display: block; }
+    .tab-page {
+      display: none;
+    }
+
+    .tab-page.active {
+      display: block;
+    }
 
     /* ── Invite code landing ── */
-    .landing { display: flex; align-items: center; justify-content: center; min-height: 70vh; }
-    .landing-card { width: 100%; max-width: 420px; text-align: center; }
-    .landing-card .icon { font-size: 40px; line-height: 1; margin-bottom: 8px; }
-    .landing-card h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
-    .landing-card .sub { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+    .landing {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 70vh;
+    }
+
+    .landing-card {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+
+    .landing-card .icon {
+      font-size: 40px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .landing-card h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .landing-card .sub {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
     .code-input {
-      display: block; width: 100%; padding: 14px 16px; margin-bottom: 12px;
-      font-size: 20px; font-weight: 600; letter-spacing: 6px; text-align: center;
-      border: 1px solid var(--border); border-radius: var(--radius);
-      outline: none; background: var(--surface); color: var(--text);
-      transition: border-color 0.12s, box-shadow 0.12s; text-transform: uppercase;
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 6px;
+      text-align: center;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+      transition: border-color 0.12s, box-shadow 0.12s;
+      text-transform: uppercase;
     }
-    .code-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-    .code-input::placeholder { letter-spacing: 2px; font-size: 15px; font-weight: 400; }
+
+    .code-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+
+    .code-input::placeholder {
+      letter-spacing: 2px;
+      font-size: 15px;
+      font-weight: 400;
+    }
+
     .landing-btn {
-      display: block; width: 100%; padding: 12px 20px; font-size: 15px; font-weight: 600;
-      border: none; border-radius: var(--radius); color: #fff; font-family: inherit;
+      display: block;
+      width: 100%;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius);
+      color: #fff;
+      font-family: inherit;
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-      cursor: pointer; transition: transform 0.12s, box-shadow 0.12s;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
     }
-    .landing-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(79,70,229,0.2); }
-    .landing-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-    .landing-error { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 20px; }
+
+    .landing-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+    }
+
+    .landing-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .landing-error {
+      color: var(--danger);
+      font-size: 13px;
+      margin-top: 10px;
+      min-height: 20px;
+    }
 
     /* ── Course header ── */
     .course-header {
-      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
-      font-size: 14px; color: var(--text-muted); flex-wrap: wrap;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
     }
-    .course-header strong { color: var(--text); font-size: 16px; }
-    .course-header .teacher { font-size: 13px; }
-    .course-header a { color: var(--primary); cursor: pointer; text-decoration: none; font-size: 13px; margin-left: auto; }
-    .course-header a:hover { text-decoration: underline; }
+
+    .course-header strong {
+      color: var(--text);
+      font-size: 16px;
+    }
+
+    .course-header .teacher {
+      font-size: 13px;
+    }
+
+    .course-header a {
+      color: var(--primary);
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 13px;
+      margin-left: auto;
+    }
+
+    .course-header a:hover {
+      text-decoration: underline;
+    }
 
     /* ── Quiz tab: waiting ── */
-    .waiting { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 0; }
-    .waiting .wait-icon { font-size: 36px; line-height: 1; }
-    .waiting .wait-text { font-size: 15px; color: var(--text-muted); }
-    .waiting .dots { display: flex; gap: 6px; }
-    .waiting .dots span {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--primary);
-      opacity: .3; animation: dot-pulse 1.4s infinite ease-in-out;
+    .waiting {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 40px 0;
     }
-    .waiting .dots span:nth-child(2) { animation-delay: .2s; }
-    .waiting .dots span:nth-child(3) { animation-delay: .4s; }
+
+    .waiting .wait-icon {
+      font-size: 36px;
+      line-height: 1;
+    }
+
+    .waiting .wait-text {
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .waiting .dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .waiting .dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      opacity: .3;
+      animation: dot-pulse 1.4s infinite ease-in-out;
+    }
+
+    .waiting .dots span:nth-child(2) {
+      animation-delay: .2s;
+    }
+
+    .waiting .dots span:nth-child(3) {
+      animation-delay: .4s;
+    }
+
     @keyframes dot-pulse {
-      0%, 80%, 100% { opacity: .3; transform: scale(.8); }
-      40% { opacity: 1; transform: scale(1); }
+
+      0%,
+      80%,
+      100% {
+        opacity: .3;
+        transform: scale(.8);
+      }
+
+      40% {
+        opacity: 1;
+        transform: scale(1);
+      }
     }
 
     /* ── Quiz tab: join form ── */
     .form-submit {
-      width: 100%; margin-top: 20px; padding: 12px; border: none; border-radius: var(--radius);
+      width: 100%;
+      margin-top: 20px;
+      padding: 12px;
+      border: none;
+      border-radius: var(--radius);
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-      color: #fff; font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
       transition: transform 0.12s, box-shadow 0.12s;
     }
-    .form-submit:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(79,70,229,0.2); }
-    .form-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-    .quiz-hint { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 14px; }
+
+    .form-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+    }
+
+    .form-submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .quiz-hint {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-top: 14px;
+    }
+
     .resume-box {
       display: none;
       text-align: center;
       padding: 8px 0;
     }
-    .resume-box.show { display: block; }
+
+    .resume-box.show {
+      display: block;
+    }
+
     .resume-title {
       font-size: 16px;
       font-weight: 700;
       margin-bottom: 8px;
     }
+
     .resume-meta {
       color: var(--text-muted);
       font-size: 13px;
       line-height: 1.8;
       margin-bottom: 16px;
     }
+
     .resume-actions {
       display: flex;
       flex-wrap: wrap;
@@ -98,92 +267,444 @@
     }
 
     /* ── Materials ── */
-    .folder-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; color: var(--text-muted); }
-    .pdf-name { font-size: 14px; font-weight: 500; }
-    .pdf-size { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
-    .pdf-actions { display: flex; gap: 8px; }
+    .folder-title {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 8px;
+      color: var(--text-muted);
+    }
+
+    .pdf-name {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .pdf-size {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 8px;
+    }
+
+    .pdf-actions {
+      display: flex;
+      gap: 8px;
+    }
+
     .pdf-actions a {
-      display: inline-block; padding: 5px 12px; font-size: 13px; border-radius: var(--radius-sm);
-      text-decoration: none; color: #fff;
+      display: inline-block;
+      padding: 5px 12px;
+      font-size: 13px;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      color: #fff;
       background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
       transition: transform 0.12s, box-shadow 0.12s;
     }
-    .pdf-actions a:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,0.2); }
+
+    .pdf-actions a:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+    }
 
     /* ── Homework ── */
-    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
-    .section-hint { color: var(--text-muted); font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .field label { display: block; font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; }
-    .field input, .field select {
-      width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-      font-size: 14px; font-family: inherit; color: var(--text); background: var(--surface);
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .section-hint {
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.7;
+      margin-bottom: 12px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
       transition: border-color 0.12s, box-shadow 0.12s;
     }
-    .field input:focus, .field select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-    .actions, .slot-actions, .download-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    button:not(.tab-btn), .link-btn {
-      border: 0; border-radius: var(--radius); padding: 10px 18px;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-      color: #fff; font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer;
-      transition: transform 0.12s, box-shadow 0.12s;
-      text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
+
+    .field input:focus,
+    .field select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
     }
-    button:not(.tab-btn):hover, .link-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(79,70,229,0.2); }
-    button.secondary, .link-btn.secondary { background: #e2e8f0; color: #1e293b; box-shadow: none; }
-    button.danger { background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%); box-shadow: none; }
-    button:not(.tab-btn):disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-    .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
-    .meta-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(255,255,255,0.65); font-size: 13px; }
-    .meta-item strong { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
-    .slot-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-    .slot-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; background: rgba(255,255,255,0.78); }
-    .slot-card h3 { font-size: 15px; margin-bottom: 6px; }
-    .slot-card p { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
-    .slot-file, .download-list { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius); background: #f8fafc; border: 1px dashed var(--border); font-size: 13px; color: var(--text); line-height: 1.6; min-height: 72px; }
-    .slot-file.empty, .download-empty { color: var(--text-muted); }
-    .download-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-    .download-item:last-child { border-bottom: 0; }
-    .download-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
-    .qa-toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; }
-    .qa-list { margin-top:12px; display:grid; gap:10px; }
-    .qa-item { border:1px solid var(--border); border-radius:var(--radius); background:#fff; padding:12px; font-size:13px; line-height:1.7; }
-    .qa-item.pinned { border-color:var(--primary); box-shadow:0 0 0 2px rgba(79,70,229,0.08); }
-    .qa-label { font-size:12px; color:var(--text-muted); font-weight:700; margin-bottom:4px; }
-    .qa-images { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
-    .qa-images img { width:96px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
-    .qa-form { display:none; margin-top:12px; padding:12px; border:1px dashed var(--border); border-radius:var(--radius); background:#fff; }
-    .qa-form.show { display:block; }
-    .qa-form textarea { width:100%; min-height:86px; resize:vertical; border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; font-family:inherit; font-size:14px; }
-    .others-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
-    .others-item:last-child { border-bottom: 0; }
-    .others-item .others-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .others-item .others-meta { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
-    .others-item .others-actions { display: flex; gap: 6px; flex-shrink: 0; }
-    .others-item .others-actions button { padding: 4px 10px; font-size: 12px; }
-    .others-item .others-actions a { padding: 4px 10px; font-size: 12px; }
-    .message { margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); font-size: 13px; line-height: 1.7; display: none; }
-    .message.show { display: block; }
-    .message.info { background: rgba(79,70,229,0.08); color: var(--primary); }
-    .message.error { background: rgba(239,68,68,0.08); color: var(--danger); }
+
+    .actions,
+    .slot-actions,
+    .download-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    button:not(.tab-btn),
+    .link-btn {
+      border: 0;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button:not(.tab-btn):hover,
+    .link-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+    }
+
+    button.secondary,
+    .link-btn.secondary {
+      background: #e2e8f0;
+      color: #1e293b;
+      box-shadow: none;
+    }
+
+    button.danger {
+      background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%);
+      box-shadow: none;
+    }
+
+    button:not(.tab-btn):disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .meta-item {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.65);
+      font-size: 13px;
+    }
+
+    .meta-item strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .slot-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .slot-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .slot-card h3 {
+      font-size: 15px;
+      margin-bottom: 6px;
+    }
+
+    .slot-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .slot-file,
+    .download-list {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: #f8fafc;
+      border: 1px dashed var(--border);
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 72px;
+    }
+
+    .slot-file.empty,
+    .download-empty {
+      color: var(--text-muted);
+    }
+
+    .download-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .download-item:last-child {
+      border-bottom: 0;
+    }
+
+    .download-meta {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .qa-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .qa-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .qa-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .qa-item.pinned {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.08);
+    }
+
+    .qa-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .qa-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .qa-images img {
+      width: 96px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .qa-form {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .qa-form.show {
+      display: block;
+    }
+
+    .qa-form textarea {
+      width: 100%;
+      min-height: 86px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    .others-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+
+    .others-item:last-child {
+      border-bottom: 0;
+    }
+
+    .others-item .others-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .others-item .others-meta {
+      color: var(--text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .others-item .others-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .others-item .others-actions button {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .others-item .others-actions a {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .message {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      line-height: 1.7;
+      display: none;
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.info {
+      background: rgba(79, 70, 229, 0.08);
+      color: var(--primary);
+    }
+
+    .message.error {
+      background: rgba(239, 68, 68, 0.08);
+      color: var(--danger);
+    }
+
     @media (max-width: 720px) {
-      .grid, .slot-grid, .meta-grid { grid-template-columns: 1fr; }
-      .course-header { font-size: 13px; }
-      .course-header strong { font-size: 14px; }
-      .tab-btn { padding: 8px 12px; font-size: 13px; }
-      .code-input { font-size: 18px; letter-spacing: 4px; padding: 12px 14px; }
-      .landing-btn { padding: 10px 16px; font-size: 14px; }
-      .form-submit { font-size: 15px; padding: 11px; }
-      .section-title { font-size: 14px; }
-      .section-hint { font-size: 12px; }
-      .meta-item { padding: 8px 10px; }
-      .slot-card { padding: 14px; }
-      .others-item .others-actions { margin-top: 4px; }
-      .others-item .others-actions button, .others-item .others-actions a { padding: 3px 8px; font-size: 11px; }
-      .download-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+      .grid,
+      .slot-grid,
+      .meta-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .course-header {
+        font-size: 13px;
+      }
+
+      .course-header strong {
+        font-size: 14px;
+      }
+
+      .tab-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+
+      .code-input {
+        font-size: 18px;
+        letter-spacing: 4px;
+        padding: 12px 14px;
+      }
+
+      .landing-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+      }
+
+      .form-submit {
+        font-size: 15px;
+        padding: 11px;
+      }
+
+      .section-title {
+        font-size: 14px;
+      }
+
+      .section-hint {
+        font-size: 12px;
+      }
+
+      .meta-item {
+        padding: 8px 10px;
+      }
+
+      .slot-card {
+        padding: 14px;
+      }
+
+      .others-item .others-actions {
+        margin-top: 4px;
+      }
+
+      .others-item .others-actions button,
+      .others-item .others-actions a {
+        padding: 3px 8px;
+        font-size: 11px;
+      }
+
+      .download-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
     }
   </style>
 </head>
+
 <body>
 
   <!-- ══════ Landing: invite code entry ══════ -->
@@ -193,7 +714,8 @@
       <h1>课程助手</h1>
       <p class="sub">请输入 6 位课程邀请码</p>
       <form id="codeForm">
-        <input class="code-input" type="text" id="codeInput" maxlength="6" placeholder="邀请码" autocomplete="off" autofocus />
+        <input class="code-input" type="text" id="codeInput" maxlength="6" placeholder="邀请码" autocomplete="off"
+          autofocus />
         <button class="landing-btn" type="submit" id="codeBtn">进入课程</button>
       </form>
       <div class="landing-error" id="codeError"></div>
@@ -261,7 +783,9 @@
 
     <!-- ── Tab: 课程材料 ── -->
     <div class="tab-page" id="tab-materials">
-      <div id="materialsContent"><div class="empty">加载中...</div></div>
+      <div id="materialsContent">
+        <div class="empty">加载中...</div>
+      </div>
     </div>
 
     <!-- ── Tab: 作业提交 ── -->
@@ -272,7 +796,9 @@
         <div class="grid">
           <div class="field" style="grid-column: 1 / -1;">
             <label for="assignment_id">作业编号</label>
-            <select id="assignment_id"><option value="">-- 请选择作业 --</option></select>
+            <select id="assignment_id">
+              <option value="">-- 请选择作业 --</option>
+            </select>
           </div>
           <div class="field">
             <label for="hw_name">姓名</label>
@@ -289,8 +815,10 @@
           <div class="field">
             <label for="hw_secret_key">密钥</label>
             <div style="position:relative;">
-              <input id="hw_secret_key" type="password" placeholder="请设置密钥" autocomplete="off" style="padding-right:40px;" />
-              <span id="toggleKey" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁</span>
+              <input id="hw_secret_key" type="password" placeholder="请设置密钥" autocomplete="off"
+                style="padding-right:40px;" />
+              <span id="toggleKey"
+                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁</span>
             </div>
           </div>
         </div>
@@ -307,9 +835,11 @@
             <div class="section-title" style="margin-bottom:4px;">2. 下载本次作业文件</div>
             <div class="section-hint" style="margin-bottom:0;">这里列出老师为当前作业准备的所有文件。</div>
           </div>
-          <button id="qaToggleBtn" class="secondary" style="margin-top:0;">提问</button>
+          <button id="qaToggleBtn" class="secondary" style="margin-top:0;" onclick="openQAPage()">Q&A</button>
         </div>
-        <div id="assignmentFiles" class="download-list"><div class="download-empty">请先选择作业编号并点击"进入"。</div></div>
+        <div id="assignmentFiles" class="download-list">
+          <div class="download-empty">请先选择作业编号并点击"进入"。</div>
+        </div>
         <div id="qaForm" class="qa-form">
           <textarea id="qaQuestionInput" maxlength="1000" placeholder="请输入你的问题，教师回答后会匿名公开给所有同学查看。"></textarea>
           <div class="actions">
@@ -327,7 +857,9 @@
         <div class="section-title">3. 当前上传状态</div>
         <div class="section-hint">上传 PDF 会覆盖当前报告文件；其它文件区可上传任意文件（单个文件限 50 MB）。</div>
         <div class="meta-grid" id="submissionMeta"></div>
-        <div id="gradeResult" style="display:none;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;"></div>
+        <div id="gradeResult"
+          style="display:none;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;">
+        </div>
         <div class="slot-grid">
           <div class="slot-card">
             <h3>📄 报告文件（PDF）</h3>
@@ -368,7 +900,7 @@
 
     // ── Helpers ──
     function escapeHTML(s) {
-      return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+      return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
     function formatTime(v) {
       if (!v) return '—';
@@ -394,7 +926,7 @@
     //  Landing: invite code
     // ══════════════════════════════════════════
 
-    document.getElementById('codeForm').onsubmit = function(e) {
+    document.getElementById('codeForm').onsubmit = function (e) {
       e.preventDefault();
       resolveCode(document.getElementById('codeInput').value.trim());
     };
@@ -465,10 +997,10 @@
     //  Tab switching
     // ══════════════════════════════════════════
 
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {
-      btn.onclick = function() {
-        document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-        document.querySelectorAll('.tab-page').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.onclick = function () {
+        document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-page').forEach(function (p) { p.classList.remove('active'); });
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
       };
@@ -508,10 +1040,10 @@
               location.href = '/quiz';
               return;
             }
-            if (st === 'submitted')   { location.href = '/result'; return; }
+            if (st === 'submitted') { location.href = '/result'; return; }
           }
         }
-      } catch (_) {}
+      } catch (_) { }
 
       prefillQuizForm();
       checkQuizEntry();
@@ -566,7 +1098,7 @@
 
     function startPoll() {
       if (pollTimer) return;
-      pollTimer = setInterval(function() {
+      pollTimer = setInterval(function () {
         checkQuizEntry();
       }, 3000);
     }
@@ -580,10 +1112,10 @@
         if (saved.name) document.getElementById('qz_name').value = saved.name;
         if (saved.student_no) document.getElementById('qz_student_no').value = saved.student_no;
         if (saved.class_name) document.getElementById('qz_class_name').value = saved.class_name;
-      } catch (_) {}
+      } catch (_) { }
     }
 
-    document.getElementById('quizJoinBtn').onclick = async function() {
+    document.getElementById('quizJoinBtn').onclick = async function () {
       var body = {
         name: document.getElementById('qz_name').value.trim(),
         student_no: document.getElementById('qz_student_no').value.trim(),
@@ -621,11 +1153,11 @@
         btn.textContent = '开始答题';
       }
     };
-    document.getElementById('quizResumeBtn').onclick = function() {
+    document.getElementById('quizResumeBtn').onclick = function () {
       clearStayFlag();
       location.href = '/quiz';
     };
-    document.getElementById('quizSignoutBtn').onclick = async function() {
+    document.getElementById('quizSignoutBtn').onclick = async function () {
       var btn = this;
       var ok = false;
       if (window.App && App.confirmModal) {
@@ -700,7 +1232,7 @@
         document.getElementById('hw_student_no').value = data.student_no || '';
         document.getElementById('hw_class_name').value = data.class_name || '';
         document.getElementById('hw_secret_key').value = data.secret_key || '';
-      } catch (_) {}
+      } catch (_) { }
     }
     function saveHwToStorage() {
       localStorage.setItem(HW_KEY, JSON.stringify({
@@ -725,7 +1257,7 @@
         try {
           var saved = JSON.parse(localStorage.getItem(HW_KEY) || '{}');
           if (saved.assignment_id) sel.value = saved.assignment_id;
-        } catch (_) {}
+        } catch (_) { }
       } catch (_) {
         sel.innerHTML = '<option value="">-- 加载失败 --</option>';
       }
@@ -752,7 +1284,7 @@
       if (!item) { root.innerHTML = '<div class="download-empty">请先选择作业编号。</div>'; return; }
       var files = item.files || [];
       if (!files.length) { root.innerHTML = '<div class="download-empty">当前作业没有可下载的文件。</div>'; return; }
-      root.innerHTML = files.map(function(file) {
+      root.innerHTML = files.map(function (file) {
         return '<div class="download-item"><span>' + escapeHTML(file.name) + ' <span class="download-meta" style="margin-top:0;">' + escapeHTML(formatSize(file.size)) + '</span></span><div class="download-actions"><a class="link-btn secondary" href="' + escapeHTML(file.download_url) + '">下载</a></div></div>';
       }).join('');
     }
@@ -775,7 +1307,7 @@
         root.innerHTML = '<div class="download-empty">暂无已回答的问题。</div>';
         return;
       }
-      root.innerHTML = qaItems.map(function(item) {
+      root.innerHTML = qaItems.map(function (item) {
         return '<div class="qa-item ' + (item.pinned ? 'pinned' : '') + '">' +
           '<div class="qa-label">' + (item.pinned ? '置顶 · ' : '') + '问题</div>' +
           '<div>' + escapeHTML(item.question || '') + '</div>' +
@@ -788,7 +1320,7 @@
     }
     function renderQAImages(images) {
       if (!images || !images.length) return '';
-      return '<div class="qa-images">' + images.map(function(url) {
+      return '<div class="qa-images">' + images.map(function (url) {
         return '<a href="' + escapeHTML(url) + '" target="_blank"><img src="' + escapeHTML(url) + '" alt="Q&A 图片" /></a>';
       }).join('') + '</div>';
     }
@@ -803,7 +1335,7 @@
       fd.append('course_id', course.id);
       fd.append('assignment_id', aid);
       fd.append('question', text);
-      files.forEach(function(file) { fd.append('images', file); });
+      files.forEach(function (file) { fd.append('images', file); });
       try {
         var r = await fetch('/api/homework/qa', { method: 'POST', credentials: 'include', body: fd });
         if (!r.ok) { setMessage('qaMessage', 'error', await r.text()); return; }
@@ -851,8 +1383,8 @@
       root.style.display = 'block';
       root.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">' +
-          '<strong style="font-size:15px;color:var(--text);">作业成绩</strong>' +
-          '<span style="font-size:20px;font-weight:800;color:var(--primary);">' + escapeHTML(scoreText) + '/100</span>' +
+        '<strong style="font-size:15px;color:var(--text);">作业成绩</strong>' +
+        '<span style="font-size:20px;font-weight:800;color:var(--primary);">' + escapeHTML(scoreText) + '/100</span>' +
         '</div>' +
         '<div style="font-size:13px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;">' + escapeHTML(submission.feedback || '老师暂未填写评语。') + '</div>';
     }
@@ -864,16 +1396,16 @@
         return;
       }
       root.className = 'slot-file';
-      root.innerHTML = items.map(function(f) {
+      root.innerHTML = items.map(function (f) {
         return '<div class="others-item">' +
           '<span class="others-name" title="' + escapeHTML(f.name) + '">' + escapeHTML(f.name) + '</span>' +
           '<span class="others-meta">' + escapeHTML(formatSize(f.size)) + '</span>' +
           '<span class="others-actions">' +
-            '<a class="link-btn secondary" href="/api/homework/others/download?file=' + encodeURIComponent(f.name) + '">下载</a>' +
-            '<button class="secondary" onclick="renameOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">重命名</button>' +
-            '<button class="danger" onclick="deleteOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">删除</button>' +
+          '<a class="link-btn secondary" href="/api/homework/others/download?file=' + encodeURIComponent(f.name) + '">下载</a>' +
+          '<button class="secondary" onclick="renameOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">重命名</button>' +
+          '<button class="danger" onclick="deleteOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">删除</button>' +
           '</span>' +
-        '</div>';
+          '</div>';
       }).join('');
     }
     async function loadAssignmentFiles() {
@@ -922,9 +1454,7 @@
       try {
         var r = await fetch('/api/homework/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) });
         if (!r.ok) { setMessage('sessionMessage', 'error', await r.text()); return; }
-        var data = await r.json();
-        await loadAssignmentFiles();
-        renderSubmission(data.submission || null);
+        await fetchCurrentSubmission(false);
         setMessage('sessionMessage', 'info', '已进入作业提交区，可以直接上传或替换文件。');
         setMessage('submissionMessage', '', '');
       } catch (_) {
@@ -998,7 +1528,7 @@
         if (!r.ok) return;
         var data = await r.json();
         renderOthersFileList(data.items || []);
-      } catch (_) {}
+      } catch (_) { }
     }
     async function deleteOthersFile(name) {
       var ok;
@@ -1036,28 +1566,32 @@
     }
 
     // ── Homework event bindings ──
-    document.getElementById('toggleKey').onclick = function() {
+    document.getElementById('toggleKey').onclick = function () {
       var inp = document.getElementById('hw_secret_key');
       if (inp.type === 'password') { inp.type = 'text'; this.textContent = '🔒'; }
       else { inp.type = 'password'; this.textContent = '👁'; }
     };
     document.getElementById('assignment_id').onchange = previewAssignmentFiles;
-    document.getElementById('qaToggleBtn').onclick = function() {
-      document.getElementById('qaForm').classList.toggle('show');
-    };
-    document.getElementById('qaImageBtn').onclick = function() { document.getElementById('qaImageInput').click(); };
-    document.getElementById('qaImageInput').onchange = function() {
+    function openQAPage() {
+      if (!course || !course.id) return;
+      var aid = document.getElementById('assignment_id').value.trim();
+      var url = '/student/qa?course_id=' + encodeURIComponent(course.id);
+      if (aid) url += '&assignment_id=' + encodeURIComponent(aid);
+      window.location.href = url;
+    }
+    document.getElementById('qaImageBtn').onclick = function () { document.getElementById('qaImageInput').click(); };
+    document.getElementById('qaImageInput').onchange = function () {
       var files = Array.from(this.files || []);
       document.getElementById('qaImageInfo').textContent = files.length ? ('已选择 ' + files.length + ' 张图片') : '最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。';
     };
     document.getElementById('qaSubmitBtn').onclick = submitQAQuestion;
     document.getElementById('enterBtn').onclick = startOrResumeSubmission;
-    document.getElementById('refreshBtn').onclick = function() { fetchCurrentSubmission(true); };
-    document.getElementById('reportUploadBtn').onclick = function() { document.getElementById('reportInput').click(); };
-    document.getElementById('reportDeleteBtn').onclick = function() { deleteSlot('report'); };
-    document.getElementById('reportInput').onchange = function() { uploadSlot('report', 'reportInput'); };
-    document.getElementById('othersUploadBtn').onclick = function() { document.getElementById('othersInput').click(); };
-    document.getElementById('othersInput').onchange = function() { uploadOthersFile(); };
+    document.getElementById('refreshBtn').onclick = function () { fetchCurrentSubmission(true); };
+    document.getElementById('reportUploadBtn').onclick = function () { document.getElementById('reportInput').click(); };
+    document.getElementById('reportDeleteBtn').onclick = function () { deleteSlot('report'); };
+    document.getElementById('reportInput').onchange = function () { uploadSlot('report', 'reportInput'); };
+    document.getElementById('othersUploadBtn').onclick = function () { document.getElementById('othersInput').click(); };
+    document.getElementById('othersInput').onchange = function () { uploadOthersFile(); };
 
     // ══════════════════════════════════════════
     //  Init
@@ -1086,11 +1620,12 @@
             return;
           }
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // Show landing
       document.getElementById('codeInput').focus();
     })();
   </script>
 </body>
+
 </html>

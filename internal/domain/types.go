@@ -194,6 +194,32 @@ func (h HomeworkSubmission) HasUploadedFiles() bool {
 	return h.ReportOriginalName != "" || h.CodeOriginalName != "" || h.ExtraOriginalName != ""
 }
 
+// QAIssue represents a discussion thread (like a GitHub issue).
+type QAIssue struct {
+	ID           int
+	CourseID     int
+	Course       string // slug (legacy)
+	AssignmentID string
+	StudentNo    string
+	Title        string
+	Status       string // "open" / "resolved"
+	Pinned       bool
+	Hidden       bool
+	MessageCount int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// QAMessage represents a single message within a QAIssue thread.
+type QAMessage struct {
+	ID        int
+	IssueID   int
+	Sender    string // "student" / "teacher"
+	Content   string
+	Images    []string
+	CreatedAt time.Time
+}
+
 func (h HomeworkSubmission) HasSlot(slot HomeworkFileSlot) bool {
 	switch slot {
 	case HomeworkSlotReport:

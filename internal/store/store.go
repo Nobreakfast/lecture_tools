@@ -91,6 +91,21 @@ type HomeworkStore interface {
 	SetHomeworkQuestionHidden(ctx context.Context, id string, hidden bool) error
 }
 
+// QAIssueStore provides issue-based Q&A thread operations.
+type QAIssueStore interface {
+	CreateQAIssue(ctx context.Context, issue *domain.QAIssue) (int64, error)
+	GetQAIssueByID(ctx context.Context, id int) (*domain.QAIssue, error)
+	ListQAIssues(ctx context.Context, courseID int, assignmentID string, includeHidden bool) ([]domain.QAIssue, error)
+	ListQAIssuesByCourse(ctx context.Context, courseID int, includeHidden bool) ([]domain.QAIssue, error)
+	UpdateQAIssueStatus(ctx context.Context, id int, status string) error
+	SetQAIssuePinned(ctx context.Context, id int, pinned bool) error
+	SetQAIssueHidden(ctx context.Context, id int, hidden bool) error
+	IncrementQAIssueMessageCount(ctx context.Context, id int) error
+
+	CreateQAMessage(ctx context.Context, msg *domain.QAMessage) (int64, error)
+	ListQAMessages(ctx context.Context, issueID int) ([]domain.QAMessage, error)
+}
+
 // Store is the composition of all domain-scoped store interfaces.
 // New consumers should prefer accepting the smallest interface they need
 // (e.g. AttemptStore) rather than the full Store.
@@ -100,6 +115,7 @@ type Store interface {
 	CourseStore
 	AttemptStore
 	HomeworkStore
+	QAIssueStore
 	Init(ctx context.Context) error
 	Close() error
 }

@@ -128,6 +128,28 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			answered_at TEXT,
 			updated_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS qa_issues (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			course_id INTEGER NOT NULL DEFAULT 0,
+			course TEXT NOT NULL DEFAULT '',
+			assignment_id TEXT NOT NULL,
+			student_no TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'open',
+			pinned INTEGER NOT NULL DEFAULT 0,
+			hidden INTEGER NOT NULL DEFAULT 0,
+			message_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS qa_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			issue_id INTEGER NOT NULL REFERENCES qa_issues(id),
+			sender TEXT NOT NULL,
+			content TEXT NOT NULL,
+			images_json TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -179,6 +201,9 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_quiz_share_lookup ON quiz_share(course_id, quiz_id) WHERE revoked_at IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_homework_qa_lookup ON homework_qa(course_id, assignment_id, hidden, pinned, updated_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_homework_qa_course_assignment ON homework_qa(course_id, assignment_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_qa_issues_lookup ON qa_issues(course_id, assignment_id, hidden, pinned, updated_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_qa_issues_course ON qa_issues(course_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_qa_messages_issue ON qa_messages(issue_id, created_at);`,
 	}
 	for _, idx := range indexes {
 		if _, err := s.db.ExecContext(ctx, idx); err != nil {
@@ -1870,4 +1895,178 @@ func migrationInviteCode() string {
 		buf[i] = chars[int(buf[i])%len(chars)]
 	}
 	return string(buf)
+}
+
+// ── QAIssue / QAMessage ──
+
+func (s *SQLiteStore) CreateQAIssue(ctx context.Context, issue *domain.QAIssue) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO qa_issues(
+		course_id, course, assignment_id, student_no, title, status, pinned, hidden, message_count, created_at, updated_at
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		issue.CourseID, issue.Course, issue.AssignmentID, issue.StudentNo,
+		issue.Title, issue.Status, boolToInt(issue.Pinned), boolToInt(issue.Hidden),
+		issue.MessageCount, issue.CreatedAt.Format(time.RFC3339Nano), issue.UpdatedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return id, nil
+}
+
+func (s *SQLiteStore) GetQAIssueByID(ctx context.Context, id int) (*domain.QAIssue, error) {
+	var issue domain.QAIssue
+	var pinned, hidden int
+	var created, updated string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, course_id, course, assignment_id, student_no, title, status, pinned, hidden, message_count, created_at, updated_at FROM qa_issues WHERE id = ?`, id).
+		Scan(&issue.ID, &issue.CourseID, &issue.Course, &issue.AssignmentID, &issue.StudentNo,
+			&issue.Title, &issue.Status, &pinned, &hidden, &issue.MessageCount, &created, &updated)
+	if err != nil {
+		return nil, err
+	}
+	issue.Pinned = pinned != 0
+	issue.Hidden = hidden != 0
+	issue.CreatedAt = parseTime(time.RFC3339Nano, created)
+	issue.UpdatedAt = parseTime(time.RFC3339Nano, updated)
+	return &issue, nil
+}
+
+func (s *SQLiteStore) ListQAIssues(ctx context.Context, courseID int, assignmentID string, includeHidden bool) ([]domain.QAIssue, error) {
+	query := `SELECT id, course_id, course, assignment_id, student_no, title, status, pinned, hidden, message_count, created_at, updated_at FROM qa_issues`
+	args := make([]any, 0, 3)
+	filters := make([]string, 0, 3)
+	if courseID > 0 {
+		filters = append(filters, "course_id = ?")
+		args = append(args, courseID)
+	}
+	if strings.TrimSpace(assignmentID) != "" {
+		filters = append(filters, "assignment_id = ?")
+		args = append(args, assignmentID)
+	}
+	if !includeHidden {
+		filters = append(filters, "hidden = 0")
+	}
+	if len(filters) > 0 {
+		query += " WHERE " + strings.Join(filters, " AND ")
+	}
+	query += ` ORDER BY pinned DESC, updated_at DESC`
+	return s.queryQAIssues(ctx, query, args...)
+}
+
+func (s *SQLiteStore) ListQAIssuesByCourse(ctx context.Context, courseID int, includeHidden bool) ([]domain.QAIssue, error) {
+	query := `SELECT id, course_id, course, assignment_id, student_no, title, status, pinned, hidden, message_count, created_at, updated_at FROM qa_issues WHERE course_id = ?`
+	args := []any{courseID}
+	if !includeHidden {
+		query += ` AND hidden = 0`
+	}
+	query += ` ORDER BY pinned DESC, updated_at DESC`
+	return s.queryQAIssues(ctx, query, args...)
+}
+
+func (s *SQLiteStore) queryQAIssues(ctx context.Context, query string, args ...any) ([]domain.QAIssue, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.QAIssue
+	for rows.Next() {
+		var issue domain.QAIssue
+		var pinned, hidden int
+		var created, updated string
+		if err := rows.Scan(&issue.ID, &issue.CourseID, &issue.Course, &issue.AssignmentID, &issue.StudentNo,
+			&issue.Title, &issue.Status, &pinned, &hidden, &issue.MessageCount, &created, &updated); err != nil {
+			return nil, err
+		}
+		issue.Pinned = pinned != 0
+		issue.Hidden = hidden != 0
+		issue.CreatedAt = parseTime(time.RFC3339Nano, created)
+		issue.UpdatedAt = parseTime(time.RFC3339Nano, updated)
+		items = append(items, issue)
+	}
+	return items, rows.Err()
+}
+
+func (s *SQLiteStore) UpdateQAIssueStatus(ctx context.Context, id int, status string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE qa_issues SET status = ?, updated_at = ? WHERE id = ?`, status, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) SetQAIssuePinned(ctx context.Context, id int, pinned bool) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE qa_issues SET pinned = ?, updated_at = ? WHERE id = ?`, boolToInt(pinned), now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) SetQAIssueHidden(ctx context.Context, id int, hidden bool) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE qa_issues SET hidden = ?, updated_at = ? WHERE id = ?`, boolToInt(hidden), now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) IncrementQAIssueMessageCount(ctx context.Context, id int) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE qa_issues SET message_count = message_count + 1, updated_at = ? WHERE id = ?`, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) CreateQAMessage(ctx context.Context, msg *domain.QAMessage) (int64, error) {
+	imagesJSON, err := encodeStringSlice(msg.Images)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO qa_messages(issue_id, sender, content, images_json, created_at) VALUES(?, ?, ?, ?, ?)`,
+		msg.IssueID, msg.Sender, msg.Content, imagesJSON, msg.CreatedAt.Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return id, nil
+}
+
+func (s *SQLiteStore) ListQAMessages(ctx context.Context, issueID int) ([]domain.QAMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, issue_id, sender, content, images_json, created_at FROM qa_messages WHERE issue_id = ? ORDER BY created_at ASC`, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.QAMessage
+	for rows.Next() {
+		var msg domain.QAMessage
+		var imagesJSON string
+		var created string
+		if err := rows.Scan(&msg.ID, &msg.IssueID, &msg.Sender, &msg.Content, &imagesJSON, &created); err != nil {
+			return nil, err
+		}
+		msg.Images = decodeStringSlice(imagesJSON)
+		msg.CreatedAt = parseTime(time.RFC3339Nano, created)
+		items = append(items, msg)
+	}
+	return items, rows.Err()
 }
