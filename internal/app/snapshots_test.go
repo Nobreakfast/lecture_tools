@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -262,6 +264,111 @@ func TestListSnapshotsHidesUploadStaging(t *testing.T) {
 		if strings.HasPrefix(item.ID, snapshotUploadPrefix) {
 			t.Fatalf("upload staging file leaked into snapshot list: %+v", item)
 		}
+	}
+}
+
+func TestSystemSnapshotsUploadRestoreQueuesUploadedArchive(t *testing.T) {
+	t.Parallel()
+
+	cfg := snapshotTestConfig(t)
+	ctx := context.Background()
+
+	st, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := st.SetSetting(ctx, "snapshot_upload_test", "from-uploaded-snapshot"); err != nil {
+		t.Fatalf("SetSetting before snapshot: %v", err)
+	}
+
+	srv := New(cfg, st)
+	srv.SetShutdownFunc(func() {})
+	srv.authTokens["admin-token"] = authSession{
+		TeacherID: "admin",
+		Role:      domain.RoleAdmin,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+
+	item, err := srv.createStoredSnapshot(ctx, snapshotKindManual, snapshotModeLite, "admin:source")
+	if err != nil {
+		t.Fatalf("createStoredSnapshot: %v", err)
+	}
+	archivePath, err := srv.snapshotPath(item.ID)
+	if err != nil {
+		t.Fatalf("snapshotPath: %v", err)
+	}
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("ReadFile archive: %v", err)
+	}
+	if err := st.SetSetting(ctx, "snapshot_upload_test", "after-snapshot"); err != nil {
+		t.Fatalf("SetSetting after snapshot: %v", err)
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", "cloud-snapshot.tar.gz")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write(archiveBytes); err != nil {
+		t.Fatalf("Write multipart archive: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("Close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/system/snapshots/upload-restore", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "admin-token"})
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("upload restore status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	raw, err := os.ReadFile(pendingSnapshotRestorePath(cfg))
+	if err != nil {
+		t.Fatalf("read pending restore file: %v", err)
+	}
+	var pending pendingSnapshotRestore
+	if err := json.Unmarshal(raw, &pending); err != nil {
+		t.Fatalf("unmarshal pending restore: %v", err)
+	}
+	if !pending.CleanupOnDone {
+		t.Fatalf("uploaded restore should clean staged archive on apply: %+v", pending)
+	}
+	if !strings.HasPrefix(filepath.Base(pending.ArchivePath), snapshotUploadPrefix) {
+		t.Fatalf("uploaded archive should be staged with upload prefix: %+v", pending)
+	}
+	if _, err := readSnapshotManifest(pending.ArchivePath); err != nil {
+		t.Fatalf("staged uploaded archive is invalid: %v", err)
+	}
+
+	if err := st.Close(); err != nil {
+		t.Fatalf("Close store before restore: %v", err)
+	}
+	if err := ApplyPendingSnapshotRestore(cfg); err != nil {
+		t.Fatalf("ApplyPendingSnapshotRestore: %v", err)
+	}
+	if _, err := os.Stat(pending.ArchivePath); !os.IsNotExist(err) {
+		t.Fatalf("expected staged uploaded archive to be removed, stat err=%v", err)
+	}
+
+	reopened, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore reopened: %v", err)
+	}
+	defer reopened.Close()
+	got, err := reopened.GetSetting(ctx, "snapshot_upload_test")
+	if err != nil {
+		t.Fatalf("GetSetting after uploaded restore: %v", err)
+	}
+	if got != "from-uploaded-snapshot" {
+		t.Fatalf("uploaded restore value = %q, want %q", got, "from-uploaded-snapshot")
 	}
 }
 

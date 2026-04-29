@@ -181,7 +181,7 @@
           <button class="btn btn-danger" id="snapshotUploadRestoreBtn">上传快照并恢复</button>
           <input id="snapshotUploadInput" type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" class="hidden" />
         </div>
-        <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；完整快照仅支持手动生成并下载。</div>
+        <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；也可以上传从云服务器下载的快照并在本地恢复。</div>
       </div>
       <div class="card">
         <h3 class="section-title">历史快照</h3>
@@ -556,7 +556,7 @@
       try {
         const r = await App.fetchJSON('/api/system/snapshots');
         const list = (r && r.items) || [];
-        $('#snapshotMetaNote').textContent = '系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 ' + (r.retention_days || 14) + ' 天；完整快照仅支持手动生成并下载。';
+        $('#snapshotMetaNote').textContent = '系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 ' + (r.retention_days || 14) + ' 天；也可以上传从云服务器下载的快照并在本地恢复。';
         if (!list.length) {
           tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无快照</td></tr>';
           return;
