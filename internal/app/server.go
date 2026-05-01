@@ -253,6 +253,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/export-csv", s.apiTeacherCourseExportCSV)
 	mux.HandleFunc("/api/teacher/courses/attendance", s.apiTeacherCourseAttendance)
 	mux.HandleFunc("/api/teacher/courses/attendance-threshold", s.apiTeacherCourseAttendanceThreshold)
+	mux.HandleFunc("/api/teacher/courses/update-student-info", s.apiTeacherCourseUpdateStudentInfo)
+	mux.HandleFunc("/api/teacher/courses/merge-student", s.apiTeacherCourseMergeStudent)
 	mux.HandleFunc("/api/teacher/courses/summary", func(w http.ResponseWriter, r *http.Request) {
 		s.apiTeacherCourseSummary(w, r)
 	})
@@ -688,6 +690,102 @@ func (s *Server) apiTeacherCourseAttendanceThreshold(w http.ResponseWriter, r *h
 		}
 	}
 	writeJSON(w, map[string]any{"threshold": threshold})
+}
+
+func (s *Server) apiTeacherCourseUpdateStudentInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		AttemptID string `json:"attempt_id"`
+		Name      string `json:"name"`
+		StudentNo string `json:"student_no"`
+		ClassName string `json:"class_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.StudentNo = strings.TrimSpace(req.StudentNo)
+	req.ClassName = strings.TrimSpace(req.ClassName)
+	if req.AttemptID == "" || req.Name == "" {
+		http.Error(w, "参数不完整", http.StatusBadRequest)
+		return
+	}
+	// Verify attempt belongs to this course
+	attempt, err := s.store.GetAttemptByID(r.Context(), req.AttemptID)
+	if err != nil {
+		http.Error(w, "记录不存在", http.StatusNotFound)
+		return
+	}
+	if attempt.CourseID != courseID {
+		http.Error(w, "无权限", http.StatusForbidden)
+		return
+	}
+	if err := s.store.UpdateAttemptStudentInfo(r.Context(), req.AttemptID, req.Name, req.StudentNo, req.ClassName); err != nil {
+		http.Error(w, "更新失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) apiTeacherCourseMergeStudent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		SourceName      string `json:"source_name"`
+		SourceStudentNo string `json:"source_student_no"`
+		SourceClassName string `json:"source_class_name"`
+		TargetName      string `json:"target_name"`
+		TargetStudentNo string `json:"target_student_no"`
+		TargetClassName string `json:"target_class_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	req.SourceName = strings.TrimSpace(req.SourceName)
+	req.TargetName = strings.TrimSpace(req.TargetName)
+	if req.SourceName == "" || req.TargetName == "" {
+		http.Error(w, "源姓名和目标姓名不能为空", http.StatusBadRequest)
+		return
+	}
+	if req.SourceName == req.TargetName && req.SourceStudentNo == req.TargetStudentNo && req.SourceClassName == req.TargetClassName {
+		http.Error(w, "源和目标相同，无需合并", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.MergeAttemptStudent(r.Context(),
+		req.SourceName, req.SourceStudentNo, req.SourceClassName,
+		req.TargetName, req.TargetStudentNo, req.TargetClassName,
+		courseID); err != nil {
+		http.Error(w, "合并失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 // gone410 returns a handler that replies 410 Gone with a short hint telling

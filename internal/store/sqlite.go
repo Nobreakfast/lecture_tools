@@ -2070,3 +2070,18 @@ func (s *SQLiteStore) ListQAMessages(ctx context.Context, issueID int) ([]domain
 	}
 	return items, rows.Err()
 }
+
+// UpdateAttemptStudentInfo updates the name, student_no, and class_name for a given attempt.
+func (s *SQLiteStore) UpdateAttemptStudentInfo(ctx context.Context, attemptID, name, studentNo, className string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET name = ?, student_no = ?, class_name = ?, updated_at = ? WHERE id = ?`, name, studentNo, className, time.Now().Format(time.RFC3339Nano), attemptID)
+	return err
+}
+
+// MergeAttemptStudent renames all attempts matching source student info to the target student info
+// within a given course. This is used when a student misspelled their name.
+func (s *SQLiteStore) MergeAttemptStudent(ctx context.Context, sourceName, sourceStudentNo, sourceClassName, targetName, targetStudentNo, targetClassName string, courseID int) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET name = ?, student_no = ?, class_name = ?, updated_at = ? WHERE course_id = ? AND name = ? AND student_no = ? AND class_name = ?`,
+		targetName, targetStudentNo, targetClassName, now, courseID, sourceName, sourceStudentNo, sourceClassName)
+	return err
+}

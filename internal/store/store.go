@@ -69,6 +69,9 @@ type AttemptStore interface {
 	GetQuizShareByToken(ctx context.Context, token string) (*domain.QuizShare, error)
 	ListActiveQuizShares(ctx context.Context, courseID int, quizID string) ([]domain.QuizShare, error)
 	RevokeQuizShare(ctx context.Context, id int) error
+	// Student info management (teacher edits)
+	UpdateAttemptStudentInfo(ctx context.Context, attemptID, name, studentNo, className string) error
+	MergeAttemptStudent(ctx context.Context, sourceName, sourceStudentNo, sourceClassName, targetName, targetStudentNo, targetClassName string, courseID int) error
 }
 
 // HomeworkStore provides homework submission and file operations.

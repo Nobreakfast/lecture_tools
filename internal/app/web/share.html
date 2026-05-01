@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,19 +15,23 @@
       color: var(--text, #1e293b);
       background: var(--bg, #f8fafc);
     }
+
     .header {
       margin-bottom: 24px;
       padding-bottom: 16px;
       border-bottom: 2px solid var(--border, #e2e8f0);
     }
+
     .header h1 {
       font-size: 22px;
       margin: 0 0 6px;
     }
+
     .header .meta {
       font-size: 14px;
       color: var(--text-dim, #64748b);
     }
+
     .badge {
       display: inline-flex;
       align-items: center;
@@ -37,36 +42,42 @@
       background: var(--primary-bg, #eef2ff);
       color: var(--primary, #4f46e5);
     }
+
     .stats {
       display: flex;
       gap: 24px;
       margin-bottom: 24px;
       flex-wrap: wrap;
     }
+
     .stat-card {
       background: var(--surface, #fff);
       border-radius: var(--radius, 8px);
       padding: 16px 24px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
+
     .stat-card .label {
       font-size: 12px;
       color: var(--text-dim, #64748b);
       margin-bottom: 4px;
     }
+
     .stat-card .value {
       font-size: 24px;
       font-weight: 700;
       color: var(--primary, #4f46e5);
     }
+
     .student-table {
       width: 100%;
       border-collapse: collapse;
       background: var(--surface, #fff);
       border-radius: var(--radius, 8px);
       overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
+
     .student-table th,
     .student-table td {
       padding: 10px 14px;
@@ -74,6 +85,7 @@
       border-bottom: 1px solid var(--border, #e2e8f0);
       font-size: 14px;
     }
+
     .student-table th {
       background: var(--bg, #f8fafc);
       font-weight: 600;
@@ -81,49 +93,76 @@
       color: var(--text-dim, #64748b);
       text-transform: uppercase;
     }
+
     .student-table tr.clickable {
       cursor: pointer;
       transition: background 0.1s;
     }
+
     .student-table tr.clickable:hover {
       background: var(--primary-bg, #eef2ff);
     }
-    .detail-panel {
+
+    .modal-overlay {
       display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 1000;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 16px;
+      overflow-y: auto;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .detail-panel {
       background: var(--surface, #fff);
-      border: 1px solid var(--border, #e2e8f0);
       border-radius: var(--radius, 8px);
-      padding: 20px;
-      margin: 12px 0 24px;
+      padding: 24px;
+      max-width: 720px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+      position: relative;
+      margin: auto 0;
     }
-    .detail-panel.active {
-      display: block;
-    }
+
     .detail-panel h3 {
       margin: 0 0 16px;
       font-size: 16px;
       color: var(--primary, #4f46e5);
     }
+
     .question-block {
       margin-bottom: 20px;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--border, #e2e8f0);
     }
+
     .question-block:last-child {
       border-bottom: none;
       margin-bottom: 0;
       padding-bottom: 0;
     }
+
     .question-stem {
       font-weight: 600;
       margin-bottom: 8px;
       font-size: 14px;
     }
+
     .question-type {
       font-size: 11px;
       color: var(--text-dim, #64748b);
       margin-bottom: 8px;
     }
+
     .student-answer {
       font-size: 14px;
       padding: 8px 12px;
@@ -131,50 +170,60 @@
       border-radius: 6px;
       margin-bottom: 6px;
     }
+
     .student-answer.correct {
       background: var(--success-bg, #f0fdf4);
       color: var(--success, #16a34a);
       border-left: 3px solid var(--success, #16a34a);
     }
+
     .student-answer.incorrect {
       background: var(--danger-bg, #fef2f2);
       color: var(--danger, #dc2626);
       border-left: 3px solid var(--danger, #dc2626);
     }
+
     .correct-answer {
       font-size: 13px;
       color: var(--success, #16a34a);
       margin-top: 4px;
     }
+
     .options-list {
       list-style: none;
       padding: 0;
       margin: 4px 0 0;
     }
+
     .options-list li {
       font-size: 13px;
       padding: 3px 0;
       color: var(--text-dim, #64748b);
     }
+
     .options-list li.correct-opt {
       color: var(--success, #16a34a);
       font-weight: 600;
     }
+
     .loading {
       text-align: center;
       padding: 60px 20px;
       color: var(--text-dim, #64748b);
     }
+
     .error-msg {
       text-align: center;
       padding: 40px 20px;
       color: var(--danger, #dc2626);
     }
+
     .empty-msg {
       text-align: center;
       padding: 40px 20px;
       color: var(--text-dim, #64748b);
     }
+
     .close-detail {
       float: right;
       background: none;
@@ -185,12 +234,15 @@
       padding: 0 4px;
       line-height: 1;
     }
+
     .close-detail:hover {
       color: var(--text, #1e293b);
     }
+
     .search-box {
       margin-bottom: 16px;
     }
+
     .search-box input {
       width: 100%;
       max-width: 320px;
@@ -202,20 +254,39 @@
       background: var(--surface, #fff);
       color: var(--text, #1e293b);
     }
+
     .search-box input:focus {
       outline: none;
       border-color: var(--primary, #4f46e5);
       box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
     }
+
     @media (max-width: 640px) {
-      body { padding: 16px 10px; }
-      .student-table th, .student-table td { padding: 8px 10px; font-size: 13px; }
-      .stats { gap: 12px; }
-      .stat-card { padding: 12px 16px; }
-      .stat-card .value { font-size: 20px; }
+      body {
+        padding: 16px 10px;
+      }
+
+      .student-table th,
+      .student-table td {
+        padding: 8px 10px;
+        font-size: 13px;
+      }
+
+      .stats {
+        gap: 12px;
+      }
+
+      .stat-card {
+        padding: 12px 16px;
+      }
+
+      .stat-card .value {
+        font-size: 20px;
+      }
     }
   </style>
 </head>
+
 <body>
   <div class="loading" id="loading">加载中...</div>
   <div class="error-msg" id="error" style="display:none;"></div>
@@ -261,10 +332,12 @@
     <div class="empty-msg" id="empty-msg" style="display:none;">暂无提交记录</div>
   </div>
 
-  <div class="detail-panel" id="detail-panel">
-    <button class="close-detail" onclick="closeDetail()">&times;</button>
-    <h3 id="detail-student-name"></h3>
-    <div id="detail-questions"></div>
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="detail-panel" id="detail-panel">
+      <button class="close-detail" onclick="closeDetail()">&times;</button>
+      <h3 id="detail-student-name"></h3>
+      <div id="detail-questions"></div>
+    </div>
   </div>
 
   <script>
@@ -317,7 +390,7 @@
 
       renderTable(grouped);
 
-      document.getElementById('search-input').addEventListener('input', function(e) {
+      document.getElementById('search-input').addEventListener('input', function (e) {
         const q = e.target.value.toLowerCase().trim();
         if (!q) {
           renderTable(groupAttempts(attemptsData));
@@ -376,36 +449,32 @@
       tbody.innerHTML = '';
       groups.forEach((g, idx) => {
         const latest = g.latest || {};
+        const count = g.attempts.length;
+        const nameHtml = `<span style="font-weight:600;">${esc(g.name)}</span>`;
+
+        const attemptLinks = g.attempts.map((a, ai) => {
+          const label = a.attempt_no ? '第' + a.attempt_no + '次' : '第' + (ai + 1) + '次';
+          const time = a.submitted_at || '';
+          return `<button type="button" class="attempt-link" data-attempt-id="${esc(a.id)}" style="border:1px solid var(--border, #e2e8f0);background:var(--surface, #fff);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;color:var(--primary, #4f46e5);font-weight:600;white-space:nowrap;" title="${esc(time)}">${esc(label)}</button>`;
+        }).join(' ');
+
         const tr = document.createElement('tr');
-        tr.className = 'clickable';
         tr.innerHTML = `
           <td>${idx + 1}</td>
-          <td>
-            <details>
-              <summary style="cursor:pointer;color:var(--primary, #4f46e5);font-weight:600;">${esc(g.name)}</summary>
-              <div style="margin-top:8px;display:grid;gap:6px;">
-                ${g.attempts.map(a => `
-                  <button type="button" class="attempt-link" data-attempt-id="${esc(a.id)}" style="text-align:left;border:1px solid var(--border, #e2e8f0);background:var(--bg, #f8fafc);border-radius:8px;padding:7px 9px;cursor:pointer;">
-                    <strong>${a.attempt_no ? '第' + esc(a.attempt_no) + '次' : '未编号'}</strong>
-                    <span style="color:var(--text-dim, #64748b);margin-left:8px;">${esc(a.submitted_at || '')}</span>
-                  </button>
-                `).join('')}
-              </div>
-            </details>
-          </td>
+          <td>${nameHtml}</td>
           <td>${esc(g.student_no)}</td>
           <td>${esc(g.class_name)}</td>
-          <td>${g.attempts.length}</td>
+          <td><div style="display:flex;flex-wrap:wrap;gap:4px;">${attemptLinks}</div></td>
           <td>${esc(latest.submitted_at || '')}</td>
         `;
         tr.addEventListener('click', (evt) => {
           const btn = evt.target.closest('.attempt-link');
           if (btn) {
-            const found = g.attempts.find(a => a.id === btn.getAttribute('data-attempt-id'));
+            const attemptId = btn.getAttribute('data-attempt-id');
+            const found = g.attempts.find(a => a.id === attemptId);
             if (found) showDetail(found);
             return;
           }
-          if (evt.target.tagName.toLowerCase() === 'summary') return;
           showDetail(latest);
         });
         tbody.appendChild(tr);
@@ -468,13 +537,29 @@
         container.appendChild(block);
       });
 
-      panel.classList.add('active');
-      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const overlay = document.getElementById('modal-overlay');
+      overlay.classList.add('active');
+      document.body.style.overflow = 'hidden';
     }
 
     function closeDetail() {
-      document.getElementById('detail-panel').classList.remove('active');
+      document.getElementById('modal-overlay').classList.remove('active');
+      document.body.style.overflow = '';
     }
+
+    // 点击遮罩层关闭弹窗
+    document.getElementById('modal-overlay').addEventListener('click', function (e) {
+      if (e.target === this) {
+        closeDetail();
+      }
+    });
+
+    // ESC 键关闭弹窗
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        closeDetail();
+      }
+    });
 
     function getTypeLabel(type) {
       const labels = {
@@ -495,4 +580,5 @@
     }
   </script>
 </body>
+
 </html>

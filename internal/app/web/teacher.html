@@ -726,19 +726,22 @@
     <!-- Tab: 考勤 -->
     <div class="tab-page" id="tab-attendance">
       <div class="card">
-        <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
-          <div>
-            <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">统计模式</p>
-            <select id="attendanceMode" style="max-width:200px;">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <label style="font-size:13px;font-weight:600;white-space:nowrap;">统计模式</label>
+            <select id="attendanceMode" style="max-width:180px;margin:0;padding:4px 8px;font-size:13px;">
               <option value="all">所有进入（连接即可）</option>
               <option value="submitted">仅已提交</option>
             </select>
           </div>
-          <div>
-            <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">低出勤标红（%）</p>
-            <input type="number" id="attendanceThreshold" min="0" max="100" step="1" value="34" style="width:80px;" />
+          <div style="display:flex;align-items:center;gap:6px;">
+            <label style="font-size:13px;font-weight:600;white-space:nowrap;">低出勤标红</label>
+            <input type="number" id="attendanceThreshold" min="0" max="100" step="1" value="34"
+              style="width:60px;margin:0;padding:4px 8px;font-size:13px;" />
+            <span style="font-size:13px;color:var(--text-secondary);">%</span>
           </div>
           <button class="small btn-secondary" id="saveThresholdBtn">保存标准</button>
+          <button class="small" id="mergeAttendanceBtn" style="margin-top:0;background:#7c3aed;">合并记录</button>
           <div style="font-size:12px;color:var(--text-secondary);margin-left:auto;">
             提示：表格支持左右滑动，左侧 3 列固定。
           </div>
@@ -944,7 +947,8 @@
           <pre id="mcpConfig"
             style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;"></pre>
           <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">将以上内容粘贴到 Claude Desktop 的
-            <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。</p>
+            <code>claude_desktop_config.json</code> 或 Cursor 的 MCP 设置中即可使用。
+          </p>
         </div>
       </div>
     </div>
@@ -1007,6 +1011,76 @@
         <button class="small" style="margin-top:0;" id="detailCloseBtn" onclick="closeDetail()">关闭</button>
       </div>
       <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <!-- 编辑学生信息弹窗 -->
+  <div id="editStudentModal" class="modal">
+    <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;">编辑学生信息</h3>
+        <button class="small" style="margin-top:0;" onclick="closeEditStudentModal()">关闭</button>
+      </div>
+      <input type="hidden" id="editAttemptId" />
+      <div style="margin-bottom:12px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">姓名</label>
+        <input type="text" id="editStudentName" placeholder="学生姓名" />
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">学号</label>
+        <input type="text" id="editStudentNo" placeholder="学号" />
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">班级</label>
+        <input type="text" id="editClassName" placeholder="班级" />
+      </div>
+      <button id="saveStudentInfoBtn" style="width:100%;">保存修改</button>
+    </div>
+  </div>
+
+  <!-- 合并考勤记录弹窗 -->
+  <div id="mergeAttendanceModal" class="modal">
+    <div class="modal-box" style="max-width:500px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;">合并考勤记录</h3>
+        <button class="small" style="margin-top:0;" onclick="closeMergeModal()">关闭</button>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">将"源学生"的所有记录合并到"目标学生"名下。适用于学生姓名打错的情况。</p>
+      <div
+        style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--bg);">
+        <p style="font-size:12px;font-weight:600;color:var(--danger);margin-bottom:8px;">源学生（将被替换的错误记录）</p>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:12px;display:block;margin-bottom:2px;">姓名</label>
+          <input type="text" id="mergeSourceName" placeholder="错误的姓名" />
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:12px;display:block;margin-bottom:2px;">学号</label>
+          <input type="text" id="mergeSourceStudentNo" placeholder="学号（可选）" />
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:2px;">班级</label>
+          <input type="text" id="mergeSourceClassName" placeholder="班级（可选）" />
+        </div>
+      </div>
+      <div style="text-align:center;font-size:18px;margin-bottom:8px;">⬇️</div>
+      <div
+        style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px;background:var(--bg);">
+        <p style="font-size:12px;font-weight:600;color:var(--success);margin-bottom:8px;">目标学生（正确信息）</p>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:12px;display:block;margin-bottom:2px;">姓名</label>
+          <input type="text" id="mergeTargetName" placeholder="正确的姓名" />
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:12px;display:block;margin-bottom:2px;">学号</label>
+          <input type="text" id="mergeTargetStudentNo" placeholder="学号（可选）" />
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:2px;">班级</label>
+          <input type="text" id="mergeTargetClassName" placeholder="班级（可选）" />
+        </div>
+      </div>
+      <button id="mergeAttendanceConfirmBtn"
+        style="width:100%;background:linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);">确认合并</button>
     </div>
   </div>
 
@@ -2026,33 +2100,23 @@
         const scoreCell = attemptScoreCell(item);
         const quizCol = showQuizCol ? `<td style="font-size:12px;color:var(--text-secondary);">${escapeHTML(item.quiz_id || '-')}</td>` : '';
         const history = Array.isArray(item.attempts) ? item.attempts : [];
-        const historyHtml = history.length > 1
-          ? `<details style="margin-top:2px;">
-              <summary style="cursor:pointer;color:var(--primary);font-weight:600;list-style-position:inside;">${escapeHTML(item.name)}</summary>
-              <div style="margin-top:8px;display:grid;gap:6px;min-width:220px;">
-                ${history.map(a => {
-            const label = a.attempt_no ? '第' + a.attempt_no + '次' : '未编号';
-            const time = a.submitted_at || a.updated_at || '';
-            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
-                    <div style="font-size:12px;line-height:1.4;">
-                      <div><strong>${escapeHTML(label)}</strong> ${statusBadge(a.status)}</div>
-                      <div style="color:var(--text-secondary);">${escapeHTML(time)}</div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;">${attemptScoreCell(a)}<button class="small" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="viewAttemptDetail('${jsArg(a.id)}')">查看</button></div>
-                  </div>`;
-          }).join('')}
-              </div>
-            </details>`
-          : `<button class="link-btn" style="padding:0;font-weight:600;" onclick="viewAttemptDetail('${jsArg(item.id)}')">${escapeHTML(item.name)}</button>`;
+        const historyCount = history.length;
+        const historyHtml = `<span style="font-weight:600;">${escapeHTML(item.name)}</span>`;
+        const attemptBtns = history.map((a, ai) => {
+          const label = a.attempt_no ? '第' + a.attempt_no + '次' : '第' + (ai + 1) + '次';
+          return `<button class="small" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="event.stopPropagation();viewAttemptDetail('${jsArg(a.id)}')" title="${escapeHTML(a.submitted_at || a.updated_at || '')}">${escapeHTML(label)}</button>`;
+        }).join(' ');
+
+        const editBtn = `<button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="event.stopPropagation();openEditStudentInfo('${jsArg(item.id)}','${escapeHTML(item.name)}','${escapeHTML(item.student_no)}','${escapeHTML(item.class_name)}')">编辑</button>`;
         return `<tr>
           <td>${historyHtml}</td>
           <td>${escapeHTML(item.student_no)}</td>
           <td>${escapeHTML(item.class_name)}</td>
           ${quizCol}
-          <td>${item.attempt_no ? '第' + item.attempt_no + '次' : '-'}</td>
+          <td><div style="display:flex;flex-wrap:wrap;gap:4px;">${attemptBtns}</div></td>
           <td>${statusBadge(item.status)}</td>
           <td>${scoreCell}</td>
-          <td><button class="small" onclick="viewAttemptDetail('${jsArg(item.id)}')">查看</button></td>
+          <td><button class="small" onclick="viewAttemptDetail('${jsArg(item.id)}')">查看</button> ${editBtn}</td>
         </tr>`;
       }).join('');
       const quizHeader = showQuizCol ? '<th>题库</th>' : '';
@@ -2792,6 +2856,79 @@
       syncDetailCloseBtn();
     }
 
+    /* ── edit student info ── */
+    function openEditStudentInfo(attemptId, name, studentNo, className) {
+      document.getElementById('editAttemptId').value = attemptId;
+      document.getElementById('editStudentName').value = name || '';
+      document.getElementById('editStudentNo').value = studentNo || '';
+      document.getElementById('editClassName').value = className || '';
+      document.getElementById('editStudentModal').classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeEditStudentModal() {
+      document.getElementById('editStudentModal').classList.remove('show');
+      document.body.style.overflow = '';
+    }
+    async function saveStudentInfo() {
+      const attemptId = document.getElementById('editAttemptId').value;
+      const name = document.getElementById('editStudentName').value.trim();
+      const studentNo = document.getElementById('editStudentNo').value.trim();
+      const className = document.getElementById('editClassName').value.trim();
+      if (!attemptId || !name) { alert('姓名不能为空'); return; }
+      const r = await fetch('/api/teacher/courses/update-student-info?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ attempt_id: attemptId, name, student_no: studentNo, class_name: className })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      showToast('学生信息已更新');
+      closeEditStudentModal();
+      loadAttempts();
+      refreshAttendanceTab();
+    }
+
+    /* ── merge attendance ── */
+    function openMergeModal() {
+      document.getElementById('mergeSourceName').value = '';
+      document.getElementById('mergeSourceStudentNo').value = '';
+      document.getElementById('mergeSourceClassName').value = '';
+      document.getElementById('mergeTargetName').value = '';
+      document.getElementById('mergeTargetStudentNo').value = '';
+      document.getElementById('mergeTargetClassName').value = '';
+      document.getElementById('mergeAttendanceModal').classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeMergeModal() {
+      document.getElementById('mergeAttendanceModal').classList.remove('show');
+      document.body.style.overflow = '';
+    }
+    async function mergeAttendance() {
+      const sourceName = document.getElementById('mergeSourceName').value.trim();
+      const targetName = document.getElementById('mergeTargetName').value.trim();
+      if (!sourceName || !targetName) { alert('源姓名和目标姓名不能为空'); return; }
+      if (sourceName === targetName &&
+        document.getElementById('mergeSourceStudentNo').value.trim() === document.getElementById('mergeTargetStudentNo').value.trim() &&
+        document.getElementById('mergeSourceClassName').value.trim() === document.getElementById('mergeTargetClassName').value.trim()) {
+        alert('源和目标相同，无需合并'); return;
+      }
+      if (!await showConfirm('将「' + sourceName + '」的所有记录合并到「' + targetName + '」？此操作不可撤销。', { title: '合并考勤记录', okLabel: '确认合并', icon: '🔀' })) return;
+      const r = await fetch('/api/teacher/courses/merge-student?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          source_name: sourceName,
+          source_student_no: document.getElementById('mergeSourceStudentNo').value.trim(),
+          source_class_name: document.getElementById('mergeSourceClassName').value.trim(),
+          target_name: targetName,
+          target_student_no: document.getElementById('mergeTargetStudentNo').value.trim(),
+          target_class_name: document.getElementById('mergeTargetClassName').value.trim()
+        })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      showToast('合并成功');
+      closeMergeModal();
+      loadAttempts();
+      refreshAttendanceTab();
+    }
+
     /* ── tab switching ── */
     // Main tabs only — ignore .sub-tab-btn (those are handled below).
     document.querySelectorAll('.tab-bar > .tab-btn:not(.sub-tab-btn)').forEach(btn => {
@@ -2852,6 +2989,11 @@
     document.getElementById('attendanceMode').onchange = () => { if (getActiveTab() === 'tab-attendance') refreshAttendanceTab(); };
     document.getElementById('attendanceThreshold').onchange = () => { if (getActiveTab() === 'tab-attendance') refreshAttendanceTab(); };
     document.getElementById('saveThresholdBtn').onclick = saveAttendanceThreshold;
+    document.getElementById('mergeAttendanceBtn').onclick = openMergeModal;
+    document.getElementById('saveStudentInfoBtn').onclick = saveStudentInfo;
+    document.getElementById('mergeAttendanceConfirmBtn').onclick = mergeAttendance;
+    document.getElementById('editStudentModal').onclick = (evt) => { if (evt.target.id === 'editStudentModal') closeEditStudentModal(); };
+    document.getElementById('mergeAttendanceModal').onclick = (evt) => { if (evt.target.id === 'mergeAttendanceModal') closeMergeModal(); };
     document.getElementById('homeworkAssignmentFilter').onchange = () => {
       loadHomeworkSubmissions();
       updateHomeworkGradeVisibilityButton();

@@ -488,6 +488,12 @@ func (m *memStore) CreateQAMessage(_ context.Context, _ *domain.QAMessage) (int6
 func (m *memStore) ListQAMessages(_ context.Context, _ int) ([]domain.QAMessage, error) {
 	return nil, nil
 }
+func (m *memStore) UpdateAttemptStudentInfo(_ context.Context, _, _, _, _ string) error {
+	return errors.New("not implemented")
+}
+func (m *memStore) MergeAttemptStudent(_ context.Context, _, _, _, _, _, _ string, _ int) error {
+	return errors.New("not implemented")
+}
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{
