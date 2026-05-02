@@ -328,7 +328,13 @@ func (s *Server) apiTeacherQAIssues(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	issues, err := s.store.ListQAIssuesByCourse(r.Context(), courseID, true)
+	assignmentID := strings.TrimSpace(r.URL.Query().Get("assignment_id"))
+	var issues []domain.QAIssue
+	if assignmentID != "" {
+		issues, err = s.store.ListQAIssues(r.Context(), courseID, assignmentID, true)
+	} else {
+		issues, err = s.store.ListQAIssuesByCourse(r.Context(), courseID, true)
+	}
 	if err != nil {
 		http.Error(w, "读取 Issues 失败", http.StatusInternalServerError)
 		return

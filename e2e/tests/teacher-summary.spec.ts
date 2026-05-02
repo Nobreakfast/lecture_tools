@@ -133,4 +133,62 @@ test.describe("Teacher summary features", () => {
 
     await teacherCtx.close();
   });
+
+  test("AI summary API generates a structured summary", async ({ browser }) => {
+    test.skip(
+      process.env.E2E_EXPECT_AI_SUMMARY !== "1",
+      "requires live AI config and E2E_EXPECT_AI_SUMMARY=1"
+    );
+    test.setTimeout(120_000);
+
+    const seed = getSeedResult();
+
+    const teacherCtx = await browser.newContext();
+    const teacherPage = new TeacherPage(await teacherCtx.newPage());
+    await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+    await teacherPage.selectCourse(seed.courseId);
+    await teacherPage.uploadQuizYAML();
+    await teacherPage.openEntry();
+
+    const studentCtx = await browser.newContext();
+    const sp = new StudentPage(await studentCtx.newPage());
+    await sp.enterCode(seed.inviteCode);
+    await sp.waitForQuizOpen();
+    await sp.joinQuiz("AI总结接口学生", "2024AISUM", "AI总结班");
+    const quiz = new QuizPage(sp.page);
+    await quiz.waitForLoad();
+    await quiz.answerAllViaAPI({
+      q1: "B",
+      q2: "Y",
+      q3: "A,B,C",
+      q4: "A",
+      q5: "希望多讲一些例题",
+    });
+    await quiz.submit();
+    await studentCtx.close();
+
+    const result = await teacherPage.page.evaluate(async ({ courseId }) => {
+      const r = await fetch(
+        `/api/teacher/courses/summary?course_id=${courseId}`,
+        { method: "POST", credentials: "include" }
+      );
+      const text = await r.text();
+      let body: any;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { _raw: text };
+      }
+      return { status: r.status, body };
+    }, { courseId: seed.courseId });
+
+    expect(result.status).toBe(200);
+    expect(result.body.error).toBeFalsy();
+    expect(result.body.summary).toBeTruthy();
+    expect(result.body.summary.answer_analysis).toBeTruthy();
+    expect(result.body.summary.feedback_summary).toBeTruthy();
+    expect(result.body.summary.teaching_suggestions).toBeTruthy();
+
+    await teacherCtx.close();
+  });
 });

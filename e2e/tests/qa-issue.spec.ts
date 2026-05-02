@@ -10,6 +10,92 @@ import * as path from "path";
 const ASSIGNMENT_ID = "e2e_qa_01";
 
 test.describe("Q&A Issue lifecycle", () => {
+    test("teacher can adopt AI answer, edit it, and reply to student", async ({
+        browser,
+    }) => {
+        const expectedAIReply = process.env.E2E_EXPECT_AI_QA_REPLY || "";
+        test.skip(
+            process.env.E2E_EXPECT_AI_QA !== "1" || !expectedAIReply,
+            "requires a deterministic AI endpoint and E2E_EXPECT_AI_QA_REPLY"
+        );
+
+        const seed = getSeedResult();
+        const assignmentId = "e2e_qa_ai_reply";
+
+        const teacherCtx = await browser.newContext();
+        const teacherPage = new TeacherPage(await teacherCtx.newPage());
+        await teacherPage.login(TEACHER_ID, TEACHER_PASSWORD);
+        await teacherPage.selectCourse(seed.courseId);
+
+        const fixturePath = path.resolve(__dirname, "../fixtures/sample.txt");
+        await teacherPage.uploadHomeworkAssignment(assignmentId, fixturePath);
+        await teacherPage.page.waitForTimeout(500);
+
+        const studentCtx = await browser.newContext();
+        const studentPage = new StudentPage(await studentCtx.newPage());
+        await studentPage.enterCode(seed.inviteCode);
+        await studentPage.switchTab("tab-homework");
+        await studentPage.page.waitForTimeout(1000);
+        await studentPage.page.reload();
+        await studentPage.panel.waitFor({ state: "visible" });
+        await studentPage.switchTab("tab-homework");
+        await studentPage.page.waitForTimeout(1000);
+
+        await studentPage.startHomeworkSession(
+            assignmentId,
+            "AI提问学生",
+            "2024AIQA01",
+            "AI测试班",
+            "aiqa123"
+        );
+
+        const qaUrl = `/student/qa?course_id=${seed.courseId}&assignment_id=${assignmentId}`;
+        await studentPage.page.goto(qaUrl);
+        await studentPage.page.locator("#newIssueBtn").click();
+        await studentPage.page.locator("#newIssueMsg").fill("什么是闭包？");
+        await studentPage.page.locator("button:text('提交')").last().click();
+
+        await expect(
+            studentPage.page.locator("#detailMessages .msg-item", {
+                hasText: expectedAIReply,
+            })
+        ).toBeVisible({ timeout: 10_000 });
+
+        await teacherPage.page.goto(
+            `/teacher/qa?course_id=${seed.courseId}&assignment_id=${assignmentId}`
+        );
+        await teacherPage.page.locator(".issue-list-item", { hasText: "什么是闭包" }).click();
+        await expect(
+            teacherPage.page.locator("#detailMessages .msg-item", {
+                hasText: expectedAIReply,
+            })
+        ).toBeVisible();
+
+        await teacherPage.page.locator("button:text('采用到回复框')").click();
+        const draft = await teacherPage.page.locator("#replyMsg").inputValue();
+        expect(draft).toContain(expectedAIReply);
+        await teacherPage.page.locator("#replyMsg").fill(draft + "\n教师修订：闭包会保留创建时能访问的变量。");
+        await teacherPage.page.locator("#replyForm button:text('回复')").click();
+
+        const teacherReply = teacherPage.page.locator("#detailMessages .msg-item", {
+            hasText: "教师修订：闭包会保留创建时能访问的变量。",
+        });
+        await expect(teacherReply).toBeVisible();
+        await expect(teacherReply.locator(".msg-sender")).toContainText("教师");
+
+        const issueIdText = await teacherPage.page.locator("#detailHeader .detail-title").textContent();
+        const issueId = parseInt(issueIdText!.match(/#(\d+)/)![1], 10);
+        await studentPage.page.goto(`${qaUrl}&focus=${issueId}`);
+        await expect(
+            studentPage.page.locator("#detailMessages .msg-item", {
+                hasText: "教师修订：闭包会保留创建时能访问的变量。",
+            })
+        ).toBeVisible();
+
+        await teacherCtx.close();
+        await studentCtx.close();
+    });
+
     test("student creates issue → adds messages → teacher sees and replies", async ({
         browser,
     }) => {
