@@ -18,6 +18,8 @@
     .pill.muted { background: #e5e7eb; color: var(--text-muted); }
     .snapshot-actions { display:flex; flex-wrap:wrap; gap:10px; }
     .snapshot-note { margin-top: 8px; color: var(--text-muted); font-size: 12px; }
+    .snapshot-copy-box { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(255,255,255,0.72); }
+    .snapshot-command { margin-top: 8px; padding: 10px; border-radius: var(--radius); background: var(--bg); border: 1px solid var(--border); white-space: pre-wrap; word-break: break-all; font-size: 13px; }
     .status-panel { margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: rgba(255,255,255,0.7); }
     .status-panel.safe { border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.08); }
     .status-panel.caution { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
@@ -177,11 +179,20 @@
         <div class="snapshot-actions">
           <button class="btn btn-secondary" id="snapshotRefreshBtn">刷新列表</button>
           <button class="btn" id="snapshotCreateLiteBtn">生成轻量快照</button>
-          <button class="btn" id="snapshotCreateDownloadBtn">生成完整快照并下载</button>
+          <button class="btn" id="snapshotCreateDownloadBtn">生成完整快照</button>
           <button class="btn btn-danger" id="snapshotUploadRestoreBtn">上传快照并恢复</button>
           <input id="snapshotUploadInput" type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" class="hidden" />
         </div>
-        <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；也可以上传从云服务器下载的快照并在本地恢复。</div>
+        <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；完整快照会先保存在服务器上，再提供 scp 拷贝指令。</div>
+        <div id="snapshotCopyResult" class="snapshot-copy-box hidden">
+          <div class="status-title">完整快照已生成</div>
+          <div class="small muted" id="snapshotCopyMeta"></div>
+          <pre id="snapshotCopyCommand" class="snapshot-command"></pre>
+          <div class="row mt-8">
+            <button class="btn btn-secondary small" id="snapshotCopyCommandBtn">复制 scp 指令</button>
+            <a class="btn btn-ghost small" id="snapshotFallbackDownloadLink" href="#">浏览器下载</a>
+          </div>
+        </div>
       </div>
       <div class="card">
         <h3 class="section-title">历史快照</h3>
@@ -556,7 +567,7 @@
       try {
         const r = await App.fetchJSON('/api/system/snapshots');
         const list = (r && r.items) || [];
-        $('#snapshotMetaNote').textContent = '系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 ' + (r.retention_days || 14) + ' 天；也可以上传从云服务器下载的快照并在本地恢复。';
+        $('#snapshotMetaNote').textContent = '系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 ' + (r.retention_days || 14) + ' 天；完整快照会先保存在服务器上，再提供 scp 拷贝指令。';
         if (!list.length) {
           tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无快照</td></tr>';
           return;
@@ -594,37 +605,42 @@
       }, 1000);
     }
 
-    async function downloadGeneratedSnapshot() {
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+
+    async function createFullSnapshotOnServer() {
       const btn = $('#snapshotCreateDownloadBtn');
       btn.disabled = true;
       btn.textContent = '生成中…';
       try {
-        const resp = await fetch('/api/system/snapshots/create-download?mode=full', {
+        const r = await App.fetchJSON('/api/system/snapshots/create-server?mode=full', {
           method: 'POST',
-          credentials: 'include',
         });
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(text || '生成失败');
-        }
-        const blob = await resp.blob();
-        const disposition = resp.headers.get('Content-Disposition') || '';
-        const match = disposition.match(/filename="?([^"]+)"?/i);
-        const filename = (match && match[1]) || ('snapshot-' + Date.now() + '.tar.gz');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        App.toast('完整快照已生成并开始下载', 'success');
+        const item = r.snapshot || {};
+        $('#snapshotCopyMeta').textContent = (item.filename || '完整快照') + ' · ' + formatBytes(item.size_bytes || 0) + ' · ' + (r.server_path || '');
+        $('#snapshotCopyCommand').textContent = r.scp_command || '';
+        $('#snapshotFallbackDownloadLink').href = r.download_url || ('/api/system/snapshots/download?id=' + encodeURIComponent(item.id || ''));
+        $('#snapshotCopyResult').classList.remove('hidden');
+        App.toast('完整快照已生成，可使用 scp 拷贝', 'success');
+        loadSnapshots();
       } catch (e) {
         App.toast('生成快照失败：' + (e.message || '未知错误'), 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = '生成完整快照并下载';
+        btn.textContent = '生成完整快照';
       }
     }
 
@@ -648,7 +664,17 @@
 
     $('#snapshotRefreshBtn').addEventListener('click', loadSnapshots);
     $('#snapshotCreateLiteBtn').addEventListener('click', createLiteSnapshot);
-    $('#snapshotCreateDownloadBtn').addEventListener('click', downloadGeneratedSnapshot);
+    $('#snapshotCreateDownloadBtn').addEventListener('click', createFullSnapshotOnServer);
+    $('#snapshotCopyCommandBtn').addEventListener('click', async () => {
+      const cmd = $('#snapshotCopyCommand').textContent || '';
+      if (!cmd) return;
+      try {
+        await copyText(cmd);
+        App.toast('scp 指令已复制', 'success');
+      } catch (e) {
+        App.toast('复制失败，请手动复制指令', 'error');
+      }
+    });
     $('#snapshotUploadRestoreBtn').addEventListener('click', () => $('#snapshotUploadInput').click());
     $('#snapshotUploadInput').addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];

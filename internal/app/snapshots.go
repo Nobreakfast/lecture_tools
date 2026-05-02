@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -67,6 +68,14 @@ type snapshotItem struct {
 	Kind      string `json:"kind"`
 	Mode      string `json:"mode"`
 	SizeBytes int64  `json:"size_bytes"`
+}
+
+type snapshotServerCopyResponse struct {
+	OK          bool         `json:"ok"`
+	Snapshot    snapshotItem `json:"snapshot"`
+	ServerPath  string       `json:"server_path"`
+	SCPCommand  string       `json:"scp_command"`
+	DownloadURL string       `json:"download_url"`
 }
 
 type pendingSnapshotRestore struct {
@@ -159,6 +168,40 @@ func (s *Server) apiSystemSnapshotsCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "snapshot": item})
+}
+
+func (s *Server) apiSystemSnapshotsCreateServer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.getAuthSession(r)
+	if sess == nil || sess.Role != domain.RoleAdmin {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	mode := normalizeSnapshotMode(r.URL.Query().Get("mode"), snapshotModeFull)
+	item, err := s.createStoredSnapshot(r.Context(), snapshotKindManual, mode, "admin:"+sess.TeacherID)
+	if err != nil {
+		http.Error(w, "生成快照失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	path, err := s.snapshotPath(item.ID)
+	if err != nil {
+		http.Error(w, "定位快照失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	writeJSON(w, snapshotServerCopyResponse{
+		OK:          true,
+		Snapshot:    item,
+		ServerPath:  absPath,
+		SCPCommand:  buildSnapshotSCPCommand(r, absPath),
+		DownloadURL: "/api/system/snapshots/download?id=" + item.ID,
+	})
 }
 
 func (s *Server) apiSystemSnapshotsCreateDownload(w http.ResponseWriter, r *http.Request) {
@@ -484,6 +527,29 @@ func (s *Server) pruneExpiredSnapshots() {
 	}
 }
 
+func (s *Server) cleanupTransientSnapshotDirs() {
+	entries, err := os.ReadDir(s.cfg.SnapshotDir)
+	if err != nil {
+		log.Printf("snapshot transient cleanup skipped: %v", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "snapshot-build-") &&
+			!strings.HasPrefix(name, "snapshot-download-") &&
+			!strings.HasPrefix(name, "snapshot-restore-") {
+			continue
+		}
+		path := filepath.Join(s.cfg.SnapshotDir, name)
+		if err := os.RemoveAll(path); err != nil {
+			log.Printf("snapshot transient cleanup failed for %s: %v", path, err)
+		}
+	}
+}
+
 func (s *Server) snapshotPath(id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -506,6 +572,33 @@ func (s *Server) serveSnapshotDownload(w http.ResponseWriter, r *http.Request, p
 	w.Header().Set("Content-Type", mime.TypeByExtension(".gz"))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	http.ServeFile(w, r, path)
+}
+
+func buildSnapshotSCPCommand(r *http.Request, serverPath string) string {
+	host := snapshotRequestHost(r)
+	return "scp root@" + shellQuote(host) + ":" + shellQuote(serverPath) + " ."
+}
+
+func snapshotRequestHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		host = "服务器IP"
+	}
+	return host
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func buildSnapshotFileName(kind, mode string) string {

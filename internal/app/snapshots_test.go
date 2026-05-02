@@ -208,6 +208,61 @@ func TestSystemSnapshotsEndpoints(t *testing.T) {
 	}
 }
 
+func TestSystemSnapshotsCreateServerReturnsSCPCommand(t *testing.T) {
+	t.Parallel()
+
+	cfg := snapshotTestConfig(t)
+	ctx := context.Background()
+
+	st, err := store.NewSQLiteStore(filepath.Join(cfg.DataDir, "app.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	srv := New(cfg, st)
+	srv.authTokens["admin-token"] = authSession{
+		TeacherID: "admin",
+		Role:      domain.RoleAdmin,
+		Expiry:    time.Now().Add(time.Hour),
+	}
+	if err := os.WriteFile(filepath.Join(cfg.MetadataDir, "note.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/system/snapshots/create-server?mode=full", nil)
+	req.Host = "course.example.edu:8443"
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "admin-token"})
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create-server status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp snapshotServerCopyResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal create-server response: %v", err)
+	}
+	if !resp.OK || resp.Snapshot.Mode != snapshotModeFull || resp.Snapshot.Kind != snapshotKindManual {
+		t.Fatalf("unexpected create-server response: %+v", resp)
+	}
+	if resp.ServerPath == "" || !filepath.IsAbs(resp.ServerPath) {
+		t.Fatalf("server path should be absolute: %+v", resp)
+	}
+	if _, err := os.Stat(resp.ServerPath); err != nil {
+		t.Fatalf("stored snapshot missing at %s: %v", resp.ServerPath, err)
+	}
+	if !strings.Contains(resp.SCPCommand, "root@'course.example.edu':") || !strings.Contains(resp.SCPCommand, shellQuote(resp.ServerPath)) {
+		t.Fatalf("unexpected scp command: %s", resp.SCPCommand)
+	}
+	if resp.DownloadURL == "" || !strings.Contains(resp.DownloadURL, resp.Snapshot.ID) {
+		t.Fatalf("unexpected fallback download url: %+v", resp)
+	}
+}
+
 // TestListSnapshotsHidesUploadStaging guards the listSnapshots filter that
 // keeps in-flight upload-restore archives (snapshotUploadPrefix) out of the
 // snapshot list, so admins do not see ghost "snapshots" while a restore is

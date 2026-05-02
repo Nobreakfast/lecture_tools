@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,6 +60,10 @@ func (s *Server) apiQAIssueCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "消息不能超过 3000 字", http.StatusBadRequest)
 		return
 	}
+	if submission.CourseID != courseID || submission.AssignmentID != assignmentID {
+		http.Error(w, "无权在该作业下提问", http.StatusForbidden)
+		return
+	}
 	course, err := s.store.GetCourse(r.Context(), courseID)
 	if err != nil {
 		http.Error(w, "课程不存在", http.StatusBadRequest)
@@ -103,6 +108,17 @@ func (s *Server) apiQAIssueCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "保存消息失败", http.StatusInternalServerError)
 		return
 	}
+	if aiAnswer := s.generateQAIssueAIAnswer(r, course, assignmentID, firstMessage); aiAnswer != "" {
+		aiMsg := &domain.QAMessage{
+			IssueID:   int(issueID),
+			Sender:    "ai",
+			Content:   aiAnswer,
+			CreatedAt: time.Now(),
+		}
+		if _, err := s.store.CreateQAMessage(r.Context(), aiMsg); err == nil {
+			_ = s.store.IncrementQAIssueMessageCount(r.Context(), int(issueID))
+		}
+	}
 	writeJSON(w, map[string]any{"ok": true, "issue_id": issueID})
 }
 
@@ -144,6 +160,10 @@ func (s *Server) apiQAIssueGet(w http.ResponseWriter, r *http.Request) {
 	issue, err := s.store.GetQAIssueByID(r.Context(), id)
 	if err != nil {
 		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if !s.canReadQAIssue(r, issue) {
+		http.Error(w, "Issue 不存在或不可访问", http.StatusNotFound)
 		return
 	}
 	messages, err := s.store.ListQAMessages(r.Context(), id)
@@ -204,6 +224,16 @@ func (s *Server) apiQAIssueAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !isStudent {
 		sender = "teacher"
 	}
+	if isStudent {
+		submission, _ := s.requireHomeworkStudent(r)
+		if issue.Hidden || submission.CourseID != issue.CourseID || submission.AssignmentID != issue.AssignmentID {
+			http.Error(w, "Issue 不存在或不可访问", http.StatusNotFound)
+			return
+		}
+	} else if !s.canTeacherAccessQAIssue(r, issue) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	course, err := s.store.GetCourse(r.Context(), issue.CourseID)
 	if err != nil {
 		http.Error(w, "课程不存在", http.StatusInternalServerError)
@@ -256,6 +286,10 @@ func (s *Server) apiQAIssueByInvite(w http.ResponseWriter, r *http.Request) {
 	issue, err := s.store.GetQAIssueByID(r.Context(), issueID)
 	if err != nil {
 		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.Hidden {
+		http.Error(w, "Issue 不存在或不可访问", http.StatusNotFound)
 		return
 	}
 	if issue.CourseID != course.ID {
@@ -332,7 +366,7 @@ func (s *Server) apiTeacherQAIssueBoolAction(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	_, _, err := s.resolveTeacherCourse(r, sess)
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -342,6 +376,15 @@ func (s *Server) apiTeacherQAIssueBoolAction(w http.ResponseWriter, r *http.Requ
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	issue, err := s.store.GetQAIssueByID(r.Context(), req.ID)
+	if err != nil {
+		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.CourseID != courseID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if err := s.store.UpdateQAIssueStatus(r.Context(), req.ID, status); err != nil {
@@ -361,7 +404,7 @@ func (s *Server) apiTeacherQAIssueToggle(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	_, _, err := s.resolveTeacherCourse(r, sess)
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -372,6 +415,15 @@ func (s *Server) apiTeacherQAIssueToggle(w http.ResponseWriter, r *http.Request,
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	issue, err := s.store.GetQAIssueByID(r.Context(), req.ID)
+	if err != nil {
+		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.CourseID != courseID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	switch field {
@@ -438,6 +490,59 @@ func qaMessagePayload(msg domain.QAMessage) map[string]any {
 	}
 }
 
+func (s *Server) canReadQAIssue(r *http.Request, issue *domain.QAIssue) bool {
+	if issue == nil {
+		return false
+	}
+	if s.canTeacherAccessQAIssue(r, issue) {
+		return true
+	}
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		return false
+	}
+	if issue.Hidden {
+		return false
+	}
+	return submission.CourseID == issue.CourseID && submission.AssignmentID == issue.AssignmentID
+}
+
+func (s *Server) canTeacherAccessQAIssue(r *http.Request, issue *domain.QAIssue) bool {
+	if issue == nil {
+		return false
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		return false
+	}
+	if sess.Role == domain.RoleAdmin {
+		return true
+	}
+	course, err := s.store.GetCourse(r.Context(), issue.CourseID)
+	if err != nil {
+		return false
+	}
+	return course.TeacherID == sess.TeacherID
+}
+
+func (s *Server) generateQAIssueAIAnswer(r *http.Request, course *domain.Course, assignmentID, question string) string {
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	courseName := course.DisplayName
+	if strings.TrimSpace(courseName) == "" {
+		courseName = course.Name
+	}
+	answer, err := s.aiClient.AnswerQA(ctx, courseName, assignmentID, question)
+	if err != nil {
+		return ""
+	}
+	answer = strings.TrimSpace(answer)
+	if len([]rune(answer)) > 2000 {
+		answer = string([]rune(answer)[:2000])
+	}
+	return answer
+}
+
 func (s *Server) saveQAIssueImages(r *http.Request, course *domain.Course, assignmentID string, issueID, msgSeq int) ([]string, error) {
 	files := r.MultipartForm.File["images"]
 	if len(files) == 0 {
@@ -500,6 +605,15 @@ func (s *Server) apiQAIssueImage(w http.ResponseWriter, r *http.Request) {
 	course, err := s.store.GetCourse(r.Context(), courseID)
 	if err != nil {
 		http.Error(w, "课程不存在", http.StatusNotFound)
+		return
+	}
+	issue, err := s.store.GetQAIssueByID(r.Context(), issueID)
+	if err != nil {
+		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.CourseID != courseID || issue.AssignmentID != assignmentID || issue.Hidden {
+		http.Error(w, "图片不存在", http.StatusNotFound)
 		return
 	}
 	dir := filepath.Join(s.metadataAssignmentDir(course.TeacherID, course.Slug, assignmentID), "qa", fmt.Sprintf("issue_%d", issueID), fmt.Sprintf("msg_%d", msgSeq))

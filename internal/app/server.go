@@ -127,6 +127,7 @@ func (s *Server) Init(ctx context.Context) error {
 		if err := os.MkdirAll(s.cfg.SnapshotDir, 0o755); err != nil {
 			return err
 		}
+		s.cleanupTransientSnapshotDirs()
 		s.startSnapshotScheduler()
 	}
 	// Teacher bootstrap is now handled by cmd/migrate upgrade.
@@ -219,6 +220,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/system/shutdown", s.apiAdminShutdown)
 	mux.HandleFunc("/api/system/snapshots", s.apiSystemSnapshots)
 	mux.HandleFunc("/api/system/snapshots/create", s.apiSystemSnapshotsCreate)
+	mux.HandleFunc("/api/system/snapshots/create-server", s.apiSystemSnapshotsCreateServer)
 	mux.HandleFunc("/api/system/snapshots/create-download", s.apiSystemSnapshotsCreateDownload)
 	mux.HandleFunc("/api/system/snapshots/download", s.apiSystemSnapshotsDownload)
 	mux.HandleFunc("/api/system/snapshots/restore", s.apiSystemSnapshotsRestore)

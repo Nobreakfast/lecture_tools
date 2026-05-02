@@ -72,7 +72,7 @@ test.describe("Q&A Issue lifecycle", () => {
 
         // Verify first message appears in thread
         const messages = studentPage.page.locator("#detailMessages .msg-item");
-        await expect(messages).toHaveCount(1);
+        expect(await messages.count()).toBeGreaterThanOrEqual(1);
         await expect(messages.first()).toContainText("什么是递归");
         await expect(
             messages.first().locator(".msg-sender")
@@ -85,20 +85,18 @@ test.describe("Q&A Issue lifecycle", () => {
             .click();
         await studentPage.page.waitForTimeout(1500);
 
-        // Verify two messages now
-        await expect(
-            studentPage.page.locator("#detailMessages .msg-item")
-        ).toHaveCount(2);
+        // Verify the follow-up message is now in the thread. When AI is configured,
+        // an AI assistant message may also be present.
+        await expect(studentPage.page.locator("#detailMessages")).toContainText("能举个例子吗？");
 
         // ── Student: go back to issue list ──
         await studentPage.page.locator("button:text('返回列表')").click();
         await studentPage.page.waitForTimeout(500);
 
-        // Verify issue appears in list with 2 messages
+        // Verify issue appears in list.
         const issueItems = studentPage.page.locator(".issue-list-item");
         await expect(issueItems).toHaveCount(1);
         await expect(issueItems.first()).toContainText("什么是递归");
-        await expect(issueItems.first()).toContainText("💬 2");
 
         // ── Teacher: check Q&A issues via the new teacher QA page ──
         await teacherPage.page.goto(
@@ -113,7 +111,6 @@ test.describe("Q&A Issue lifecycle", () => {
         const teacherIssues = teacherPage.page.locator(".issue-list-item");
         await expect(teacherIssues).toHaveCount(1);
         await expect(teacherIssues.first()).toContainText("什么是递归");
-        await expect(teacherIssues.first()).toContainText("💬 2");
 
         const issueIdText = await teacherIssues.first().locator(".issue-id").textContent();
         const issueId = parseInt(issueIdText!.replace("#", ""), 10);
@@ -138,9 +135,12 @@ test.describe("Q&A Issue lifecycle", () => {
 
         // Verify teacher reply appears
         const teacherMsgs = teacherPage.page.locator("#detailMessages .msg-item");
-        await expect(teacherMsgs).toHaveCount(3);
-        await expect(teacherMsgs.nth(2)).toContainText("递归就是函数调用自身");
-        await expect(teacherMsgs.nth(2).locator(".msg-sender")).toContainText("教师");
+        expect(await teacherMsgs.count()).toBeGreaterThanOrEqual(3);
+        const teacherReply = teacherPage.page.locator("#detailMessages .msg-item", {
+            hasText: "递归就是函数调用自身",
+        });
+        await expect(teacherReply).toBeVisible();
+        await expect(teacherReply.locator(".msg-sender")).toContainText("教师");
 
         // ── Teacher: pin the issue ──
         await teacherPage.page.locator("#teacherActions button:text('置顶')").click();
@@ -170,15 +170,9 @@ test.describe("Q&A Issue lifecycle", () => {
         await studentPage.page.goto(`${qaUrl}&focus=${issueId}`);
         await studentPage.page.waitForTimeout(2000);
 
-        // Should now have 3 messages (2 student + 1 teacher)
-        await expect(
-            studentPage.page.locator("#detailMessages .msg-item")
-        ).toHaveCount(3);
-
         // Verify teacher message content
         const teacherMsg = studentPage.page
-            .locator("#detailMessages .msg-item")
-            .nth(2);
+            .locator("#detailMessages .msg-item", { hasText: "递归就是函数调用自身" });
         await expect(teacherMsg).toContainText("递归就是函数调用自身");
         await expect(teacherMsg.locator(".msg-sender")).toContainText("教师");
 
@@ -399,6 +393,29 @@ test.describe("Q&A Issue lifecycle", () => {
         // Verify "取消隐藏" is now visible
         await expect(teacherPage.page.locator("#teacherActions button:text('取消隐藏')")).toBeVisible();
 
+        const issueIdText = await teacherPage.page.locator("#detailHeader .detail-title").textContent();
+        const issueId = parseInt(issueIdText!.match(/#(\d+)/)![1], 10);
+
+        // Hidden issues must not be readable from a public share link.
+        const shareCtx = await browser.newContext();
+        const sharePage = await shareCtx.newPage();
+        await sharePage.goto("/");
+        const shareStatus = await sharePage.evaluate(
+            async ({ inviteCode, issueId }) => {
+                const r = await fetch(`/api/qa/issue/by-invite?invite=${inviteCode}&issue_id=${issueId}`);
+                return r.status;
+            },
+            { inviteCode: seed.inviteCode, issueId }
+        );
+        expect(shareStatus).toBe(404);
+
+        // Hidden issues must not be readable by a student direct detail link either.
+        const studentStatus = await studentPage.page.evaluate(async (issueId: number) => {
+            const r = await fetch(`/api/qa/issue/get?id=${issueId}`, { credentials: "include" });
+            return r.status;
+        }, issueId);
+        expect(studentStatus).toBe(404);
+
         // Go back to list and verify hidden badge
         await teacherPage.page.locator("button:text('返回列表')").click();
         await teacherPage.page.waitForTimeout(500);
@@ -409,5 +426,6 @@ test.describe("Q&A Issue lifecycle", () => {
         // Cleanup
         await studentCtx.close();
         await teacherCtx.close();
+        await shareCtx.close();
     });
 });

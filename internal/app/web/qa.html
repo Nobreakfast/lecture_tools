@@ -342,6 +342,10 @@
             background: #059669;
         }
 
+        .msg-avatar.ai {
+            background: #7c3aed;
+        }
+
         .msg-content {
             flex: 1;
             min-width: 0;
@@ -362,6 +366,17 @@
 
         .msg-sender.teacher {
             color: #059669;
+        }
+
+        .msg-sender.ai {
+            color: #7c3aed;
+        }
+
+        .msg-tools {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+            flex-wrap: wrap;
         }
 
         .msg-text {
@@ -553,7 +568,7 @@
 
         function escapeHTML(s) {
             if (!s) return '';
-            return String(s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         function formatTime(t) {
@@ -735,14 +750,18 @@
             } else {
                 root.innerHTML = msgs.map(function (m) {
                     var avatarClass = m.sender;
-                    var avatarText = m.sender === 'student' ? '学' : '师';
-                    var senderText = m.sender === 'student' ? '学生' : '教师';
-                    var senderClass = m.sender === 'teacher' ? ' teacher' : '';
+                    var avatarText = m.sender === 'student' ? '学' : (m.sender === 'ai' ? 'AI' : '师');
+                    var senderText = m.sender === 'student' ? '学生' : (m.sender === 'ai' ? 'AI 助教' : '教师');
+                    var senderClass = m.sender === 'teacher' ? ' teacher' : (m.sender === 'ai' ? ' ai' : '');
                     var images = '';
                     if (m.images && m.images.length) {
                         images = '<div class="msg-images">' + m.images.map(function (url) {
                             return '<a href="' + escapeHTML(url) + '" target="_blank"><img src="' + escapeHTML(url) + '" alt="图片" /></a>';
                         }).join('') + '</div>';
+                    }
+                    var tools = '';
+                    if (isTeacherMode && m.sender === 'ai') {
+                        tools = '<div class="msg-tools"><button class="btn btn-secondary btn-sm" onclick="useAIReply(' + m.id + ')">采用到回复框</button></div>';
                     }
                     return '<div class="msg-item">' +
                         '<div class="msg-avatar ' + avatarClass + '">' + avatarText + '</div>' +
@@ -751,6 +770,7 @@
                         '<div class="msg-bubble">' +
                         '<div class="msg-text">' + escapeHTML(m.content) + '</div>' +
                         images +
+                        tools +
                         '</div>' +
                         '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
                         '</div>' +
@@ -768,6 +788,16 @@
 
             // Scroll to bottom
             setTimeout(function () { window.scrollTo(0, document.body.scrollHeight); }, 100);
+        }
+
+        function useAIReply(messageId) {
+            if (!currentIssue || !currentIssue.messages) return;
+            var msg = currentIssue.messages.find(function (m) { return m.id === messageId; });
+            if (!msg) return;
+            var box = document.getElementById('replyMsg');
+            box.value = msg.content || '';
+            box.focus();
+            showToast('已填入回复框，可修改后发送');
         }
 
         function renderTeacherActions(iss) {
