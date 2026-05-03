@@ -239,6 +239,50 @@ func TestAdminCanStillAccessHiddenMaterialFiles(t *testing.T) {
 	}
 }
 
+func TestTeacherCanAccessHiddenOwnCourseMaterialFiles(t *testing.T) {
+	s := newMaterialTestServer(t)
+	st := s.store.(*memStore)
+	st.courses = []domain.Course{{ID: 1, TeacherID: "teacher-a", Name: "course-a", Slug: "course-a", InternalName: "course-a"}}
+	s.authTokens["teacher-a-token"] = authSession{TeacherID: "teacher-a", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	createMaterialFile(t, s, "course-a", "slides.pdf", []byte("%PDF-1.4\nhello"))
+	createMaterialFile(t, s, "course-a", "lab.ipynb", []byte("{}"))
+	setMaterialHiddenForTest(t, s, "course-a", "slides.pdf")
+	setMaterialHiddenForTest(t, s, "course-a", "lab.ipynb")
+
+	pdfReq := httptest.NewRequest(http.MethodGet, "/ppt/course-a/slides.pdf", nil)
+	pdfReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-a-token"})
+	pdfRR := httptest.NewRecorder()
+	s.servePPT(pdfRR, pdfReq)
+	if pdfRR.Code != http.StatusOK {
+		t.Fatalf("expected teacher hidden PDF access 200, got %d", pdfRR.Code)
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/materials-files/course-a/lab.ipynb", nil)
+	downloadReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-a-token"})
+	downloadRR := httptest.NewRecorder()
+	s.serveMaterialDownload(downloadRR, downloadReq)
+	if downloadRR.Code != http.StatusOK {
+		t.Fatalf("expected teacher hidden download access 200, got %d", downloadRR.Code)
+	}
+}
+
+func TestTeacherCannotAccessHiddenOtherCourseMaterialFiles(t *testing.T) {
+	s := newMaterialTestServer(t)
+	st := s.store.(*memStore)
+	st.courses = []domain.Course{{ID: 1, TeacherID: "teacher-b", Name: "course-a", Slug: "course-a", InternalName: "course-a"}}
+	s.authTokens["teacher-a-token"] = authSession{TeacherID: "teacher-a", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	createMaterialFile(t, s, "course-a", "slides.pdf", []byte("%PDF-1.4\nhello"))
+	setMaterialHiddenForTest(t, s, "course-a", "slides.pdf")
+
+	pdfReq := httptest.NewRequest(http.MethodGet, "/ppt/course-a/slides.pdf", nil)
+	pdfReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-a-token"})
+	pdfRR := httptest.NewRecorder()
+	s.servePPT(pdfRR, pdfReq)
+	if pdfRR.Code != http.StatusNotFound {
+		t.Fatalf("expected other teacher hidden PDF access 404, got %d", pdfRR.Code)
+	}
+}
+
 func TestHiddenMaterialAccessFailsClosedWhenVisibilityStateIsInvalid(t *testing.T) {
 	s := newMaterialTestServer(t)
 	createMaterialFile(t, s, "course-a", "slides.pdf", []byte("%PDF-1.4\nhello"))
@@ -503,7 +547,6 @@ func TestServeMaterialDownloadAttachment(t *testing.T) {
 		t.Fatalf("expected attachment disposition, got %q", got)
 	}
 }
-
 
 // TestMatchedPDFPath* were removed with the legacy global PDF-to-quiz matcher.
 // Per-course matching lives in courseMatchedPDFPath() and is exercised via

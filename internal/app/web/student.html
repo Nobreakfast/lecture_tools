@@ -1359,13 +1359,18 @@
       document.getElementById('submissionMeta').innerHTML =
         '<div class="meta-item"><strong>课程</strong>' + escapeHTML(submission.course) + '</div>' +
         '<div class="meta-item"><strong>作业编号</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
-        '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>';
+        '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
+        (submission.locked ? '<div class="meta-item"><strong>提交状态</strong>已锁定</div>' : '');
       renderGradeResult(submission);
       document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');
       var slotFiles = document.querySelectorAll('.slot-card .slot-file');
       if (slotFiles[0]) slotFiles[0].id = 'reportInfo';
-      document.getElementById('reportDeleteBtn').disabled = !(submission.files && submission.files.report && submission.files.report.uploaded);
-      renderOthersFileList(submission.others || []);
+      var locked = !!submission.locked;
+      document.getElementById('reportUploadBtn').disabled = locked;
+      document.getElementById('reportDeleteBtn').disabled = locked || !(submission.files && submission.files.report && submission.files.report.uploaded);
+      document.getElementById('othersUploadBtn').disabled = locked;
+      if (locked) setMessage('submissionMessage', 'info', '该作业已锁定：你可以查看和下载已有文件、成绩与评语，但不能再修改提交。');
+      renderOthersFileList(submission.others || [], locked);
       if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
       renderAssignmentFiles();
       saveHwToStorage();
@@ -1388,7 +1393,7 @@
         '</div>' +
         '<div style="font-size:13px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;">' + escapeHTML(submission.feedback || '老师暂未填写评语。') + '</div>';
     }
-    function renderOthersFileList(items) {
+    function renderOthersFileList(items, locked) {
       var root = document.getElementById('othersFileList');
       if (!items || !items.length) {
         root.innerHTML = '暂无文件';
@@ -1402,8 +1407,8 @@
           '<span class="others-meta">' + escapeHTML(formatSize(f.size)) + '</span>' +
           '<span class="others-actions">' +
           '<a class="link-btn secondary" href="/api/homework/others/download?file=' + encodeURIComponent(f.name) + '">下载</a>' +
-          '<button class="secondary" onclick="renameOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">重命名</button>' +
-          '<button class="danger" onclick="deleteOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">删除</button>' +
+          '<button class="secondary" ' + (locked ? 'disabled ' : '') + 'onclick="renameOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">重命名</button>' +
+          '<button class="danger" ' + (locked ? 'disabled ' : '') + 'onclick="deleteOthersFile(\'' + escapeHTML(f.name).replace(/'/g, "\\'") + '\')">删除</button>' +
           '</span>' +
           '</div>';
       }).join('');

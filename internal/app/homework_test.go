@@ -341,6 +341,68 @@ func TestHomeworkSessionRequiresMatchingSecretKey(t *testing.T) {
 	}
 }
 
+func TestLockedHomeworkKeepsStudentReadOnly(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+
+	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"mykey","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+	uploadRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "report.pdf", []byte("%PDF-1.4\nreport"), cookie)
+	if uploadRR.Code != http.StatusOK {
+		t.Fatalf("expected initial upload 200, got %d body=%s", uploadRR.Code, uploadRR.Body.String())
+	}
+
+	adminCookie := &http.Cookie{Name: "auth_token", Value: "test-admin"}
+	lockRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/lock?course_id=1", []byte(`{"assignment_id":"task-1","locked":true}`), adminCookie)
+	if lockRR.Code != http.StatusOK {
+		t.Fatalf("expected lock 200, got %d body=%s", lockRR.Code, lockRR.Body.String())
+	}
+
+	getRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/submission", nil, cookie)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected read-only submission 200, got %d body=%s", getRR.Code, getRR.Body.String())
+	}
+	submission := decodeSubmissionResponse(t, getRR)["submission"].(map[string]any)
+	if submission["locked"] != true {
+		t.Fatalf("expected locked payload, got %+v", submission)
+	}
+	downloadRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/download?slot=report", nil, cookie)
+	if downloadRR.Code != http.StatusOK {
+		t.Fatalf("expected locked download 200, got %d body=%s", downloadRR.Code, downloadRR.Body.String())
+	}
+	resumeRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if resumeRR.Code != http.StatusOK {
+		t.Fatalf("expected locked existing resume 200, got %d body=%s", resumeRR.Code, resumeRR.Body.String())
+	}
+	cookie = homeworkCookieFromResponse(t, resumeRR)
+
+	replaceRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "new.pdf", []byte("%PDF-1.4\nnew"), cookie)
+	if replaceRR.Code != http.StatusConflict {
+		t.Fatalf("expected locked upload 409, got %d body=%s", replaceRR.Code, replaceRR.Body.String())
+	}
+	deleteRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/delete", []byte(`{"slot":"report"}`), cookie)
+	if deleteRR.Code != http.StatusConflict {
+		t.Fatalf("expected locked delete 409, got %d body=%s", deleteRR.Code, deleteRR.Body.String())
+	}
+	newStudentRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", []byte(`{"name":"李四","student_no":"2026002","class_name":"1班","secret_key":"k","course":"course-a","assignment_id":"task-1"}`))
+	if newStudentRR.Code != http.StatusConflict {
+		t.Fatalf("expected locked new submission 409, got %d body=%s", newStudentRR.Code, newStudentRR.Body.String())
+	}
+
+	unlockRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/lock?course_id=1", []byte(`{"assignment_id":"task-1","locked":false}`), adminCookie)
+	if unlockRR.Code != http.StatusOK {
+		t.Fatalf("expected unlock 200, got %d body=%s", unlockRR.Code, unlockRR.Body.String())
+	}
+	replaceAfterUnlockRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "new.pdf", []byte("%PDF-1.4\nnew"), cookie)
+	if replaceAfterUnlockRR.Code != http.StatusOK {
+		t.Fatalf("expected unlocked upload 200, got %d body=%s", replaceAfterUnlockRR.Code, replaceAfterUnlockRR.Body.String())
+	}
+}
+
 // TestHomeworkAdminAssignmentAndSubmissionRoutes_DEPRECATED was removed as
 // part of the multi-tenant migration. The legacy /api/admin/homework/*
 // endpoints now return 410 Gone; all equivalent teacher functionality is
@@ -390,6 +452,29 @@ func TestHomeworkAssignmentFilesStayOutOfMaterialsRoutes(t *testing.T) {
 	bundleDownloadRR := doHomeworkJSON(t, h, http.MethodGet, "/materials-files/_homework/course-a/task-2/task-2.pdf", nil)
 	if bundleDownloadRR.Code != http.StatusNotFound {
 		t.Fatalf("expected direct student material bundle download blocked, got %d", bundleDownloadRR.Code)
+	}
+}
+
+func TestTeacherCanDownloadHiddenHomeworkAssignmentFile(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+	st := s.store.(*memStore)
+	st.courses[0].TeacherID = "teacher-a"
+	s.authTokens["teacher-a-token"] = authSession{TeacherID: "teacher-a", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	teacherCookie := &http.Cookie{Name: "auth_token", Value: "teacher-a-token"}
+
+	hideRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/visibility?course_id=1", []byte(`{"assignment_id":"task-1","hidden":true}`), teacherCookie)
+	if hideRR.Code != http.StatusOK {
+		t.Fatalf("expected hide 200, got %d body=%s", hideRR.Code, hideRR.Body.String())
+	}
+
+	publicRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignment-file?course_id=1&assignment_id=task-1&file=task-1.pdf", nil)
+	if publicRR.Code != http.StatusForbidden {
+		t.Fatalf("expected public hidden file 403, got %d body=%s", publicRR.Code, publicRR.Body.String())
+	}
+	teacherRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignment-file?course_id=1&assignment_id=task-1&file=task-1.pdf", nil, teacherCookie)
+	if teacherRR.Code != http.StatusOK || !bytes.HasPrefix(teacherRR.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("expected teacher hidden file download 200, got %d body=%q", teacherRR.Code, teacherRR.Body.String())
 	}
 }
 

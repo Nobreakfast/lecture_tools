@@ -49,9 +49,11 @@ const (
 	homeworkOthersFolder            = "others"
 	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
 	homeworkGradeVisibilityKey      = "homework_grade_visibility"
+	homeworkAssignmentLockKey       = "homework_assignment_lock"
 )
 
 var errHomeworkIdentityMismatch = errors.New("已存在同学号的作业记录，请使用原姓名和班级继续")
+var errHomeworkLocked = errors.New("该作业已锁定，不能再上传、删除或重命名文件")
 
 func (s *Server) apiHomeworkCourses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -154,14 +156,13 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	course, _, fileName, fp, err := s.resolveHomeworkAssignmentFileRequest(r)
+	course, assignmentID, fileName, fp, err := s.resolveHomeworkAssignmentFileRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	reqAssignment := r.URL.Query().Get("assignment_id")
 	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
-	if homeworkAssignmentHidden(visibility, course, reqAssignment) {
+	if homeworkAssignmentHidden(visibility, course, assignmentID) && !s.canAccessHiddenHomeworkAssignment(r, course, assignmentID) {
 		http.Error(w, "该作业不可访问", http.StatusForbidden)
 		return
 	}
@@ -423,6 +424,13 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 	if !s.homeworkAssignmentExists(course, courseID, assignmentID) {
 		http.Error(w, "作业不存在", http.StatusNotFound)
 		return
+	}
+	if s.homeworkAssignmentLocked(r.Context(), course, assignmentID) {
+		existing, err := s.store.GetHomeworkSubmissionByScope(r.Context(), courseID, course, assignmentID, req.StudentNo)
+		if err != nil || existing == nil {
+			http.Error(w, "该作业已锁定，不能再创建新的提交", http.StatusConflict)
+			return
+		}
 	}
 	token := newID() + newID()
 	existing, err := s.store.GetHomeworkSubmissionByScope(r.Context(), courseID, course, assignmentID, req.StudentNo)
@@ -1249,6 +1257,42 @@ func (s *Server) apiTeacherCourseHomeworkGradeVisibility(w http.ResponseWriter, 
 	writeJSON(w, map[string]any{"ok": true, "published": req.Published})
 }
 
+func (s *Server) apiTeacherCourseHomeworkAssignmentLock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		AssignmentID string `json:"assignment_id"`
+		Locked       bool   `json:"locked"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	if !s.homeworkAssignmentExists(course.Slug, course.ID, assignmentID) {
+		http.Error(w, "作业不存在", http.StatusNotFound)
+		return
+	}
+	s.setHomeworkAssignmentLock(r.Context(), course.Slug, assignmentID, req.Locked)
+	writeJSON(w, map[string]any{"ok": true, "locked": req.Locked})
+}
+
 func (s *Server) apiAdminHomeworkReport(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -1514,7 +1558,14 @@ func (s *Server) requireHomeworkStudent(r *http.Request) (*domain.HomeworkSubmis
 }
 
 func (s *Server) requireEditableHomeworkStudent(r *http.Request) (*domain.HomeworkSubmission, error) {
-	return s.requireHomeworkStudent(r)
+	submission, err := s.requireHomeworkStudent(r)
+	if err != nil {
+		return nil, err
+	}
+	if s.homeworkAssignmentLocked(r.Context(), submission.Course, submission.AssignmentID) {
+		return nil, errHomeworkLocked
+	}
+	return submission, nil
 }
 
 func (s *Server) loadHomeworkAssignmentVisibility(ctx context.Context) map[string]bool {
@@ -1565,6 +1616,38 @@ func (s *Server) renameHomeworkAssignmentVisibility(ctx context.Context, course,
 
 func homeworkAssignmentHidden(visibility map[string]bool, course, assignmentID string) bool {
 	return visibility[course+"/"+assignmentID]
+}
+
+func (s *Server) loadHomeworkAssignmentLock(ctx context.Context) map[string]bool {
+	raw, err := s.store.GetSetting(ctx, homeworkAssignmentLockKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return map[string]bool{}
+	}
+	result := map[string]bool{}
+	_ = json.Unmarshal([]byte(raw), &result)
+	return result
+}
+
+func (s *Server) homeworkAssignmentLocked(ctx context.Context, course, assignmentID string) bool {
+	return s.loadHomeworkAssignmentLock(ctx)[course+"/"+assignmentID]
+}
+
+func (s *Server) setHomeworkAssignmentLock(ctx context.Context, course, assignmentID string, locked bool) {
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
+	raw, _ := s.store.GetSetting(ctx, homeworkAssignmentLockKey)
+	locks := map[string]bool{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &locks)
+	}
+	key := course + "/" + assignmentID
+	if locked {
+		locks[key] = true
+	} else {
+		delete(locks, key)
+	}
+	payload, _ := json.Marshal(locks)
+	_ = s.store.SetSetting(ctx, homeworkAssignmentLockKey, string(payload))
 }
 
 func (s *Server) loadHomeworkGradeVisibility(ctx context.Context) map[string]bool {
@@ -1695,6 +1778,7 @@ func (s *Server) homeworkAssignmentPayload(ctx context.Context, course string, c
 		payload["bundle_delete_url"] = s.pathPrefix() + "/api/admin/homework/assignments/delete"
 		visibility := s.loadHomeworkAssignmentVisibility(ctx)
 		payload["hidden"] = homeworkAssignmentHidden(visibility, course, assignmentID)
+		payload["locked"] = s.homeworkAssignmentLocked(ctx, course, assignmentID)
 	}
 	return payload
 }
@@ -1791,13 +1875,17 @@ func (s *Server) resolveHomeworkAssignmentFileRequest(r *http.Request) (string, 
 	if err != nil {
 		return "", "", "", "", fmt.Errorf("文件名无效")
 	}
+	courseSlug := ""
 	if c, cErr := s.resolveCourseFromRequest(r); cErr == nil && c != nil {
+		courseSlug = c.Slug
 		metaPath := filepath.Join(s.metadataHomeworkAssignmentDir(c.TeacherID, c.Slug, assignmentID), fileName)
 		if _, err := os.Stat(metaPath); err == nil {
 			return c.Slug, assignmentID, fileName, metaPath, nil
 		}
 	}
-	courseSlug, _ := validateHomeworkCourse(r.URL.Query().Get("course"))
+	if courseSlug == "" {
+		courseSlug, _ = validateHomeworkCourse(r.URL.Query().Get("course"))
+	}
 	if courseSlug == "" {
 		courseSlug = "default"
 	}
@@ -2025,6 +2113,7 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
 	payload["extra_download_url"] = s.pathPrefix() + "/api/homework/download?slot=extra"
+	payload["locked"] = s.homeworkAssignmentLocked(context.Background(), submission.Course, submission.AssignmentID)
 	if admin && courseID > 0 {
 		cid := strconv.Itoa(courseID)
 		dlParams := func(slot string) string {
@@ -2507,5 +2596,37 @@ func homeworkAuthStatus(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
+	if errors.Is(err, errHomeworkLocked) {
+		return http.StatusConflict
+	}
 	return http.StatusUnauthorized
+}
+
+func (s *Server) canAccessHiddenHomeworkAssignment(r *http.Request, courseSlug, assignmentID string) bool {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		return false
+	}
+	if sess.Role == domain.RoleAdmin {
+		return true
+	}
+	if cidStr := strings.TrimSpace(r.URL.Query().Get("course_id")); cidStr != "" {
+		cid, err := strconv.Atoi(cidStr)
+		if err == nil && cid > 0 {
+			course, err := s.store.GetCourse(r.Context(), cid)
+			if err == nil && course != nil && course.Slug == courseSlug && course.TeacherID == sess.TeacherID {
+				return true
+			}
+		}
+	}
+	courses, err := s.store.ListCoursesByTeacher(r.Context(), sess.TeacherID)
+	if err != nil {
+		return false
+	}
+	for _, course := range courses {
+		if course.Slug == courseSlug && s.homeworkAssignmentExists(course.Slug, course.ID, assignmentID) {
+			return true
+		}
+	}
+	return false
 }

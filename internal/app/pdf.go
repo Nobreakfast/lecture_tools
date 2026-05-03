@@ -13,8 +13,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-)
 
+	"course-assistant/internal/domain"
+)
 
 type pdfItem struct {
 	Folder string `json:"folder"`
@@ -460,11 +461,11 @@ func (s *Server) servePPT(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	if !s.requireAdmin(r) && !s.isMaterialPathVisible(r.Context(), cleaned) {
+	parts := strings.SplitN(cleaned, string(filepath.Separator), 2)
+	if !s.canAccessMaterialFile(r, parts[0]) && !s.isMaterialPathVisible(r.Context(), cleaned) {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	parts := strings.SplitN(cleaned, string(filepath.Separator), 2)
 	fp := s.resolveMaterialFilePath(parts[0], parts[1])
 	if _, err := os.Stat(fp); os.IsNotExist(err) {
 		http.Error(w, "file not found", http.StatusNotFound)
@@ -494,11 +495,11 @@ func (s *Server) serveMaterialDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	if !s.requireAdmin(r) && !s.isMaterialPathVisible(r.Context(), cleaned) {
+	parts := strings.SplitN(cleaned, string(filepath.Separator), 2)
+	if !s.canAccessMaterialFile(r, parts[0]) && !s.isMaterialPathVisible(r.Context(), cleaned) {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	parts := strings.SplitN(cleaned, string(filepath.Separator), 2)
 	fp := s.resolveMaterialFilePath(parts[0], parts[1])
 	if _, err := os.Stat(fp); os.IsNotExist(err) {
 		http.Error(w, "file not found", http.StatusNotFound)
@@ -512,6 +513,26 @@ func (s *Server) serveMaterialDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(cleaned)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, fp)
+}
+
+func (s *Server) canAccessMaterialFile(r *http.Request, courseSlug string) bool {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		return false
+	}
+	if sess.Role == domain.RoleAdmin {
+		return true
+	}
+	courses, err := s.store.ListCoursesByTeacher(r.Context(), sess.TeacherID)
+	if err != nil {
+		return false
+	}
+	for _, course := range courses {
+		if course.Slug == courseSlug {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) apiAdminPDFUpload(w http.ResponseWriter, r *http.Request) {

@@ -273,6 +273,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete", s.apiTeacherCourseHomeworkAssignmentDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete-file", s.apiTeacherCourseHomeworkAssignmentDeleteFile)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/visibility", s.apiTeacherCourseHomeworkAssignmentVisibility)
+	mux.HandleFunc("/api/teacher/courses/homework/assignments/lock", s.apiTeacherCourseHomeworkAssignmentLock)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade", s.apiTeacherCourseHomeworkSubmissionGrade)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade-ai", s.apiTeacherCourseHomeworkSubmissionGradeAI)

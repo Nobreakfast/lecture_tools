@@ -2451,14 +2451,16 @@
       }
       root.innerHTML = hwAssignmentsCache.map(item => {
         const hiddenBadge = item.hidden ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:6px;">已隐藏</span>' : '';
+        const lockedBadge = item.locked ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.14);color:#92400e;margin-left:6px;">已锁定</span>' : '';
         const files = (item.files || []).map(f =>
           `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px;">${escapeHTML(f.name)} (${formatSize(f.size || 0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a> <a href="javascript:void(0)" style="color:#b91c1c;cursor:pointer;" onclick="deleteHwFile(decodeURIComponent('${jsArg(item.assignment_id)}'),decodeURIComponent('${jsArg(f.name)}'))">删除</a></div>`
         ).join('');
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span></div>
+            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge}${lockedBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span></div>
             <div class="row" style="gap:6px;flex-wrap:wrap;">
               <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.hidden ? 'var(--primary)' : '#6b7280'};" onclick="toggleHwVis(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.hidden ? 'false' : 'true'})">${item.hidden ? '显示' : '隐藏'}</button>
+              <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.locked ? 'var(--primary)' : '#92400e'};" onclick="toggleHwLock(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.locked ? 'false' : 'true'})">${item.locked ? '解锁提交' : '锁定提交'}</button>
               <button class="small btn-danger" style="margin-top:0;font-size:11px;padding:3px 8px;" onclick="deleteHwAssignment(decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
             </div>
           </div>
@@ -2600,6 +2602,20 @@
       });
       if (!r.ok) { alert(await r.text()); return; }
       loadHomeworkAssignments();
+    }
+
+    async function toggleHwLock(assignmentID, locked) {
+      const next = locked === 'true' || locked === true;
+      const action = next ? '锁定' : '解锁';
+      const detail = next ? '锁定后学生仍可查看自己的提交、成绩和评语，但不能再上传、删除或重命名文件。' : '解锁后学生可以继续修改提交文件。';
+      if (!await showConfirm(action + '作业「' + assignmentID + '」？\n' + detail, { title: action + '学生提交', okLabel: '确认' + action })) return;
+      const r = await fetch('/api/teacher/courses/homework/assignments/lock?course_id=' + selectedCourseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ assignment_id: assignmentID, locked: next })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
     }
 
     async function deleteHwAssignment(assignmentID) {
