@@ -241,6 +241,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/save", s.apiTeacherCourseQuizBankSave)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/upload-image", s.apiTeacherCourseQuizBankUploadImage)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-generate", s.apiTeacherCourseQuizBankAIGenerate)
+	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-initialize", s.apiTeacherCourseQuizBankAIInitialize)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/ai-autofill", s.apiTeacherCourseQuizBankAIAutoFill)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/rename", s.apiTeacherCourseQuizBankRename)
 	mux.HandleFunc("/api/teacher/courses/quiz-bank/download", s.apiTeacherCourseQuizBankDownload)

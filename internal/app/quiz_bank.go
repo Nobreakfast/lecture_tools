@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"course-assistant/internal/ai"
 	"course-assistant/internal/domain"
+	"course-assistant/internal/pdftext"
 	"course-assistant/internal/quiz"
 
 	"gopkg.in/yaml.v3"
@@ -178,12 +180,11 @@ func (s *Server) apiTeacherCourseQuizFiles(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	_, course, err := s.resolveTeacherCourse(r, sess)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	_ = courseID
 	contentDir := s.metadataCourseDir(course.TeacherID, course.Slug)
 	quizDir := filepath.Join(contentDir, "quiz")
 	type quizFileItem struct {
@@ -660,6 +661,71 @@ func (s *Server) apiTeacherCourseQuizBankAIGenerate(w http.ResponseWriter, r *ht
 		return
 	}
 	writeJSON(w, map[string]any{"yaml": yaml})
+}
+
+func (s *Server) apiTeacherCourseQuizBankAIInitialize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		CourseID      int    `json:"course_id"`
+		QuizID        string `json:"quiz_id"`
+		QuizTitle     string `json:"quiz_title"`
+		MaterialFile  string `json:"material_file"`
+		QuestionCount int    `json:"question_count"`
+		BasePrompt    string `json:"base_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	if req.QuestionCount <= 0 || req.QuestionCount > 50 {
+		http.Error(w, "题目数量需在 1-50 之间", http.StatusBadRequest)
+		return
+	}
+	name, ext, err := normalizeMaterialFilename(req.MaterialFile, "")
+	if err != nil || ext != ".pdf" {
+		http.Error(w, "请选择已上传的 PDF 课件", http.StatusBadRequest)
+		return
+	}
+	pdfPath := filepath.Join(s.metadataMaterialsDir(course.TeacherID, course.Slug), name)
+	if _, err := os.Stat(pdfPath); err != nil {
+		http.Error(w, "PDF 课件不存在", http.StatusNotFound)
+		return
+	}
+	pdfText, err := pdftext.ExtractText(pdfPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(pdfText) == "" {
+		http.Error(w, "未能从该 PDF 提取文本", http.StatusBadRequest)
+		return
+	}
+	yaml, err := s.aiClient.InitializeQuiz(r.Context(), ai.QuizInitializeInput{
+		QuizID:        strings.TrimSpace(req.QuizID),
+		QuizTitle:     strings.TrimSpace(req.QuizTitle),
+		MaterialName:  name,
+		QuestionCount: req.QuestionCount,
+		BasePrompt:    strings.TrimSpace(req.BasePrompt),
+		PDFText:       pdfText,
+	})
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"yaml": yaml, "material_file": name})
 }
 
 func (s *Server) apiTeacherCourseQuizBankAIAutoFill(w http.ResponseWriter, r *http.Request) {

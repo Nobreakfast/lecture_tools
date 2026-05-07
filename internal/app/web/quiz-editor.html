@@ -462,6 +462,26 @@ window.__mathJaxReady = new Promise((resolve, reject) => {
   resize: vertical;
   margin-bottom: 12px;
 }
+.ai-panel .view-toggle {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ai-panel .view-toggle button {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.ai-panel .view-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
+}
 .ai-preview {
   font-family: var(--mono);
   font-size: 12px;
@@ -543,7 +563,8 @@ window.__mathJaxReady = new Promise((resolve, reject) => {
       <button id="btnYamlView" onclick="switchView('yaml')">YAML 视图</button>
       <button id="btnPreviewView" onclick="switchView('preview')">预览</button>
     </div>
-    <button class="btn" style="font-size:13px;padding:7px 14px;" onclick="openAIPanel()">AI 生成</button>
+    <button class="btn" style="font-size:13px;padding:7px 14px;" onclick="openAIPanel('generate')">AI 生成</button>
+    <button class="btn" style="font-size:13px;padding:7px 14px;" onclick="openAIPanel('initialize')">AI 初始化</button>
     <button class="btn" style="font-size:13px;padding:7px 14px;display:none;" id="btnAIAutoFill" onclick="doAIAutoFill()">AI 补全</button>
     <span class="question-stats" id="questionStats"></span>
   </div>
@@ -1596,7 +1617,7 @@ function startAutoSave() {
 }
 
 /* ── AI Panel ────────────────────────────────────────────── */
-function openAIPanel() {
+function openAIPanel(mode = 'generate') {
   const backdrop = document.createElement('div');
   backdrop.className = 'ai-panel-backdrop';
   backdrop.innerHTML = `<div class="ai-panel">
@@ -1605,10 +1626,29 @@ function openAIPanel() {
       <button class="ai-panel-close" onclick="closeAIPanel()">&times;</button>
     </div>
     <div class="ai-panel-body">
-      <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">描述你想生成的题目</label>
-      <textarea id="aiPromptInput" placeholder="例如：生成5道关于凸优化基本概念的单选题，难度中等，每题4个选项"></textarea>
-      <div style="text-align:right;">
-        <button class="btn" style="font-size:13px;padding:7px 18px;" id="aiGenBtn" onclick="doAIGenerate()">生成</button>
+      <div class="view-toggle" style="display:inline-flex;margin-bottom:12px;">
+        <button id="aiTabGenerate" onclick="switchAIPanelMode('generate')">AI 生成</button>
+        <button id="aiTabInitialize" onclick="switchAIPanelMode('initialize')">AI 初始化</button>
+      </div>
+      <div id="aiGeneratePane">
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">描述你想生成的题目</label>
+        <textarea id="aiPromptInput" placeholder="例如：生成5道关于凸优化基本概念的单选题，难度中等，每题4个选项"></textarea>
+        <div style="text-align:right;">
+          <button class="btn" style="font-size:13px;padding:7px 18px;" id="aiGenBtn" onclick="doAIGenerate()">生成</button>
+        </div>
+      </div>
+      <div id="aiInitializePane" style="display:none;">
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">选择课件 PDF</label>
+        <select id="aiInitMaterialSelect" style="margin-bottom:12px;">
+          <option value="">加载课件中...</option>
+        </select>
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">题目数量</label>
+        <input type="number" id="aiInitCountInput" min="1" max="50" value="5" style="margin-bottom:12px;"/>
+        <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">基础提示题（可为空）</label>
+        <textarea id="aiInitPromptInput" placeholder="例如：重点考察齐次变换矩阵、坐标系旋转和平移，题目难度适合课堂小测"></textarea>
+        <div style="text-align:right;">
+          <button class="btn" style="font-size:13px;padding:7px 18px;" id="aiInitBtn" onclick="doAIInitialize()">初始化</button>
+        </div>
       </div>
       <div id="aiPreviewWrap" style="display:none;">
         <label style="font-size:13px;color:var(--text-muted);display:block;margin:12px 0 6px;">生成结果预览</label>
@@ -1625,11 +1665,52 @@ function openAIPanel() {
   </div>`;
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeAIPanel(); });
   document.body.appendChild(backdrop);
+  switchAIPanelMode(mode);
+  loadAIInitMaterials();
 }
 
 function closeAIPanel() {
   const el = document.querySelector('.ai-panel-backdrop');
   if (el) el.remove();
+}
+
+function switchAIPanelMode(mode) {
+  const gen = document.getElementById('aiGeneratePane');
+  const init = document.getElementById('aiInitializePane');
+  const genTab = document.getElementById('aiTabGenerate');
+  const initTab = document.getElementById('aiTabInitialize');
+  if (!gen || !init) return;
+  const isInit = mode === 'initialize';
+  gen.style.display = isInit ? 'none' : '';
+  init.style.display = isInit ? '' : 'none';
+  genTab?.classList.toggle('active', !isInit);
+  initTab?.classList.toggle('active', isInit);
+}
+
+async function loadAIInitMaterials() {
+  const select = document.getElementById('aiInitMaterialSelect');
+  if (!select || select.dataset.loaded === '1') return;
+  if (!courseId) {
+    select.innerHTML = '<option value="">缺少课程信息</option>';
+    return;
+  }
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/materials?course_id=' + courseId);
+    const pdfs = [];
+    for (const group of (data.items || [])) {
+      if (group.pdf && group.pdf.file) pdfs.push(group.pdf);
+    }
+    if (!pdfs.length) {
+      select.innerHTML = '<option value="">暂无已上传 PDF</option>';
+      return;
+    }
+    select.innerHTML = '<option value="">请选择 PDF</option>' + pdfs.map(pdf =>
+      `<option value="${App.escapeHTML(pdf.file)}">${App.escapeHTML(pdf.file)}</option>`
+    ).join('');
+    select.dataset.loaded = '1';
+  } catch(e) {
+    select.innerHTML = '<option value="">课件加载失败</option>';
+  }
 }
 
 async function doAIGenerate() {
@@ -1656,6 +1737,46 @@ async function doAIGenerate() {
   } finally {
     btn.disabled = false;
     btn.textContent = '生成';
+  }
+}
+
+async function doAIInitialize() {
+  const materialFile = document.getElementById('aiInitMaterialSelect').value.trim();
+  const questionCount = parseInt(document.getElementById('aiInitCountInput').value, 10);
+  const basePrompt = document.getElementById('aiInitPromptInput').value.trim();
+  if (!materialFile) { App.toast('请选择课件 PDF', 'warn'); return; }
+  if (!Number.isFinite(questionCount) || questionCount < 1 || questionCount > 50) {
+    App.toast('题目数量需在 1-50 之间', 'warn');
+    return;
+  }
+  const btn = document.getElementById('aiInitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 初始化中…';
+  try {
+    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/ai-initialize?course_id=' + courseId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        course_id: parseInt(courseId),
+        quiz_id: document.getElementById('quizIdInput').value.trim(),
+        quiz_title: document.getElementById('quizTitleInput').value.trim(),
+        material_file: materialFile,
+        question_count: questionCount,
+        base_prompt: basePrompt,
+      }),
+    });
+    if (data.error) {
+      App.toast('AI 初始化失败: ' + data.error, 'error');
+      return;
+    }
+    document.getElementById('aiPreview').textContent = data.yaml || '';
+    document.getElementById('aiPreviewWrap').style.display = '';
+    document.getElementById('aiFooter').style.display = '';
+  } catch(e) {
+    App.toast('AI 初始化失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '初始化';
   }
 }
 
@@ -1775,7 +1896,9 @@ window.validateQuiz = validateQuiz;
 window.saveQuiz = saveQuiz;
 window.openAIPanel = openAIPanel;
 window.closeAIPanel = closeAIPanel;
+window.switchAIPanelMode = switchAIPanelMode;
 window.doAIGenerate = doAIGenerate;
+window.doAIInitialize = doAIInitialize;
 window.applyAIResult = applyAIResult;
 window.doAIAutoFill = doAIAutoFill;
 window.handlePreviewSelect = handlePreviewSelect;
