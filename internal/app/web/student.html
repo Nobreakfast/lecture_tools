@@ -236,6 +236,74 @@
       margin-top: 14px;
     }
 
+    .quiz-records {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(79, 70, 229, 0.04);
+    }
+
+    .quiz-records-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .quiz-records-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .quiz-records button {
+      width: auto;
+      margin: 0;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .quiz-records-content {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .quiz-records-content strong {
+      color: var(--text);
+    }
+
+    .quiz-record-main {
+      color: var(--text);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .quiz-record-list {
+      margin-top: 8px;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+
+    .quiz-record-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 4px 0;
+      border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+    }
+
+    .quiz-record-item:last-child {
+      border-bottom: none;
+    }
+
+    .quiz-record-time {
+      white-space: nowrap;
+      color: var(--text-muted);
+    }
+
     .resume-box {
       display: none;
       text-align: center;
@@ -775,6 +843,13 @@
             <label for="qz_class_name">班级</label>
             <input type="text" id="qz_class_name" placeholder="请输入班级" />
           </div>
+          <div class="quiz-records" id="quizRecordBox">
+            <div class="quiz-records-head">
+              <div class="quiz-records-title">我的小测记录</div>
+              <button class="secondary" type="button" id="quizRecordRefreshBtn">刷新记录</button>
+            </div>
+            <div class="quiz-records-content" id="quizRecordContent">填写姓名和学号后，可查看本课程是否已提交。</div>
+          </div>
           <button class="form-submit" id="quizJoinBtn">开始答题</button>
           <div class="quiz-hint">无需注册账号，系统会自动保存进度。</div>
         </div>
@@ -895,6 +970,7 @@
     // ── State ──
     var course = null;   // { id, name, slug, teacher_name, invite_code }
     var pollTimer = null;
+    var recordTimer = null;
     var assignmentItems = [];
     var qaItems = [];
 
@@ -921,6 +997,23 @@
       el.className = 'message show ' + type;
       el.textContent = text;
     }
+    async function signOutStudentSession() {
+      try {
+        await fetch('/api/student-signout', { method: 'POST', credentials: 'include' });
+      } catch (_) { }
+    }
+    async function clearForeignStudentSession(courseId) {
+      try {
+        var r = await fetch('/api/me', { credentials: 'include' });
+        if (!r.ok) return;
+        var data = await r.json();
+        if (data && data.error === 'session_expired') return;
+        var attemptCourseId = data && data.attempt ? Number(data.attempt.course_id || 0) : 0;
+        if (Number(courseId) > 0 && attemptCourseId !== Number(courseId)) {
+          await signOutStudentSession();
+        }
+      } catch (_) { }
+    }
 
     // ══════════════════════════════════════════
     //  Landing: invite code
@@ -946,6 +1039,7 @@
         }
         course = await r.json();
         localStorage.setItem(COURSE_KEY, JSON.stringify(course));
+        await clearForeignStudentSession(course.id);
         showPanel();
       } catch (_) {
         errEl.textContent = '网络异常，请检查连接';
@@ -955,9 +1049,11 @@
       }
     }
 
-    function switchCourse() {
+    async function switchCourse() {
       stopPoll();
+      await signOutStudentSession();
       course = null;
+      localStorage.removeItem(COURSE_KEY);
       document.getElementById('panel').style.display = 'none';
       document.getElementById('landing').style.display = '';
       document.getElementById('codeInput').value = '';
@@ -1020,6 +1116,7 @@
       waitEl.style.display = 'none';
       formEl.style.display = 'none';
       stopPoll();
+      clearTimeout(recordTimer);
 
       // Check for existing session first
       try {
@@ -1031,16 +1128,21 @@
           if (data.error === 'session_expired') {
             // Don't show an alert — just silently proceed to the normal flow.
           } else {
-            var st = data.attempt && data.attempt.status;
-            if (st === 'in_progress') {
-              if (shouldStayOnCoursePage()) {
-                showQuizResume(data);
+            var attemptCourseId = data.attempt ? Number(data.attempt.course_id || 0) : 0;
+            if (course && course.id && attemptCourseId !== Number(course.id)) {
+              await signOutStudentSession();
+            } else {
+              var st = data.attempt && data.attempt.status;
+              if (st === 'in_progress') {
+                if (shouldStayOnCoursePage()) {
+                  showQuizResume(data);
+                  return;
+                }
+                location.href = '/quiz';
                 return;
               }
-              location.href = '/quiz';
-              return;
+              if (st === 'submitted') { location.href = '/result'; return; }
             }
-            if (st === 'submitted') { location.href = '/result'; return; }
           }
         }
       } catch (_) { }
@@ -1112,10 +1214,98 @@
         if (saved.name) document.getElementById('qz_name').value = saved.name;
         if (saved.student_no) document.getElementById('qz_student_no').value = saved.student_no;
         if (saved.class_name) document.getElementById('qz_class_name').value = saved.class_name;
+        scheduleQuizRecordCheck();
       } catch (_) { }
     }
 
+    function scheduleQuizRecordCheck() {
+      clearTimeout(recordTimer);
+      recordTimer = setTimeout(loadQuizRecords, 450);
+    }
+
+    function quizRecordPayload() {
+      return {
+        course_id: course && course.id ? course.id : 0,
+        name: document.getElementById('qz_name').value.trim(),
+        student_no: document.getElementById('qz_student_no').value.trim(),
+        class_name: document.getElementById('qz_class_name').value.trim()
+      };
+    }
+
+    async function loadQuizRecords() {
+      var box = document.getElementById('quizRecordContent');
+      if (!box || !course) return;
+      var body = quizRecordPayload();
+      if (!body.name || !body.student_no) {
+        box.textContent = '填写姓名和学号后，可查看本课程是否已提交。';
+        return;
+      }
+      box.textContent = '正在查询记录…';
+      try {
+        var r = await fetch('/api/student/quiz-records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+          box.textContent = await r.text();
+          return;
+        }
+        renderQuizRecords(await r.json());
+      } catch (_) {
+        box.textContent = '查询失败，请稍后重试。';
+      }
+    }
+
+    function recordStatusText(record) {
+      if (!record) return '';
+      if (record.in_progress || record.status === 'in_progress') return '未完成';
+      if (record.status === 'submitted') return '已提交';
+      return record.status || '未知状态';
+    }
+
+    function renderQuizRecords(data) {
+      var box = document.getElementById('quizRecordContent');
+      var records = data.records || [];
+      var current = data.current_record || null;
+      var html = '';
+      if (current && (current.in_progress || current.status === 'in_progress')) {
+        html += '<div class="quiz-record-main">检测到未完成记录，可继续答题。</div>';
+      } else if (current && current.status === 'submitted') {
+        html += '<div class="quiz-record-main">本次小测已提交，提交时间：' + escapeHTML(current.submitted_at || current.updated_at || '—') + '。</div>';
+      } else if (data.current_quiz_id) {
+        html += '<div class="quiz-record-main">本次小测尚未提交。</div>';
+      } else {
+        html += '<div class="quiz-record-main">当前课程暂未加载小测。</div>';
+      }
+      var otherCount = records.filter(function (item) { return !item.is_current; }).length;
+      if (otherCount > 0) {
+        html += '<div>你之前在本课程还有 <strong>' + otherCount + '</strong> 条小测记录。</div>';
+      } else if (records.length === 0) {
+        html += '<div>当前课程暂未查到提交记录。</div>';
+      }
+      if (records.length > 0) {
+        html += '<div class="quiz-record-list">';
+        records.slice(0, 5).forEach(function (item) {
+          var title = item.quiz_title || item.quiz_id || '小测';
+          var attempt = item.attempt_no ? '第 ' + item.attempt_no + ' 次' : recordStatusText(item);
+          var time = item.submitted_at || item.updated_at || '—';
+          html += '<div class="quiz-record-item"><span>' + escapeHTML(title) + ' · ' + escapeHTML(attempt) + ' · ' + escapeHTML(recordStatusText(item)) + '</span><span class="quiz-record-time">' + escapeHTML(time) + '</span></div>';
+        });
+        html += '</div>';
+      }
+      box.innerHTML = html;
+    }
+
+    ['qz_name', 'qz_student_no', 'qz_class_name'].forEach(function (id) {
+      var input = document.getElementById(id);
+      input.addEventListener('input', scheduleQuizRecordCheck);
+    });
+    document.getElementById('quizRecordRefreshBtn').onclick = loadQuizRecords;
+
     document.getElementById('quizJoinBtn').onclick = async function () {
+      clearTimeout(recordTimer);
       var body = {
         name: document.getElementById('qz_name').value.trim(),
         student_no: document.getElementById('qz_student_no').value.trim(),

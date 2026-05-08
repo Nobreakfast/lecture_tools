@@ -177,7 +177,16 @@ func (m *memStore) ListAttempts(context.Context) ([]domain.Attempt, error) { ret
 func (m *memStore) GetAttemptByID(context.Context, string) (*domain.Attempt, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *memStore) GetAttemptByToken(context.Context, string) (*domain.Attempt, error) {
+func (m *memStore) GetAttemptByToken(_ context.Context, token string) (*domain.Attempt, error) {
+	for i := range m.attempts {
+		if m.attempts[i].SessionToken == "" {
+			continue
+		}
+		if m.attempts[i].SessionToken == token {
+			item := m.attempts[i]
+			return &item, nil
+		}
+	}
 	return nil, errors.New("not implemented")
 }
 func (m *memStore) UpdateAttemptStatus(context.Context, string, domain.AttemptStatus) error {
@@ -896,6 +905,147 @@ func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
 	}
 	if resp["slug"] != "Machine_Learning_Intro" {
 		t.Fatalf("unexpected legacy slug: %#v", resp["slug"])
+	}
+}
+
+func TestJoinRedirectUsesTemporaryRedirect(t *testing.T) {
+	s := New(Config{}, &memStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/join?code=ABC123", nil)
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected temporary redirect 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if loc != "/?code=ABC123" {
+		t.Fatalf("unexpected redirect target: %q", loc)
+	}
+}
+
+func TestAPIMeIncludesCourseID(t *testing.T) {
+	st := &memStore{
+		attempts: []domain.Attempt{{
+			ID:           "attempt-1",
+			SessionToken: "student-token",
+			QuizID:       "quiz-a",
+			CourseID:     7,
+			Name:         "张三",
+			StudentNo:    "2024001",
+			ClassName:    "一班",
+			Status:       domain.StatusInProgress,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
+		}},
+	}
+	s := New(Config{}, st)
+	s.courseQuizzes[7] = &domain.Quiz{QuizID: "quiz-a", Title: "课堂小测", Questions: []domain.Question{}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: "student_token", Value: "student-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Attempt struct {
+			CourseID int `json:"course_id"`
+		} `json:"attempt"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.Attempt.CourseID != 7 {
+		t.Fatalf("course_id = %d, want 7", resp.Attempt.CourseID)
+	}
+}
+
+func TestAPIStudentQuizRecordsScopesToCourseAndIdentity(t *testing.T) {
+	submittedAt := time.Date(2026, 5, 9, 10, 30, 0, 0, time.Local)
+	st := &memStore{
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "T01", Name: "机器人控制技术", Slug: "robotics"},
+			{ID: 2, TeacherID: "T01", Name: "最优化方法", Slug: "optimization"},
+		},
+		attempts: []domain.Attempt{
+			{
+				ID: "a1", QuizID: "quiz-a", CourseID: 1, Name: "张三", StudentNo: "2024001", ClassName: "一班",
+				AttemptNo: 1, Status: domain.StatusSubmitted, CreatedAt: submittedAt.Add(-time.Hour), UpdatedAt: submittedAt, SubmittedAt: &submittedAt,
+			},
+			{
+				ID: "a2", QuizID: "quiz-b", CourseID: 1, Name: "张三", StudentNo: "2024001", ClassName: "一班",
+				Status: domain.StatusInProgress, CreatedAt: submittedAt.Add(time.Hour), UpdatedAt: submittedAt.Add(time.Hour),
+			},
+			{
+				ID: "other-course", QuizID: "quiz-a", CourseID: 2, Name: "张三", StudentNo: "2024001", ClassName: "一班",
+				AttemptNo: 1, Status: domain.StatusSubmitted, CreatedAt: submittedAt, UpdatedAt: submittedAt, SubmittedAt: &submittedAt,
+			},
+			{
+				ID: "wrong-student", QuizID: "quiz-a", CourseID: 1, Name: "张三", StudentNo: "2024999", ClassName: "一班",
+				AttemptNo: 1, Status: domain.StatusSubmitted, CreatedAt: submittedAt, UpdatedAt: submittedAt, SubmittedAt: &submittedAt,
+			},
+		},
+	}
+	s := New(Config{}, st)
+	s.courseQuizzes[1] = &domain.Quiz{QuizID: "quiz-a", Title: "本次课堂小测", Questions: []domain.Question{}}
+
+	body := strings.NewReader(`{"course_id":1,"name":"张三","student_no":"2024001","class_name":"一班"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/student/quiz-records", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "correct") || strings.Contains(rr.Body.String(), "answer") {
+		t.Fatalf("student records response should not expose score/answers: %s", rr.Body.String())
+	}
+	var resp struct {
+		CurrentQuizID      string `json:"current_quiz_id"`
+		MatchedRecordCount int    `json:"matched_record_count"`
+		CurrentRecord      struct {
+			QuizID      string `json:"quiz_id"`
+			Status      string `json:"status"`
+			SubmittedAt string `json:"submitted_at"`
+		} `json:"current_record"`
+		Records []struct {
+			QuizID    string `json:"quiz_id"`
+			CourseID  int    `json:"course_id"`
+			StudentNo string `json:"student_no"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.CurrentQuizID != "quiz-a" {
+		t.Fatalf("current_quiz_id = %q", resp.CurrentQuizID)
+	}
+	if resp.MatchedRecordCount != 2 || len(resp.Records) != 2 {
+		t.Fatalf("expected 2 course-scoped matching records, got count=%d records=%d body=%s", resp.MatchedRecordCount, len(resp.Records), rr.Body.String())
+	}
+	if resp.CurrentRecord.QuizID != "quiz-a" || resp.CurrentRecord.Status != string(domain.StatusSubmitted) || resp.CurrentRecord.SubmittedAt == "" {
+		t.Fatalf("unexpected current record: %+v", resp.CurrentRecord)
+	}
+
+	missReq := httptest.NewRequest(http.MethodPost, "/api/student/quiz-records", strings.NewReader(`{"course_id":1,"name":"张三","student_no":"2024001","class_name":"二班"}`))
+	missReq.Header.Set("Content-Type", "application/json")
+	missRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(missRR, missReq)
+	if missRR.Code != http.StatusOK {
+		t.Fatalf("unexpected mismatch status: %d body=%s", missRR.Code, missRR.Body.String())
+	}
+	var missResp struct {
+		MatchedRecordCount int `json:"matched_record_count"`
+	}
+	if err := json.Unmarshal(missRR.Body.Bytes(), &missResp); err != nil {
+		t.Fatalf("unmarshal mismatch response failed: %v", err)
+	}
+	if missResp.MatchedRecordCount != 0 {
+		t.Fatalf("class mismatch should return no records, got %d", missResp.MatchedRecordCount)
 	}
 }
 

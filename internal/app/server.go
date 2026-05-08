@@ -197,6 +197,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/entry-status", s.apiEntryStatus)
 	mux.HandleFunc("/api/me", s.apiMe)
 	mux.HandleFunc("/api/student-signout", s.apiStudentSignout)
+	mux.HandleFunc("/api/student/quiz-records", s.apiStudentQuizRecords)
 	mux.HandleFunc("/api/answer", s.apiSaveAnswer)
 	mux.HandleFunc("/api/submit", s.apiSubmit)
 	mux.HandleFunc("/api/result", s.apiResult)
@@ -809,7 +810,7 @@ func (s *Server) redirectJoinToStudent(w http.ResponseWriter, r *http.Request) {
 	if code := r.URL.Query().Get("code"); code != "" {
 		target += "?code=" + url.QueryEscape(code)
 	}
-	http.Redirect(w, r, target, http.StatusMovedPermanently)
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // redirectStudentToRoot canonicalises the student entry to /. The /student
@@ -1115,6 +1116,7 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"attempt": map[string]any{
+			"course_id":  attempt.CourseID,
 			"name":       attempt.Name,
 			"student_no": attempt.StudentNo,
 			"class_name": attempt.ClassName,
@@ -1124,6 +1126,197 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		"answers":       textAnswers,
 		"answer_images": answerImages,
 	})
+}
+
+func (s *Server) apiStudentQuizRecords(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CourseID  int    `json:"course_id"`
+		Name      string `json:"name"`
+		StudentNo string `json:"student_no"`
+		ClassName string `json:"class_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.StudentNo = strings.TrimSpace(req.StudentNo)
+	req.ClassName = strings.TrimSpace(req.ClassName)
+	if req.CourseID <= 0 {
+		http.Error(w, "缺少课程上下文（course_id）", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || req.StudentNo == "" {
+		http.Error(w, "姓名和学号不能为空", http.StatusBadRequest)
+		return
+	}
+	course, err := s.store.GetCourse(r.Context(), req.CourseID)
+	if err != nil {
+		http.Error(w, "课程不存在", http.StatusNotFound)
+		return
+	}
+	attempts, err := s.store.ListAttemptsByCourse(r.Context(), req.CourseID)
+	if err != nil {
+		http.Error(w, "读取记录失败", http.StatusInternalServerError)
+		return
+	}
+	s.quizMu.RLock()
+	loadedQuiz := s.courseQuizzes[req.CourseID]
+	s.quizMu.RUnlock()
+	currentQuizID := ""
+	currentQuizTitle := ""
+	if loadedQuiz != nil {
+		currentQuizID = strings.TrimSpace(loadedQuiz.QuizID)
+		currentQuizTitle = strings.TrimSpace(loadedQuiz.Title)
+	}
+	quizTitles := s.studentQuizTitleMap(course, loadedQuiz, attempts)
+
+	records := make([]map[string]any, 0)
+	for _, attempt := range attempts {
+		if !studentIdentityMatches(attempt, req.Name, req.StudentNo, req.ClassName) {
+			continue
+		}
+		submittedAt := ""
+		if attempt.SubmittedAt != nil {
+			submittedAt = attempt.SubmittedAt.Format("2006-01-02 15:04")
+		}
+		title := quizTitles[attempt.QuizID]
+		if strings.TrimSpace(title) == "" {
+			title = attempt.QuizID
+		}
+		records = append(records, map[string]any{
+			"quiz_id":      attempt.QuizID,
+			"quiz_title":   title,
+			"status":       attempt.Status,
+			"attempt_no":   attempt.AttemptNo,
+			"in_progress":  attempt.Status == domain.StatusInProgress,
+			"is_current":   currentQuizID != "" && attempt.QuizID == currentQuizID,
+			"submitted_at": submittedAt,
+			"updated_at":   attempt.UpdatedAt.Format("2006-01-02 15:04"),
+		})
+	}
+	sort.Slice(records, func(i, j int) bool {
+		left := studentRecordSortTime(records[i])
+		right := studentRecordSortTime(records[j])
+		if left != right {
+			return left > right
+		}
+		li, _ := records[i]["attempt_no"].(int)
+		ri, _ := records[j]["attempt_no"].(int)
+		return li > ri
+	})
+
+	var currentRecord map[string]any
+	for _, record := range records {
+		if isCurrent, _ := record["is_current"].(bool); !isCurrent {
+			continue
+		}
+		if inProgress, _ := record["in_progress"].(bool); inProgress {
+			currentRecord = record
+			break
+		}
+		if currentRecord == nil {
+			currentRecord = record
+		}
+	}
+	writeJSON(w, map[string]any{
+		"course_id":            req.CourseID,
+		"current_quiz_id":      currentQuizID,
+		"current_quiz_title":   currentQuizTitle,
+		"current_record":       currentRecord,
+		"records":              records,
+		"matched_record_count": len(records),
+	})
+}
+
+func studentIdentityMatches(attempt domain.Attempt, name, studentNo, className string) bool {
+	if strings.TrimSpace(attempt.Name) != name || strings.TrimSpace(attempt.StudentNo) != studentNo {
+		return false
+	}
+	if className == "" {
+		return true
+	}
+	return strings.TrimSpace(attempt.ClassName) == className
+}
+
+func studentRecordSortTime(record map[string]any) string {
+	if submittedAt, _ := record["submitted_at"].(string); submittedAt != "" {
+		return submittedAt
+	}
+	updatedAt, _ := record["updated_at"].(string)
+	return updatedAt
+}
+
+func (s *Server) studentQuizTitleMap(course *domain.Course, loadedQuiz *domain.Quiz, attempts []domain.Attempt) map[string]string {
+	titles := map[string]string{}
+	if loadedQuiz != nil && strings.TrimSpace(loadedQuiz.QuizID) != "" {
+		title := strings.TrimSpace(loadedQuiz.Title)
+		if title == "" {
+			title = loadedQuiz.QuizID
+		}
+		titles[loadedQuiz.QuizID] = title
+	}
+	needed := map[string]struct{}{}
+	for _, attempt := range attempts {
+		if strings.TrimSpace(attempt.QuizID) == "" {
+			continue
+		}
+		if _, ok := titles[attempt.QuizID]; !ok {
+			needed[attempt.QuizID] = struct{}{}
+		}
+	}
+	if len(needed) == 0 || course == nil {
+		return titles
+	}
+	quizRoot := filepath.Join(s.metadataCourseDir(course.TeacherID, course.Slug), "quiz")
+	dirs, err := os.ReadDir(quizRoot)
+	if err != nil {
+		return titles
+	}
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		subDir := filepath.Join(quizRoot, dir.Name())
+		files, _ := os.ReadDir(subDir)
+		for _, file := range files {
+			name := strings.ToLower(file.Name())
+			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+				continue
+			}
+			data, rErr := os.ReadFile(filepath.Join(subDir, file.Name()))
+			if rErr != nil {
+				break
+			}
+			parsed, pErr := quiz.Parse(data)
+			if pErr == nil && parsed != nil {
+				quizID := strings.TrimSpace(parsed.QuizID)
+				if quizID == "" {
+					quizID = dir.Name()
+				}
+				if _, ok := needed[quizID]; ok {
+					title := strings.TrimSpace(parsed.Title)
+					if title == "" {
+						title = quizID
+					}
+					titles[quizID] = title
+				}
+				if _, ok := needed[dir.Name()]; ok {
+					title := strings.TrimSpace(parsed.Title)
+					if title == "" {
+						title = dir.Name()
+					}
+					titles[dir.Name()] = title
+				}
+			}
+			break
+		}
+	}
+	return titles
 }
 
 func (s *Server) clearStudentCookie(w http.ResponseWriter) {
