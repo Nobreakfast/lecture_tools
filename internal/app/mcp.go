@@ -22,7 +22,6 @@ import (
 // mcpAuthKey is the context key used to store the authenticated session
 // for MCP tool handlers.
 type mcpAuthKey struct{}
-type mcpStudentKey struct{}
 
 // mcpAuthMiddleware wraps an HTTP handler with token-based authentication
 // suitable for MCP clients (which do not send browser cookies).
@@ -48,11 +47,6 @@ func (s *Server) mcpAuthMiddleware(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-		}
-		if submission := s.getPersistentStudentMCPSessionByToken(r.Context(), token); submission != nil {
-			ctx := context.WithValue(r.Context(), mcpStudentKey{}, submission)
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -82,20 +76,6 @@ func (s *Server) mcpSessionFromContext(ctx context.Context) *authSession {
 // tools registered.  The returned server must be mounted under /mcp (or the
 // equivalent path-prefix stripped path) so that the SSE endpoint is /mcp/sse
 // and the message endpoint is /mcp/message.
-
-func (s *Server) mcpStudentFromContext(ctx context.Context) *domain.HomeworkSubmission {
-	if submission, ok := ctx.Value(mcpStudentKey{}).(*domain.HomeworkSubmission); ok {
-		return submission
-	}
-	if mcpSess := server.ClientSessionFromContext(ctx); mcpSess != nil {
-		sessionID := mcpSess.SessionID()
-		if idx := strings.Index(sessionID, ":"); idx > 0 {
-			token := sessionID[:idx]
-			return s.getPersistentStudentMCPSessionByToken(context.Background(), token)
-		}
-	}
-	return nil
-}
 
 func (s *Server) newMCPSSEServer() *server.SSEServer {
 	mcpServer := server.NewMCPServer(
@@ -664,96 +644,6 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 			))
 		}
 		return mcp.NewToolResultText(b.String()), nil
-	})
-
-	// ── Student Tool: student_agent_instructions ──
-	studentInstructionsTool := mcp.NewTool("student_agent_instructions",
-		mcp.WithDescription("获取学生智能助手的行为边界：小测、作业、课程建议、Q&A 创建和合规拒答规则"),
-	)
-	mcpServer.AddTool(studentInstructionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if s.mcpStudentFromContext(ctx) == nil {
-			return mcp.NewToolResultError("unauthorized"), nil
-		}
-		return mcp.NewToolResultText(strings.Join([]string{
-			"你是课程学生端智能助手。",
-			"1. 可以直接解释课程相关的专业概念、代码阅读思路、学习方法和复习建议。",
-			"2. 不要代做正在进行的小测，不要直接给出小测答案；遇到小测求答案时，引导学生独立完成并给出学习提示。",
-			"3. 遇到小测回顾、作业规则、课程详情、课程建议、需要教师判断的问题时，先总结学生诉求，再调用 create_student_qa_issue 新建 Q&A。",
-			"4. Q&A 创建成功后，明确告诉学生：问题已反馈给教师，请过几天再到系统 Q&A 中查看教师回复，并给出工具返回的链接。",
-			"5. 遇到违反中国网络安全、数据安全或学校师德师风要求的内容，不要直接解答，应说明无法提供该类帮助，并建议遵守法律法规和课程规范。",
-		}, "\n")), nil
-	})
-
-	// ── Student Tool: get_my_quiz_history ──
-	studentQuizHistoryTool := mcp.NewTool("get_my_quiz_history",
-		mcp.WithDescription("获取当前学生在当前课程中的历史小测记录、可计算得分和学习建议线索"),
-		mcp.WithString("limit",
-			mcp.Description("最多返回多少条记录（可选，默认 10）"),
-		),
-	)
-	mcpServer.AddTool(studentQuizHistoryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		submission := s.mcpStudentFromContext(ctx)
-		if submission == nil {
-			return mcp.NewToolResultError("unauthorized"), nil
-		}
-		limit := 10
-		if raw := strings.TrimSpace(request.GetString("limit", "")); raw != "" {
-			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-				if n > 50 {
-					n = 50
-				}
-				limit = n
-			}
-		}
-		text, err := s.studentMCPQuizHistory(ctx, submission, limit)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(text), nil
-	})
-
-	// ── Student Tool: get_my_homework_status ──
-	studentHomeworkStatusTool := mcp.NewTool("get_my_homework_status",
-		mcp.WithDescription("获取当前学生当前作业的提交状态、批改反馈和 Q&A 入口上下文"),
-	)
-	mcpServer.AddTool(studentHomeworkStatusTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		submission := s.mcpStudentFromContext(ctx)
-		if submission == nil {
-			return mcp.NewToolResultError("unauthorized"), nil
-		}
-		text, err := s.studentMCPHomeworkStatus(ctx, submission)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(text), nil
-	})
-
-	// ── Student Tool: create_student_qa_issue ──
-	createStudentQAIssueTool := mcp.NewTool("create_student_qa_issue",
-		mcp.WithDescription("把学生关于小测、作业、课程详情或课程建议等需要教师处理的问题总结后新建 Q&A"),
-		mcp.WithString("title",
-			mcp.Description("Q&A 标题（可选；留空则从问题摘要截断生成）"),
-		),
-		mcp.WithString("summary",
-			mcp.Required(),
-			mcp.Description("学生问题的简明总结，应包含背景、困惑和希望教师回复的点"),
-		),
-	)
-	mcpServer.AddTool(createStudentQAIssueTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		submission := s.mcpStudentFromContext(ctx)
-		if submission == nil {
-			return mcp.NewToolResultError("unauthorized"), nil
-		}
-		summary, err := request.RequireString("summary")
-		if err != nil || strings.TrimSpace(summary) == "" {
-			return mcp.NewToolResultError("缺少 summary 参数"), nil
-		}
-		title := strings.TrimSpace(request.GetString("title", ""))
-		text, err := s.studentMCPCreateQAIssue(ctx, submission, title, summary)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText(text), nil
 	})
 
 	sseServer := server.NewSSEServer(mcpServer,

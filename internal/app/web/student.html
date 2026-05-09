@@ -113,6 +113,88 @@
       min-height: 20px;
     }
 
+
+
+    /* ── Floating student agent entry ── */
+    .agent-launcher {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 50;
+      width: 54px;
+      height: 54px;
+      border-radius: 999px;
+      border: none;
+      box-shadow: 0 12px 28px rgba(79, 70, 229, 0.28);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
+      color: #fff;
+      font-size: 24px;
+    }
+
+    .agent-panel {
+      position: fixed;
+      right: 20px;
+      bottom: 86px;
+      z-index: 50;
+      width: min(420px, calc(100vw - 32px));
+      max-height: min(620px, calc(100vh - 120px));
+      display: none;
+      flex-direction: column;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 20px 48px rgba(15, 23, 42, 0.18);
+      overflow: hidden;
+    }
+
+    .agent-panel.open { display: flex; }
+
+    .agent-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .agent-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 240px;
+    }
+
+    .agent-message {
+      max-width: 92%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.55;
+      background: #f1f5f9;
+      color: var(--text);
+    }
+
+    .agent-message.assistant { align-self: flex-start; border-bottom-left-radius: 4px; }
+    .agent-message.user { align-self: flex-end; border-bottom-right-radius: 4px; background: rgba(79, 70, 229, 0.1); color: #312e81; }
+
+    .agent-input-wrap { padding: 12px; border-top: 1px solid var(--border); background: #fff; }
+    .agent-input-row { display: flex; gap: 8px; align-items: flex-end; }
+
+    #studentAgentInput {
+      flex: 1;
+      min-height: 46px;
+      max-height: 120px;
+      resize: vertical;
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .agent-note { margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
     /* ── Course header ── */
     .course-header {
       display: flex;
@@ -958,24 +1040,28 @@
         </div>
         <div id="submissionMessage" class="message info"></div>
       </div>
-      <div class="card" id="studentAgentCard" style="display:none;">
-        <div class="section-title">4. 学生智能助手</div>
-        <div class="section-hint">开启后可复制 MCP 配置到 Claude Desktop / Cursor / Trae，询问历史小测、作业状态和学习建议。助手不会代做小测；需要教师确认的问题会新建 Q&A。</div>
-        <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
-          <div class="row" style="align-items:center;gap:12px;margin-bottom:8px;">
-            <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;">
-              <input id="studentMcpEnabledToggle" type="checkbox" />
-              启用学生 MCP Token
-            </label>
-            <button id="copyStudentMcpConfig" class="secondary" type="button" style="margin-top:0;display:none;">复制配置</button>
-          </div>
-          <p id="studentMcpStatus" style="font-size:12px;color:var(--text-secondary);margin:0 0 8px 0;">进入作业后可启用。</p>
-          <pre id="studentMcpConfig" style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;">请先进入 / 恢复当前作业。</pre>
-        </div>
-      </div>
 
     </div>
   </div>
+
+  <button id="studentAgentLauncher" class="agent-launcher hidden" type="button" title="打开学生智能助手" aria-label="打开学生智能助手" aria-expanded="false">🤖</button>
+  <section id="studentAgentPanel" class="agent-panel hidden" aria-label="学生智能助手" aria-hidden="true">
+    <div class="agent-header">
+      <div>
+        <strong>学生智能助手</strong>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">可询问历史小测、作业状态和学习建议；需教师确认的问题会自动整理为 Q&A。</div>
+      </div>
+      <button id="studentAgentCloseBtn" class="small secondary" type="button" style="margin-top:0;">关闭</button>
+    </div>
+    <div id="studentAgentMessages" class="agent-messages" role="log" aria-live="polite"></div>
+    <div class="agent-input-wrap">
+      <div class="agent-input-row">
+        <textarea id="studentAgentInput" placeholder="例如：我前几次小测表现如何？这次作业规则想请老师确认。"></textarea>
+        <button id="studentAgentSendBtn" type="button" style="height:46px;margin-top:0;">发送</button>
+      </div>
+      <div class="agent-note">助手不会代做小测；违规内容会拒答。请在进入/恢复作业后使用。</div>
+    </div>
+  </section>
 
   <script>
     // ── Storage keys ──
@@ -1559,7 +1645,7 @@
       if (!submission) {
         card.style.display = 'none';
         renderGradeResult(null);
-        renderStudentMCPConfig(null);
+        setStudentAgentVisible(false);
         return;
       }
       card.style.display = 'block';
@@ -1582,7 +1668,7 @@
       renderAssignmentFiles();
       saveHwToStorage();
 
-      loadStudentMCPConfig();
+      setStudentAgentVisible(true);
     }
     function renderGradeResult(submission) {
       var root = document.getElementById('gradeResult');
@@ -1780,80 +1866,90 @@
     }
 
 
-    function renderStudentMCPConfig(state) {
-      var card = document.getElementById('studentAgentCard');
-      var pre = document.getElementById('studentMcpConfig');
-      var btn = document.getElementById('copyStudentMcpConfig');
-      var toggle = document.getElementById('studentMcpEnabledToggle');
-      var status = document.getElementById('studentMcpStatus');
-      if (!card || !pre || !btn || !toggle || !status) return;
-      if (!state) {
-        card.style.display = 'none';
-        toggle.checked = false;
-        toggle.disabled = true;
-        btn.style.display = 'none';
-        pre.textContent = '请先进入 / 恢复当前作业。';
-        status.textContent = '进入作业后可启用。';
-        return;
-      }
-      card.style.display = 'block';
-      var enabled = !!state.enabled;
-      var token = state.token || '';
-      toggle.checked = enabled;
-      toggle.disabled = false;
-      if (!enabled || !token) {
-        pre.textContent = '当前未启用学生 MCP Token。开启后会生成与当前作业身份绑定的专用 token。';
-        btn.style.display = 'none';
-        status.textContent = enabled ? '配置读取失败，请关闭后重新开启一次。' : '当前已关闭。开启后即可复制配置。';
-        return;
-      }
-      var prefix = (typeof __PREFIX !== 'undefined' && __PREFIX) ? __PREFIX : '';
-      var url = window.location.origin + prefix + '/mcp/sse?token=' + encodeURIComponent(token);
-      var config = { mcpServers: { 'course-assistant-student': { url: url } } };
-      pre.textContent = JSON.stringify(config, null, 2);
-      btn.style.display = '';
-      status.textContent = '当前已启用。可询问历史小测、作业状态和学习建议；需教师确认的问题会转为 Q&A。';
-      btn.onclick = function () {
-        navigator.clipboard.writeText(pre.textContent).then(function () {
-          btn.textContent = '已复制';
-          setTimeout(function () { btn.textContent = '复制配置'; }, 2000);
-        });
-      };
-    }
+    var studentAgentMessages = [];
+    var studentAgentBusy = false;
 
-    async function loadStudentMCPConfig() {
-      var card = document.getElementById('studentAgentCard');
-      var toggle = document.getElementById('studentMcpEnabledToggle');
-      if (!card || !toggle) return;
-      toggle.disabled = true;
-      try {
-        var r = await fetch('/api/student/mcp', { credentials: 'include' });
-        if (r.status === 401) { renderStudentMCPConfig(null); return; }
-        if (!r.ok) { renderStudentMCPConfig({ enabled: false }); return; }
-        renderStudentMCPConfig(await r.json());
-      } catch (_) {
-        renderStudentMCPConfig({ enabled: false });
+    function setStudentAgentVisible(visible) {
+      var launcher = document.getElementById('studentAgentLauncher');
+      var panel = document.getElementById('studentAgentPanel');
+      if (!launcher || !panel) return;
+      launcher.classList.toggle('hidden', !visible);
+      if (!visible) {
+        panel.classList.add('hidden');
+        panel.classList.remove('open');
+        panel.setAttribute('aria-hidden', 'true');
+        launcher.setAttribute('aria-expanded', 'false');
+      } else {
+        panel.classList.remove('hidden');
       }
     }
 
-    async function onStudentMCPEnabledToggle() {
-      var toggle = document.getElementById('studentMcpEnabledToggle');
-      if (!toggle) return;
-      var enabled = !!toggle.checked;
-      toggle.disabled = true;
+    function openStudentAgentPanel() {
+      var panel = document.getElementById('studentAgentPanel');
+      var launcher = document.getElementById('studentAgentLauncher');
+      panel.classList.add('open');
+      panel.setAttribute('aria-hidden', 'false');
+      launcher.setAttribute('aria-expanded', 'true');
+      if (studentAgentMessages.length === 0) {
+        addStudentAgentMessage('assistant', '你好，我可以基于你当前作业身份查看历史小测、作业状态并给出学习建议。需要教师确认的问题，我会帮你整理成 Q&A 并提示你之后回系统查看。');
+      }
+      setTimeout(function () { document.getElementById('studentAgentInput').focus(); }, 0);
+    }
+
+    function closeStudentAgentPanel() {
+      var panel = document.getElementById('studentAgentPanel');
+      var launcher = document.getElementById('studentAgentLauncher');
+      panel.classList.remove('open');
+      panel.setAttribute('aria-hidden', 'true');
+      launcher.setAttribute('aria-expanded', 'false');
+      launcher.focus();
+    }
+
+    function addStudentAgentMessage(role, content) {
+      var text = String(content || '').trim();
+      if (!text) return;
+      studentAgentMessages.push({ role: role, content: text });
+      renderStudentAgentMessages();
+    }
+
+    function renderStudentAgentMessages() {
+      var box = document.getElementById('studentAgentMessages');
+      box.innerHTML = studentAgentMessages.map(function (msg) {
+        return '<div class="agent-message ' + (msg.role === 'user' ? 'user' : 'assistant') + '">' + renderMd(msg.content) + '</div>';
+      }).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendStudentAgentMessage() {
+      if (studentAgentBusy) return;
+      var input = document.getElementById('studentAgentInput');
+      var message = input.value.trim();
+      if (!message) return;
+      input.value = '';
+      addStudentAgentMessage('user', message);
+      studentAgentBusy = true;
+      var btn = document.getElementById('studentAgentSendBtn');
+      btn.disabled = true;
+      var typing = { role: 'assistant', content: '正在读取你的课程数据并思考…' };
+      studentAgentMessages.push(typing);
+      renderStudentAgentMessages();
       try {
-        var r = await fetch('/api/student/mcp', {
+        var history = studentAgentMessages.filter(function (m) { return m !== typing; }).slice(0, -1).slice(-8);
+        var r = await fetch('/api/student/agent/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ enabled: enabled })
+          body: JSON.stringify({ message: message, messages: history })
         });
         if (!r.ok) throw new Error(await r.text());
-        renderStudentMCPConfig(await r.json());
-        setMessage('sessionMessage', 'info', enabled ? '已开启学生 MCP Token。' : '已关闭学生 MCP Token。');
+        var data = await r.json();
+        typing.content = data.answer || '没有返回内容。';
       } catch (err) {
-        setMessage('sessionMessage', 'error', err && err.message ? err.message : '保存学生 MCP 配置失败');
-        await loadStudentMCPConfig();
+        typing.content = '请求失败：' + (err && err.message ? err.message : err);
+      } finally {
+        studentAgentBusy = false;
+        btn.disabled = false;
+        renderStudentAgentMessages();
       }
     }
 
@@ -1877,7 +1973,12 @@
       document.getElementById('qaImageInfo').textContent = files.length ? ('已选择 ' + files.length + ' 张图片') : '最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。';
     };
     document.getElementById('qaSubmitBtn').onclick = submitQAQuestion;
-    document.getElementById('studentMcpEnabledToggle').onchange = onStudentMCPEnabledToggle;
+    document.getElementById('studentAgentLauncher').onclick = openStudentAgentPanel;
+    document.getElementById('studentAgentCloseBtn').onclick = closeStudentAgentPanel;
+    document.getElementById('studentAgentSendBtn').onclick = sendStudentAgentMessage;
+    document.getElementById('studentAgentInput').addEventListener('keydown', function (evt) {
+      if ((evt.ctrlKey || evt.metaKey) && evt.key === 'Enter') sendStudentAgentMessage();
+    });
     document.getElementById('enterBtn').onclick = startOrResumeSubmission;
     document.getElementById('refreshBtn').onclick = function () { fetchCurrentSubmission(true); };
     document.getElementById('reportUploadBtn').onclick = function () { document.getElementById('reportInput').click(); };
