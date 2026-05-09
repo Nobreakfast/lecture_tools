@@ -1586,3 +1586,36 @@ func TestReadOnlyAssistantCannotModifyCourse(t *testing.T) {
 		t.Fatalf("read-only assistant modify got status %d, want forbidden/bad request: %s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestTeacherAgentContextIsReadOnlyForViewCollaborator(t *testing.T) {
+	st := &memStore{
+		teachers:       []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}, {ID: "assistant", Name: "Assistant", Role: domain.RoleTeacher}},
+		courses:        []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI", InviteCode: "ABC123"}},
+		courseTeachers: []domain.CourseTeacher{{CourseID: 1, TeacherID: "assistant", Permission: domain.CoursePermissionView}},
+		attempts:       []domain.Attempt{{ID: "a1", CourseID: 1, QuizID: "quiz-1", Name: "张三", StudentNo: "S001", ClassName: "一班", AttemptNo: 1, Status: domain.StatusSubmitted, UpdatedAt: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)}},
+	}
+	s := New(Config{}, st)
+	sess := &authSession{TeacherID: "assistant", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/agent/chat?course_id=1", nil)
+	ctxText, err := s.teacherAgentContext(req, sess, "1")
+	if err != nil {
+		t.Fatalf("teacherAgentContext returned error: %v", err)
+	}
+	if !strings.Contains(ctxText, "课程：AI") || !strings.Contains(ctxText, "张三") {
+		t.Fatalf("context missing expected read-only course/attempt data: %s", ctxText)
+	}
+}
+
+func TestAPITeacherAgentChatRejectsEmptyQuestion(t *testing.T) {
+	st := &memStore{}
+	s := New(Config{}, st)
+	s.authTokens["teacher-token"] = authSession{TeacherID: "T01", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/agent/chat", strings.NewReader(`{"message":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("empty agent question got status %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+}
