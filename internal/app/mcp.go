@@ -646,6 +646,105 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		return mcp.NewToolResultText(b.String()), nil
 	})
 
+	// ── Tool: get_qa_issues ──
+	getQAIssuesTool := mcp.NewTool("get_qa_issues",
+		mcp.WithDescription("查看某课程的 Q&A 列表和最近消息；用于判断教师应优先处理哪个学生问题"),
+		mcp.WithString("course_id",
+			mcp.Required(),
+			mcp.Description("课程ID（数字）"),
+		),
+		mcp.WithString("assignment_id",
+			mcp.Description("作业编号（可选，留空则查询整门课程）"),
+		),
+		mcp.WithString("status",
+			mcp.Description("筛选状态：open、resolved 或 all（可选，默认 open）"),
+		),
+		mcp.WithString("limit",
+			mcp.Description("最多返回多少条 Q&A（可选，默认 20，最大 100）"),
+		),
+		mcp.WithString("max_messages",
+			mcp.Description("每条 Q&A 展示最近多少条消息（可选，默认 3；设为 0 只看列表）"),
+		),
+		mcp.WithBoolean("include_hidden",
+			mcp.Description("是否包含隐藏 Q&A（可选，默认 false）"),
+		),
+	)
+	mcpServer.AddTool(getQAIssuesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		sess := s.mcpSessionFromContext(ctx)
+		if sess == nil {
+			return mcp.NewToolResultError("unauthorized"), nil
+		}
+		courseIDStr, err := request.RequireString("course_id")
+		if err != nil {
+			return mcp.NewToolResultError("缺少 course_id 参数"), nil
+		}
+		courseID, err := strconv.Atoi(courseIDStr)
+		if err != nil {
+			return mcp.NewToolResultError("course_id 无效"), nil
+		}
+		limit := 20
+		if raw := strings.TrimSpace(request.GetString("limit", "")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil {
+				limit = n
+			}
+		}
+		maxMessages := 3
+		if raw := strings.TrimSpace(request.GetString("max_messages", "")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil {
+				maxMessages = n
+			}
+		}
+		text, err := s.teacherMCPQAIssues(ctx, sess, courseID,
+			request.GetString("assignment_id", ""),
+			request.GetString("status", "open"),
+			request.GetBool("include_hidden", false),
+			limit,
+			maxMessages,
+		)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	// ── Tool: reply_qa_issue ──
+	replyQAIssueTool := mcp.NewTool("reply_qa_issue",
+		mcp.WithDescription("以教师身份回复某条 Q&A；agent 可先润色教师草稿，再调用本工具保存回复并可标记已解决"),
+		mcp.WithString("issue_id",
+			mcp.Required(),
+			mcp.Description("Q&A ID（数字）"),
+		),
+		mcp.WithString("reply",
+			mcp.Required(),
+			mcp.Description("要保存给学生看的教师回复内容；如教师给的是要点，请先润色后再提交"),
+		),
+		mcp.WithBoolean("resolve",
+			mcp.Description("回复后是否标记为已解决（可选，默认 true）"),
+		),
+	)
+	mcpServer.AddTool(replyQAIssueTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		sess := s.mcpSessionFromContext(ctx)
+		if sess == nil {
+			return mcp.NewToolResultError("unauthorized"), nil
+		}
+		issueIDStr, err := request.RequireString("issue_id")
+		if err != nil {
+			return mcp.NewToolResultError("缺少 issue_id 参数"), nil
+		}
+		issueID, err := strconv.Atoi(issueIDStr)
+		if err != nil || issueID <= 0 {
+			return mcp.NewToolResultError("issue_id 无效"), nil
+		}
+		reply, err := request.RequireString("reply")
+		if err != nil || strings.TrimSpace(reply) == "" {
+			return mcp.NewToolResultError("缺少 reply 参数"), nil
+		}
+		text, err := s.teacherMCPReplyQAIssue(ctx, sess, issueID, reply, request.GetBool("resolve", true))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
 	sseServer := server.NewSSEServer(mcpServer,
 		server.WithBasePath("/mcp"),
 		server.WithSessionIDGenerator(func(ctx context.Context, r *http.Request) (string, error) {
