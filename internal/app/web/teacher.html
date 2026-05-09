@@ -612,7 +612,7 @@
   <script src="/static/app.js"></script>
 
   <!-- Login view -->
-  <div id="view-login" class="login-wrap">
+  <div id="view-login" class="login-wrap hidden">
     <div style="max-width:420px;width:100%;padding:24px 16px;">
       <div class="card">
         <h2 style="margin-bottom:6px">教师面板</h2>
@@ -1221,13 +1221,17 @@
     async function checkSession() {
       try {
         const r = await fetch('/api/auth/me', { credentials: 'include' });
-        if (!r.ok) return;
-        const data = await r.json();
-        if (data.id && (data.role === 'teacher' || data.role === 'admin')) {
-          currentTeacher = data;
-          enterPanel();
+        if (r.ok) {
+          const data = await r.json();
+          if (data.id && (data.role === 'teacher' || data.role === 'admin')) {
+            currentTeacher = data;
+            enterPanel();
+            return;
+          }
         }
       } catch (_) { }
+      document.getElementById('view-main').classList.add('hidden');
+      document.getElementById('view-login').classList.remove('hidden');
     }
 
     async function doLogin() {
@@ -1814,7 +1818,12 @@
     // further down this file) so function hoisting doesn't shadow anything.
     function loadSubQuiz() { loadQuizBankList(); }
     function loadSubMaterials() { if (typeof loadMaterials === 'function') loadMaterials(); }
-    function loadSubHomework() { if (typeof loadHomeworkAssignments === 'function') { loadHomeworkAssignments(); loadHomeworkSubmissions(); } }
+    async function loadSubHomework() {
+      if (typeof loadHomeworkAssignments === 'function') {
+        await loadHomeworkAssignments();
+        await loadHomeworkSubmissions();
+      }
+    }
 
     function refreshAttemptsTab() {
       if (!selectedCourseId) {
@@ -1884,14 +1893,14 @@
       loadMaterials();
     }
 
-    function refreshHomeworkTab() {
+    async function refreshHomeworkTab() {
       if (!selectedCourseId) {
         document.getElementById('homeworkAssignmentsList').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请先选择课程</p>';
         document.getElementById('homeworkSubmissionsList').innerHTML = '';
         return;
       }
-      loadHomeworkAssignments();
-      loadHomeworkSubmissions();
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
     }
 
     /* ── quiz management ── */
@@ -2561,7 +2570,13 @@
       for (const item of hwAssignmentsCache) {
         sel.innerHTML += `<option value="${escapeHTML(item.assignment_id)}">${escapeHTML(item.assignment_id)}</option>`;
       }
-      if (prev && hwAssignmentsCache.some(i => i.assignment_id === prev)) sel.value = prev;
+      const restoreAssignmentID = window.__restoreHomeworkAssignmentId ? String(window.__restoreHomeworkAssignmentId) : '';
+      if (restoreAssignmentID && hwAssignmentsCache.some(i => i.assignment_id === restoreAssignmentID)) {
+        sel.value = restoreAssignmentID;
+        delete window.__restoreHomeworkAssignmentId;
+      } else if (prev && hwAssignmentsCache.some(i => i.assignment_id === prev)) {
+        sel.value = prev;
+      }
     }
 
     async function loadHomeworkSubmissions() {
@@ -2631,7 +2646,10 @@
 
     function openHomeworkGrade(id) {
       if (!selectedCourseId) { alert('请先选择课程'); return; }
-      window.open('/teacher/homework-grade?course_id=' + selectedCourseId + '&submission_id=' + encodeURIComponent(id), '_blank');
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      let url = '/teacher/homework-grade?course_id=' + encodeURIComponent(selectedCourseId) + '&submission_id=' + encodeURIComponent(id);
+      if (assignmentID) url += '&assignment_id=' + encodeURIComponent(assignmentID);
+      window.open(url, '_blank');
     }
 
     function updateHomeworkGradeVisibilityButton() {
@@ -3131,7 +3149,7 @@
     /* ── init ── */
     checkSession();
 
-    // Restore tab/subtab/course from URL hash (e.g. #tab=tab-upload&subtab=sub-quiz&course=3)
+    // Restore tab/subtab/course from URL hash (e.g. #tab=tab-upload&subtab=sub-homework&course=3&assignment_id=task_1)
     (function restoreFromHash() {
       const hash = location.hash.replace(/^#/, '');
       if (!hash) return;
@@ -3139,6 +3157,7 @@
       const tab = hp.get('tab');
       const subtab = hp.get('subtab');
       const course = hp.get('course');
+      const assignmentID = hp.get('assignment_id');
       if (tab) {
         const tabBtn = document.querySelector(`.tab-bar > .tab-btn[data-tab="${tab}"]`);
         if (tabBtn) tabBtn.click();
@@ -3149,6 +3168,9 @@
       }
       if (course) {
         window.__restoreCourseId = course;
+      }
+      if (assignmentID) {
+        window.__restoreHomeworkAssignmentId = assignmentID;
       }
       location.hash = '';
     })();

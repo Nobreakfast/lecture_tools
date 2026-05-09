@@ -19,6 +19,10 @@
     .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
     .meta-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font-size: 13px; color: var(--text-secondary); }
     .meta-item strong { display: block; color: var(--text); font-size: 12px; margin-bottom: 3px; }
+    .nav-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+    .nav-row .nav-status { color: var(--text-secondary); font-size: 12px; }
+    .mask-toggle { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: 13px; color: var(--text); font-weight: 650; }
+    .mask-toggle input { width: auto; }
     label { display: block; font-size: 13px; font-weight: 650; margin: 14px 0 6px; color: var(--text); }
     input, textarea { width: 100%; font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
     input:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
@@ -58,9 +62,18 @@
           <div class="title">作业评分</div>
           <div id="publishBadge" class="badge badge-muted" style="margin-top:6px;">成绩未公布</div>
         </div>
-        <a class="link-btn secondary" href="/teacher">返回</a>
+        <a id="backLink" class="link-btn secondary" href="/teacher">返回</a>
       </div>
 
+      <div class="nav-row">
+        <button id="prevBtn" class="secondary" type="button">上一份</button>
+        <span id="navStatus" class="nav-status">正在加载列表...</span>
+        <button id="nextBtn" class="secondary" type="button">下一份</button>
+      </div>
+      <label class="mask-toggle" for="anonymousToggle">
+        <input id="anonymousToggle" type="checkbox" />
+        匿名评分
+      </label>
       <div class="meta-grid" id="studentMeta"></div>
 
       <label for="scoreInput">总分（0-100）</label>
@@ -82,8 +95,11 @@
   <script>
     const params = new URLSearchParams(location.search);
     const courseId = params.get('course_id') || '';
-    const submissionId = params.get('submission_id') || '';
+    let submissionId = params.get('submission_id') || '';
+    let assignmentId = params.get('assignment_id') || '';
     let submission = null;
+    let submissionsList = [];
+    let anonymousMode = false;
 
     function escapeHTML(s) {
       return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -104,6 +120,65 @@
       if (!Number.isFinite(n)) return '';
       return Number.isInteger(n) ? String(n) : n.toFixed(1);
     }
+    function masked(value) {
+      return anonymousMode ? '已遮盖' : escapeHTML(value || '—');
+    }
+    function teacherReturnURL() {
+      const hp = new URLSearchParams();
+      hp.set('tab', 'tab-upload');
+      hp.set('subtab', 'sub-homework');
+      if (courseId) hp.set('course', courseId);
+      if (assignmentId) hp.set('assignment_id', assignmentId);
+      const hash = hp.toString();
+      return '/teacher' + (hash ? '#' + hash : '');
+    }
+    function updateBackLink() {
+      document.getElementById('backLink').href = teacherReturnURL();
+    }
+    function gradeURL(id) {
+      const qp = new URLSearchParams();
+      qp.set('course_id', courseId);
+      qp.set('submission_id', id);
+      if (assignmentId) qp.set('assignment_id', assignmentId);
+      return location.pathname + '?' + qp.toString();
+    }
+    function currentIndex() {
+      return submissionsList.findIndex(item => String(item.id) === String(submissionId));
+    }
+    function updateNavigation() {
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const status = document.getElementById('navStatus');
+      const idx = currentIndex();
+      const hasList = submissionsList.length > 0 && idx >= 0;
+      prevBtn.disabled = !hasList || idx <= 0;
+      nextBtn.disabled = !hasList || idx >= submissionsList.length - 1;
+      status.textContent = hasList ? `${idx + 1} / ${submissionsList.length}` : '未找到同作业提交列表';
+    }
+    async function loadSubmissionList() {
+      if (!courseId || !assignmentId) {
+        updateNavigation();
+        return;
+      }
+      const url = '/api/teacher/courses/homework/submissions?course_id=' + encodeURIComponent(courseId) + '&assignment_id=' + encodeURIComponent(assignmentId);
+      const r = await fetch(url, { credentials: 'include' });
+      if (!r.ok) {
+        updateNavigation();
+        return;
+      }
+      const data = await r.json();
+      submissionsList = data.items || [];
+      updateNavigation();
+    }
+    function goRelative(delta) {
+      const idx = currentIndex();
+      const next = submissionsList[idx + delta];
+      if (!next) return;
+      submissionId = String(next.id);
+      history.replaceState(null, '', gradeURL(submissionId));
+      setMsg('', '');
+      loadGrade();
+    }
 
     async function loadGrade() {
       if (!courseId || !submissionId) {
@@ -117,22 +192,20 @@
       }
       const data = await r.json();
       submission = data.submission || {};
+      assignmentId = submission.assignment_id || assignmentId;
+      updateBackLink();
       render(data.grade_published);
+      await loadSubmissionList();
     }
 
     function render(published) {
       document.getElementById('publishBadge').textContent = published ? '成绩已公布' : '成绩未公布';
       document.getElementById('publishBadge').className = published ? 'badge badge-ok' : 'badge badge-muted';
-      document.getElementById('studentMeta').innerHTML =
-        '<div class="meta-item"><strong>作业</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
-        '<div class="meta-item"><strong>姓名</strong>' + escapeHTML(submission.name) + '</div>' +
-        '<div class="meta-item"><strong>学号</strong>' + escapeHTML(submission.student_no) + '</div>' +
-        '<div class="meta-item"><strong>班级</strong>' + escapeHTML(submission.class_name) + '</div>' +
-        '<div class="meta-item"><strong>更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
-        '<div class="meta-item"><strong>评分</strong>' + (submission.score !== undefined ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
+      renderMeta();
       document.getElementById('scoreInput').value = submission.score !== undefined && submission.score !== null ? formatScore(submission.score) : '';
       document.getElementById('feedbackInput').value = submission.feedback || '';
       const report = submission.files && submission.files.report;
+      document.getElementById('aiBtn').disabled = false;
       if (report && report.uploaded && submission.report_preview_url) {
         document.getElementById('pdfFrame').src = submission.report_preview_url;
         document.getElementById('pdfFrame').style.display = '';
@@ -141,11 +214,25 @@
         document.getElementById('pdfDownload').href = submission.report_download_url || submission.report_preview_url;
         document.getElementById('pdfDownload').style.display = '';
       } else {
+        document.getElementById('pdfFrame').src = '';
         document.getElementById('pdfFrame').style.display = 'none';
         document.getElementById('pdfEmpty').style.display = '';
         document.getElementById('pdfEmpty').textContent = '该提交没有报告 PDF，可在右侧手动评分。';
+        document.getElementById('pdfTitle').textContent = '报告 PDF';
+        document.getElementById('pdfDownload').style.display = 'none';
         document.getElementById('aiBtn').disabled = true;
       }
+    }
+
+    function renderMeta() {
+      const hasScore = submission.score !== undefined && submission.score !== null;
+      document.getElementById('studentMeta').innerHTML =
+        '<div class="meta-item"><strong>作业</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
+        '<div class="meta-item"><strong>姓名</strong>' + masked(submission.name) + '</div>' +
+        '<div class="meta-item"><strong>学号</strong>' + masked(submission.student_no) + '</div>' +
+        '<div class="meta-item"><strong>班级</strong>' + masked(submission.class_name) + '</div>' +
+        '<div class="meta-item"><strong>更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
+        '<div class="meta-item"><strong>评分</strong>' + (hasScore ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
     }
 
     async function saveGrade() {
@@ -170,6 +257,7 @@
         const data = await r.json();
         submission = data.submission || submission;
         render(submission.grade_published);
+        await loadSubmissionList();
         setMsg('info', '评分已保存。');
       } finally {
         btn.disabled = false;
@@ -198,6 +286,13 @@
 
     document.getElementById('saveBtn').onclick = saveGrade;
     document.getElementById('aiBtn').onclick = generateFeedback;
+    document.getElementById('prevBtn').onclick = () => goRelative(-1);
+    document.getElementById('nextBtn').onclick = () => goRelative(1);
+    document.getElementById('anonymousToggle').onchange = (e) => {
+      anonymousMode = !!e.target.checked;
+      if (submission) renderMeta();
+    };
+    updateBackLink();
     loadGrade();
   </script>
 </body>

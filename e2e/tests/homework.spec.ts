@@ -247,22 +247,64 @@ test.describe("Homework lifecycle", () => {
     );
     await expect(studentPage.reportInfo).not.toContainText("暂未上传");
 
+    const studentCtx2 = await browser.newContext();
+    const studentPage2 = new StudentPage(await studentCtx2.newPage());
+    await studentPage2.enterCode(seed.inviteCode);
+    await studentPage2.switchTab("tab-homework");
+    await studentPage2.startHomeworkSession(
+      assignmentId,
+      "评分学生二",
+      "2024GRADE2",
+      "评分班",
+      "grade-secret-2"
+    );
+    await studentPage2.reportInput.setInputFiles(
+      path.resolve(__dirname, "../fixtures/sample.pdf")
+    );
+    await expect(studentPage2.reportInfo).not.toContainText("暂未上传");
+
     await teacherPage.switchSubTab("sub-homework");
     await teacherPage.homeworkAssignmentFilter.selectOption(assignmentId);
     await teacherPage.refreshHomeworkBtn.click();
     const row = teacherPage.homeworkSubmissionsList
       .locator("tr")
-      .filter({ hasText: studentNo });
+      .filter({ has: teacherPage.page.getByRole("cell", { name: studentNo, exact: true }) });
     await expect(row).toContainText("未评分");
+    const newestRow = teacherPage.homeworkSubmissionsList
+      .locator("tr")
+      .filter({ has: teacherPage.page.getByRole("cell", { name: "2024GRADE2", exact: true }) });
+    await expect(newestRow).toContainText("未评分");
 
     const popupPromise = teacherPage.page.waitForEvent("popup");
-    await row.getByRole("button", { name: "评分" }).click();
+    await newestRow.getByRole("button", { name: "评分" }).click();
     const gradePage = await popupPromise;
     await gradePage.waitForLoadState("domcontentloaded");
+    await expect(gradePage.locator("#navStatus")).toContainText("1 / 2");
+    await expect(gradePage.locator("#prevBtn")).toBeDisabled();
+    await expect(gradePage.locator("#nextBtn")).toBeEnabled();
+    await expect(gradePage.locator("#studentMeta")).toContainText("评分学生二");
+    await gradePage.locator("#anonymousToggle").check();
+    await expect(gradePage.locator("#studentMeta")).not.toContainText("评分学生二");
+    await expect(gradePage.locator("#studentMeta")).not.toContainText("2024GRADE2");
+    await expect(gradePage.locator("#studentMeta")).toContainText("已遮盖");
+    await gradePage.locator("#anonymousToggle").uncheck();
+    await expect(gradePage.locator("#studentMeta")).toContainText("评分学生二");
+
+    await gradePage.locator("#nextBtn").click();
+    await expect(gradePage.locator("#navStatus")).toContainText("2 / 2");
+    await expect(gradePage.locator("#studentMeta")).toContainText(studentNo);
     await gradePage.locator("#scoreInput").fill("88.5");
     await gradePage.locator("#feedbackInput").fill("结构完整，继续加强分析。");
     await gradePage.locator("#saveBtn").click();
     await expect(gradePage.locator("#msg")).toContainText("评分已保存");
+    await expect(gradePage.locator("#navStatus")).toContainText("2 / 2");
+    await expect(gradePage.locator("#studentMeta")).toContainText(studentNo);
+
+    await gradePage.locator("#backLink").click();
+    await expect(gradePage.locator("#view-main")).toBeVisible();
+    await expect(gradePage.locator("#tab-upload")).toBeVisible();
+    await expect(gradePage.locator("#sub-homework")).toBeVisible();
+    await expect(gradePage.locator("#homeworkAssignmentFilter")).toHaveValue(assignmentId);
     await gradePage.close();
 
     await studentPage.page.locator("#refreshBtn").click();
@@ -285,6 +327,7 @@ test.describe("Homework lifecycle", () => {
 
     await teacherCtx.close();
     await studentCtx.close();
+    await studentCtx2.close();
   });
 
   test("student can upload, list, rename, delete files in others/ via API", async ({
