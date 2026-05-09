@@ -369,6 +369,14 @@ func ensureCoreTables(ctx context.Context, db *sql.DB) error {
 			quiz_yaml TEXT,
 			quiz_source_path TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS course_teachers (
+			course_id INTEGER NOT NULL,
+			teacher_id TEXT NOT NULL,
+			permission TEXT NOT NULL DEFAULT 'manage',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(course_id, teacher_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS attempts (
 			id TEXT PRIMARY KEY,
 			session_token TEXT UNIQUE NOT NULL,
@@ -418,6 +426,7 @@ var migrationIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_attempts_course ON attempts(course_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_courses_teacher ON courses(teacher_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_courses_invite ON courses(invite_code)`,
+	`CREATE INDEX IF NOT EXISTS idx_course_teachers_teacher ON course_teachers(teacher_id)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_teacher_slug ON courses(teacher_id, slug) WHERE slug != ''`,
 	`CREATE INDEX IF NOT EXISTS idx_homework_submissions_lookup ON homework_submissions(course_id, assignment_id, student_no)`,
 	`CREATE INDEX IF NOT EXISTS idx_homework_submissions_legacy ON homework_submissions(course, assignment_id, student_no)`,

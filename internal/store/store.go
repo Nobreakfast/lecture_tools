@@ -32,6 +32,11 @@ type CourseStore interface {
 	GetCourseByInviteCode(ctx context.Context, code string) (*domain.Course, error)
 	ListCoursesByTeacher(ctx context.Context, teacherID string) ([]domain.Course, error)
 	ListAllCourses(ctx context.Context) ([]domain.Course, error)
+	AddCourseTeacher(ctx context.Context, ct *domain.CourseTeacher) error
+	GetCourseTeacher(ctx context.Context, courseID int, teacherID string) (*domain.CourseTeacher, error)
+	ListCourseTeachers(ctx context.Context, courseID int) ([]domain.CourseTeacher, error)
+	UpdateCourseTeacherPermission(ctx context.Context, courseID int, teacherID string, permission domain.CoursePermission) error
+	RemoveCourseTeacher(ctx context.Context, courseID int, teacherID string) error
 	UpdateCourse(ctx context.Context, c *domain.Course) error
 	DeleteCourse(ctx context.Context, id int) error
 	GetCourseState(ctx context.Context, courseID int) (*domain.CourseState, error)
