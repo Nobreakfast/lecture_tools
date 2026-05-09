@@ -1390,7 +1390,7 @@
             ${canManage ? `<button class="small" style="margin:0;font-size:10px;padding:2px 8px;" onclick="quickLoadQuiz('${cid}')">加载</button>` : ''}
             <span id="quizState_${cid}" style="font-size:12px;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;"></span>
           </div>
-          ${ownerActions ? `<div class="course-card-row hidden" id="collab_${cid}" style="display:none;"></div>` : ''}
+          ${ownerActions ? `<div class="course-card-row" id="collab_${cid}" style="display:none;"></div>` : ''}
         </div>`;
       }).join('');
       coursesCache.forEach(c => loadCourseCardState(c.id));
