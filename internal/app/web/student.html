@@ -958,6 +958,22 @@
         </div>
         <div id="submissionMessage" class="message info"></div>
       </div>
+      <div class="card" id="studentAgentCard" style="display:none;">
+        <div class="section-title">4. 学生智能助手</div>
+        <div class="section-hint">开启后可复制 MCP 配置到 Claude Desktop / Cursor / Trae，询问历史小测、作业状态和学习建议。助手不会代做小测；需要教师确认的问题会新建 Q&A。</div>
+        <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+          <div class="row" style="align-items:center;gap:12px;margin-bottom:8px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;">
+              <input id="studentMcpEnabledToggle" type="checkbox" />
+              启用学生 MCP Token
+            </label>
+            <button id="copyStudentMcpConfig" class="secondary" type="button" style="margin-top:0;display:none;">复制配置</button>
+          </div>
+          <p id="studentMcpStatus" style="font-size:12px;color:var(--text-secondary);margin:0 0 8px 0;">进入作业后可启用。</p>
+          <pre id="studentMcpConfig" style="font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text-secondary);margin:0;">请先进入 / 恢复当前作业。</pre>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -1543,6 +1559,7 @@
       if (!submission) {
         card.style.display = 'none';
         renderGradeResult(null);
+        renderStudentMCPConfig(null);
         return;
       }
       card.style.display = 'block';
@@ -1564,6 +1581,8 @@
       if (submission.assignment_id) document.getElementById('assignment_id').value = submission.assignment_id;
       renderAssignmentFiles();
       saveHwToStorage();
+
+      loadStudentMCPConfig();
     }
     function renderGradeResult(submission) {
       var root = document.getElementById('gradeResult');
@@ -1760,6 +1779,84 @@
       }
     }
 
+
+    function renderStudentMCPConfig(state) {
+      var card = document.getElementById('studentAgentCard');
+      var pre = document.getElementById('studentMcpConfig');
+      var btn = document.getElementById('copyStudentMcpConfig');
+      var toggle = document.getElementById('studentMcpEnabledToggle');
+      var status = document.getElementById('studentMcpStatus');
+      if (!card || !pre || !btn || !toggle || !status) return;
+      if (!state) {
+        card.style.display = 'none';
+        toggle.checked = false;
+        toggle.disabled = true;
+        btn.style.display = 'none';
+        pre.textContent = '请先进入 / 恢复当前作业。';
+        status.textContent = '进入作业后可启用。';
+        return;
+      }
+      card.style.display = 'block';
+      var enabled = !!state.enabled;
+      var token = state.token || '';
+      toggle.checked = enabled;
+      toggle.disabled = false;
+      if (!enabled || !token) {
+        pre.textContent = '当前未启用学生 MCP Token。开启后会生成与当前作业身份绑定的专用 token。';
+        btn.style.display = 'none';
+        status.textContent = enabled ? '配置读取失败，请关闭后重新开启一次。' : '当前已关闭。开启后即可复制配置。';
+        return;
+      }
+      var prefix = (typeof __PREFIX !== 'undefined' && __PREFIX) ? __PREFIX : '';
+      var url = window.location.origin + prefix + '/mcp/sse?token=' + encodeURIComponent(token);
+      var config = { mcpServers: { 'course-assistant-student': { url: url } } };
+      pre.textContent = JSON.stringify(config, null, 2);
+      btn.style.display = '';
+      status.textContent = '当前已启用。可询问历史小测、作业状态和学习建议；需教师确认的问题会转为 Q&A。';
+      btn.onclick = function () {
+        navigator.clipboard.writeText(pre.textContent).then(function () {
+          btn.textContent = '已复制';
+          setTimeout(function () { btn.textContent = '复制配置'; }, 2000);
+        });
+      };
+    }
+
+    async function loadStudentMCPConfig() {
+      var card = document.getElementById('studentAgentCard');
+      var toggle = document.getElementById('studentMcpEnabledToggle');
+      if (!card || !toggle) return;
+      toggle.disabled = true;
+      try {
+        var r = await fetch('/api/student/mcp', { credentials: 'include' });
+        if (r.status === 401) { renderStudentMCPConfig(null); return; }
+        if (!r.ok) { renderStudentMCPConfig({ enabled: false }); return; }
+        renderStudentMCPConfig(await r.json());
+      } catch (_) {
+        renderStudentMCPConfig({ enabled: false });
+      }
+    }
+
+    async function onStudentMCPEnabledToggle() {
+      var toggle = document.getElementById('studentMcpEnabledToggle');
+      if (!toggle) return;
+      var enabled = !!toggle.checked;
+      toggle.disabled = true;
+      try {
+        var r = await fetch('/api/student/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ enabled: enabled })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        renderStudentMCPConfig(await r.json());
+        setMessage('sessionMessage', 'info', enabled ? '已开启学生 MCP Token。' : '已关闭学生 MCP Token。');
+      } catch (err) {
+        setMessage('sessionMessage', 'error', err && err.message ? err.message : '保存学生 MCP 配置失败');
+        await loadStudentMCPConfig();
+      }
+    }
+
     // ── Homework event bindings ──
     document.getElementById('toggleKey').onclick = function () {
       var inp = document.getElementById('hw_secret_key');
@@ -1780,6 +1877,7 @@
       document.getElementById('qaImageInfo').textContent = files.length ? ('已选择 ' + files.length + ' 张图片') : '最多 5 张 JPEG/PNG 图片，单张不超过 8 MB。';
     };
     document.getElementById('qaSubmitBtn').onclick = submitQAQuestion;
+    document.getElementById('studentMcpEnabledToggle').onchange = onStudentMCPEnabledToggle;
     document.getElementById('enterBtn').onclick = startOrResumeSubmission;
     document.getElementById('refreshBtn').onclick = function () { fetchCurrentSubmission(true); };
     document.getElementById('reportUploadBtn').onclick = function () { document.getElementById('reportInput').click(); };
