@@ -24,6 +24,10 @@ type memStore struct {
 	settings            map[string]string
 	homeworkSubmissions []domain.HomeworkSubmission
 	homeworkQA          []domain.HomeworkQA
+	qaIssues            []domain.QAIssue
+	qaMessages          []domain.QAMessage
+	nextQAIssueID       int
+	nextQAMessageID     int
 	teachers            []domain.Teacher
 	courses             []domain.Course
 	courseTeachers      []domain.CourseTeacher
@@ -544,35 +548,100 @@ func (m *memStore) SetHomeworkQuestionHidden(_ context.Context, id string, hidde
 }
 
 // QAIssueStore stubs
-func (m *memStore) CreateQAIssue(_ context.Context, _ *domain.QAIssue) (int64, error) {
-	return 0, nil
+func (m *memStore) CreateQAIssue(_ context.Context, issue *domain.QAIssue) (int64, error) {
+	if m.nextQAIssueID == 0 {
+		m.nextQAIssueID = 1
+	}
+	issue.ID = m.nextQAIssueID
+	m.nextQAIssueID++
+	m.qaIssues = append(m.qaIssues, *issue)
+	return int64(issue.ID), nil
 }
-func (m *memStore) GetQAIssueByID(_ context.Context, _ int) (*domain.QAIssue, error) {
-	return nil, nil
+func (m *memStore) GetQAIssueByID(_ context.Context, id int) (*domain.QAIssue, error) {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			item := m.qaIssues[i]
+			return &item, nil
+		}
+	}
+	return nil, sql.ErrNoRows
 }
-func (m *memStore) ListQAIssues(_ context.Context, _ int, _ string, _ bool) ([]domain.QAIssue, error) {
-	return nil, nil
+func (m *memStore) ListQAIssues(_ context.Context, courseID int, assignmentID string, includeHidden bool) ([]domain.QAIssue, error) {
+	items := make([]domain.QAIssue, 0)
+	for _, item := range m.qaIssues {
+		if courseID > 0 && item.CourseID != courseID {
+			continue
+		}
+		if strings.TrimSpace(assignmentID) != "" && item.AssignmentID != assignmentID {
+			continue
+		}
+		if item.Hidden && !includeHidden {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
-func (m *memStore) ListQAIssuesByCourse(_ context.Context, _ int, _ bool) ([]domain.QAIssue, error) {
-	return nil, nil
+func (m *memStore) ListQAIssuesByCourse(ctx context.Context, courseID int, includeHidden bool) ([]domain.QAIssue, error) {
+	return m.ListQAIssues(ctx, courseID, "", includeHidden)
 }
-func (m *memStore) UpdateQAIssueStatus(_ context.Context, _ int, _ string) error {
-	return nil
+func (m *memStore) UpdateQAIssueStatus(_ context.Context, id int, status string) error {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			m.qaIssues[i].Status = status
+			m.qaIssues[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
-func (m *memStore) SetQAIssuePinned(_ context.Context, _ int, _ bool) error {
-	return nil
+func (m *memStore) SetQAIssuePinned(_ context.Context, id int, pinned bool) error {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			m.qaIssues[i].Pinned = pinned
+			m.qaIssues[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
-func (m *memStore) SetQAIssueHidden(_ context.Context, _ int, _ bool) error {
-	return nil
+func (m *memStore) SetQAIssueHidden(_ context.Context, id int, hidden bool) error {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			m.qaIssues[i].Hidden = hidden
+			m.qaIssues[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
-func (m *memStore) IncrementQAIssueMessageCount(_ context.Context, _ int) error {
-	return nil
+func (m *memStore) IncrementQAIssueMessageCount(_ context.Context, id int) error {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			m.qaIssues[i].MessageCount++
+			m.qaIssues[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
-func (m *memStore) CreateQAMessage(_ context.Context, _ *domain.QAMessage) (int64, error) {
-	return 0, nil
+func (m *memStore) CreateQAMessage(_ context.Context, msg *domain.QAMessage) (int64, error) {
+	if m.nextQAMessageID == 0 {
+		m.nextQAMessageID = 1
+	}
+	msg.ID = m.nextQAMessageID
+	m.nextQAMessageID++
+	m.qaMessages = append(m.qaMessages, *msg)
+	return int64(msg.ID), nil
 }
-func (m *memStore) ListQAMessages(_ context.Context, _ int) ([]domain.QAMessage, error) {
-	return nil, nil
+func (m *memStore) ListQAMessages(_ context.Context, issueID int) ([]domain.QAMessage, error) {
+	items := make([]domain.QAMessage, 0)
+	for _, item := range m.qaMessages {
+		if item.IssueID == issueID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
 }
 func (m *memStore) UpdateAttemptStudentInfo(_ context.Context, _, _, _, _ string) error {
 	return errors.New("not implemented")
