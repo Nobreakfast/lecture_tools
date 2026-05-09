@@ -879,3 +879,54 @@ func TestCourseTeacherMembershipListsSharedCourses(t *testing.T) {
 		t.Fatalf("updated permission = %q", member.Permission)
 	}
 }
+
+func TestMergeAttemptStudentOptionalSourceFields(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-merge-attempt-student?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	attempts := []domain.Attempt{
+		{ID: "wrong-1", SessionToken: "tw1", CourseID: 7, QuizID: "quiz-a", Name: "张三错", StudentNo: "2026001x", ClassName: "1班", Status: domain.StatusSubmitted, CreatedAt: now, UpdatedAt: now},
+		{ID: "wrong-2", SessionToken: "tw2", CourseID: 7, QuizID: "quiz-b", Name: "张三错", StudentNo: "2026001x", ClassName: "1班", Status: domain.StatusSubmitted, CreatedAt: now, UpdatedAt: now},
+		{ID: "right-1", SessionToken: "tr1", CourseID: 7, QuizID: "quiz-a", Name: "张三", StudentNo: "2026001", ClassName: "1班", Status: domain.StatusSubmitted, CreatedAt: now, UpdatedAt: now},
+		{ID: "other-course", SessionToken: "to1", CourseID: 8, QuizID: "quiz-a", Name: "张三错", StudentNo: "2026001x", ClassName: "1班", Status: domain.StatusSubmitted, CreatedAt: now, UpdatedAt: now},
+	}
+	for i := range attempts {
+		if err := st.CreateAttempt(ctx, &attempts[i]); err != nil {
+			t.Fatalf("create attempt %s failed: %v", attempts[i].ID, err)
+		}
+	}
+
+	merged, err := st.MergeAttemptStudent(ctx, "张三错", "", "", "张三", "2026001", "1班", 7)
+	if err != nil {
+		t.Fatalf("merge failed: %v", err)
+	}
+	if merged != 2 {
+		t.Fatalf("expected 2 merged attempts, got %d", merged)
+	}
+
+	for _, id := range []string{"wrong-1", "wrong-2"} {
+		got, err := st.GetAttemptByID(ctx, id)
+		if err != nil {
+			t.Fatalf("get %s failed: %v", id, err)
+		}
+		if got.Name != "张三" || got.StudentNo != "2026001" || got.ClassName != "1班" {
+			t.Fatalf("attempt %s was not merged: name=%q no=%q class=%q", id, got.Name, got.StudentNo, got.ClassName)
+		}
+	}
+
+	other, err := st.GetAttemptByID(ctx, "other-course")
+	if err != nil {
+		t.Fatalf("get other-course failed: %v", err)
+	}
+	if other.Name != "张三错" || other.StudentNo != "2026001x" {
+		t.Fatalf("merge should not affect another course: %+v", other)
+	}
+}
