@@ -1018,7 +1018,7 @@ func TestAPITeacherMCPPersistentTokenToggle(t *testing.T) {
 	}
 }
 
-func TestAPIStudentMCPPersistentTokenToggle(t *testing.T) {
+func TestAPIStudentMCPRouteIsNotExposed(t *testing.T) {
 	st := &memStore{
 		settings: map[string]string{},
 		homeworkSubmissions: []domain.HomeworkSubmission{{
@@ -1034,41 +1034,40 @@ func TestAPIStudentMCPPersistentTokenToggle(t *testing.T) {
 	}
 	s := New(Config{}, st)
 
-	enableReq := httptest.NewRequest(http.MethodPost, "/api/student/mcp", strings.NewReader(`{"enabled":true}`))
-	enableReq.Header.Set("Content-Type", "application/json")
-	enableReq.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "homework-token"})
-	enableRR := httptest.NewRecorder()
-	s.Routes().ServeHTTP(enableRR, enableReq)
-	if enableRR.Code != http.StatusOK {
-		t.Fatalf("enable status: %d body=%s", enableRR.Code, enableRR.Body.String())
+	req := httptest.NewRequest(http.MethodPost, "/api/student/mcp", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "homework-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("student MCP route status = %d, want 404: %s", rr.Code, rr.Body.String())
 	}
-	var enabledResp struct {
-		Enabled      bool   `json:"enabled"`
-		HasToken     bool   `json:"has_token"`
-		Token        string `json:"token"`
-		CourseID     int    `json:"course_id"`
-		AssignmentID string `json:"assignment_id"`
-	}
-	if err := json.Unmarshal(enableRR.Body.Bytes(), &enabledResp); err != nil {
-		t.Fatalf("unmarshal enable response: %v", err)
-	}
-	if !enabledResp.Enabled || !enabledResp.HasToken || enabledResp.Token == "" || enabledResp.CourseID != 1 || enabledResp.AssignmentID != "hw1" {
-		t.Fatalf("unexpected enable response: %+v", enabledResp)
-	}
-	if submission := s.getPersistentStudentMCPSessionByToken(context.Background(), enabledResp.Token); submission == nil || submission.ID != "sub-1" {
-		t.Fatalf("persistent student token should authenticate submission, got %+v", submission)
-	}
+}
 
-	disableReq := httptest.NewRequest(http.MethodPost, "/api/student/mcp", strings.NewReader(`{"enabled":false}`))
-	disableReq.Header.Set("Content-Type", "application/json")
-	disableReq.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "homework-token"})
-	disableRR := httptest.NewRecorder()
-	s.Routes().ServeHTTP(disableRR, disableReq)
-	if disableRR.Code != http.StatusOK {
-		t.Fatalf("disable status: %d body=%s", disableRR.Code, disableRR.Body.String())
+func TestStudentAgentPromptUsesInternalContextWithoutMCPConfig(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{{ID: 1, TeacherID: "T01", Name: "机器学习", Slug: "ml", DisplayName: "机器学习"}},
+		homeworkSubmissions: []domain.HomeworkSubmission{{
+			ID:                 "sub-1",
+			SessionToken:       "homework-token",
+			CourseID:           1,
+			Course:             "ml",
+			AssignmentID:       "hw1",
+			Name:               "学生一",
+			StudentNo:          "S01",
+			ClassName:          "一班",
+			ReportOriginalName: "report.pdf",
+		}},
+		attempts: []domain.Attempt{{ID: "a1", CourseID: 1, QuizID: "quiz-1", Name: "学生一", StudentNo: "S01", ClassName: "一班", AttemptNo: 1, Status: domain.StatusSubmitted, UpdatedAt: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)}},
 	}
-	if submission := s.getPersistentStudentMCPSessionByToken(context.Background(), enabledResp.Token); submission != nil {
-		t.Fatalf("disabled persistent student token should not authenticate, got %+v", submission)
+	s := New(Config{}, st)
+	req := httptest.NewRequest(http.MethodPost, "/api/student/agent/chat", nil)
+	prompt := s.studentAgentPrompt(req, &st.homeworkSubmissions[0], "我前几次小测表现如何？", nil)
+	if !strings.Contains(prompt, "历史小测内部结果") || !strings.Contains(prompt, "quiz-1") || !strings.Contains(prompt, "当前作业内部结果") || !strings.Contains(prompt, "report.pdf") {
+		t.Fatalf("student agent prompt missing internal context: %s", prompt)
+	}
+	if strings.Contains(strings.ToLower(prompt), "token") || strings.Contains(prompt, "/mcp/sse") {
+		t.Fatalf("student agent prompt should not expose MCP config or token details: %s", prompt)
 	}
 }
 

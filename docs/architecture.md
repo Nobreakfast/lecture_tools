@@ -130,6 +130,7 @@
 - 历史课程不做强制转换；若旧数据没有 `display_name/internal_name`，运行时回退到原 `slug`
 - `GET /api/teacher/mcp`：读取“其它 > MCP”里的长效 token 状态；仅在已开启时返回可复制 token
 - `POST /api/teacher/mcp`：开启/关闭教师专属长效 token；关闭后已有 MCP 配置立即失效，但 token 会保留供后续重新开启
+- `POST /api/student/agent/chat`：学生端智能助手对话；服务端内部读取当前学生的小测/作业上下文，必要时创建 Q&A，不向学生展示 MCP 配置或 token
 - `/mcp/sse`、`/mcp/message`：既支持现有教师登录态，也支持上述长效 token 直连，供 Trae / Cursor / Claude Desktop 使用
   - 当前内置 MCP tools：
     - `list_courses`：列出教师课程（含课程ID、标识、邀请码）

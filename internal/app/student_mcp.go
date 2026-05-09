@@ -139,7 +139,7 @@ func (s *Server) studentMCPHomeworkStatus(ctx context.Context, submission *domai
 	if strings.TrimSpace(fresh.AIPregradeFeedback) != "" {
 		b.WriteString("AI 预批改反馈：" + strings.TrimSpace(fresh.AIPregradeFeedback) + "\n")
 	}
-	b.WriteString("如问题需要教师确认，请调用 create_student_qa_issue 新建 Q&A。")
+	b.WriteString("如问题需要教师确认，请将学生诉求整理为 Q&A。")
 	return b.String(), nil
 }
 
