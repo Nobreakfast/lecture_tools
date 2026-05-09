@@ -2220,10 +2220,23 @@ func (s *SQLiteStore) UpdateAttemptStudentInfo(ctx context.Context, attemptID, n
 }
 
 // MergeAttemptStudent renames all attempts matching source student info to the target student info
-// within a given course. This is used when a student misspelled their name.
-func (s *SQLiteStore) MergeAttemptStudent(ctx context.Context, sourceName, sourceStudentNo, sourceClassName, targetName, targetStudentNo, targetClassName string, courseID int) error {
+// within a given course. Empty source student_no/class_name values are ignored so the
+// teacher can merge by name when those optional fields are unknown.
+func (s *SQLiteStore) MergeAttemptStudent(ctx context.Context, sourceName, sourceStudentNo, sourceClassName, targetName, targetStudentNo, targetClassName string, courseID int) (int64, error) {
 	now := time.Now().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET name = ?, student_no = ?, class_name = ?, updated_at = ? WHERE course_id = ? AND name = ? AND student_no = ? AND class_name = ?`,
-		targetName, targetStudentNo, targetClassName, now, courseID, sourceName, sourceStudentNo, sourceClassName)
-	return err
+	query := `UPDATE attempts SET name = ?, student_no = ?, class_name = ?, updated_at = ? WHERE course_id = ? AND name = ?`
+	args := []any{targetName, targetStudentNo, targetClassName, now, courseID, sourceName}
+	if sourceStudentNo != "" {
+		query += ` AND student_no = ?`
+		args = append(args, sourceStudentNo)
+	}
+	if sourceClassName != "" {
+		query += ` AND class_name = ?`
+		args = append(args, sourceClassName)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

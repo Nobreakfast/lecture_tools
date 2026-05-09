@@ -783,7 +783,11 @@ func (s *Server) apiTeacherCourseMergeStudent(w http.ResponseWriter, r *http.Req
 		return
 	}
 	req.SourceName = strings.TrimSpace(req.SourceName)
+	req.SourceStudentNo = strings.TrimSpace(req.SourceStudentNo)
+	req.SourceClassName = strings.TrimSpace(req.SourceClassName)
 	req.TargetName = strings.TrimSpace(req.TargetName)
+	req.TargetStudentNo = strings.TrimSpace(req.TargetStudentNo)
+	req.TargetClassName = strings.TrimSpace(req.TargetClassName)
 	if req.SourceName == "" || req.TargetName == "" {
 		http.Error(w, "源姓名和目标姓名不能为空", http.StatusBadRequest)
 		return
@@ -792,14 +796,19 @@ func (s *Server) apiTeacherCourseMergeStudent(w http.ResponseWriter, r *http.Req
 		http.Error(w, "源和目标相同，无需合并", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.MergeAttemptStudent(r.Context(),
+	merged, err := s.store.MergeAttemptStudent(r.Context(),
 		req.SourceName, req.SourceStudentNo, req.SourceClassName,
 		req.TargetName, req.TargetStudentNo, req.TargetClassName,
-		courseID); err != nil {
+		courseID)
+	if err != nil {
 		http.Error(w, "合并失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	if merged == 0 {
+		http.Error(w, "未找到匹配的源学生记录", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "merged": merged})
 }
 
 // gone410 returns a handler that replies 410 Gone with a short hint telling

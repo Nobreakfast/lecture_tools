@@ -577,8 +577,8 @@ func (m *memStore) ListQAMessages(_ context.Context, _ int) ([]domain.QAMessage,
 func (m *memStore) UpdateAttemptStudentInfo(_ context.Context, _, _, _, _ string) error {
 	return errors.New("not implemented")
 }
-func (m *memStore) MergeAttemptStudent(_ context.Context, _, _, _, _, _, _ string, _ int) error {
-	return errors.New("not implemented")
+func (m *memStore) MergeAttemptStudent(_ context.Context, _, _, _, _, _, _ string, _ int) (int64, error) {
+	return 0, errors.New("not implemented")
 }
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
