@@ -26,6 +26,7 @@ type memStore struct {
 	homeworkQA          []domain.HomeworkQA
 	teachers            []domain.Teacher
 	courses             []domain.Course
+	courseTeachers      []domain.CourseTeacher
 	nextCourseID        int
 }
 
@@ -107,14 +108,74 @@ func (m *memStore) GetCourseByInviteCode(_ context.Context, code string) (*domai
 }
 func (m *memStore) ListCoursesByTeacher(_ context.Context, teacherID string) ([]domain.Course, error) {
 	items := make([]domain.Course, 0)
+	seen := map[int]bool{}
 	for _, item := range m.courses {
 		if item.TeacherID == teacherID {
 			items = append(items, item)
+			seen[item.ID] = true
+		}
+	}
+	for _, ct := range m.courseTeachers {
+		if ct.TeacherID != teacherID || seen[ct.CourseID] {
+			continue
+		}
+		for _, item := range m.courses {
+			if item.ID == ct.CourseID {
+				items = append(items, item)
+				seen[item.ID] = true
+			}
 		}
 	}
 	return items, nil
 }
 func (m *memStore) ListAllCourses(context.Context) ([]domain.Course, error) { return m.courses, nil }
+func (m *memStore) AddCourseTeacher(_ context.Context, ct *domain.CourseTeacher) error {
+	for i := range m.courseTeachers {
+		if m.courseTeachers[i].CourseID == ct.CourseID && m.courseTeachers[i].TeacherID == ct.TeacherID {
+			m.courseTeachers[i].Permission = ct.Permission
+			m.courseTeachers[i].UpdatedAt = ct.UpdatedAt
+			return nil
+		}
+	}
+	m.courseTeachers = append(m.courseTeachers, *ct)
+	return nil
+}
+func (m *memStore) GetCourseTeacher(_ context.Context, courseID int, teacherID string) (*domain.CourseTeacher, error) {
+	for i := range m.courseTeachers {
+		if m.courseTeachers[i].CourseID == courseID && m.courseTeachers[i].TeacherID == teacherID {
+			item := m.courseTeachers[i]
+			return &item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+func (m *memStore) ListCourseTeachers(_ context.Context, courseID int) ([]domain.CourseTeacher, error) {
+	items := make([]domain.CourseTeacher, 0)
+	for _, item := range m.courseTeachers {
+		if item.CourseID == courseID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+func (m *memStore) UpdateCourseTeacherPermission(_ context.Context, courseID int, teacherID string, permission domain.CoursePermission) error {
+	for i := range m.courseTeachers {
+		if m.courseTeachers[i].CourseID == courseID && m.courseTeachers[i].TeacherID == teacherID {
+			m.courseTeachers[i].Permission = permission
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+func (m *memStore) RemoveCourseTeacher(_ context.Context, courseID int, teacherID string) error {
+	for i := range m.courseTeachers {
+		if m.courseTeachers[i].CourseID == courseID && m.courseTeachers[i].TeacherID == teacherID {
+			m.courseTeachers = append(m.courseTeachers[:i], m.courseTeachers[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 func (m *memStore) UpdateCourse(_ context.Context, c *domain.Course) error {
 	for i := range m.courses {
 		if m.courses[i].ID == c.ID {
@@ -1396,5 +1457,62 @@ func TestAPITeacherCoursesAcceptsInternalNameOnly(t *testing.T) {
 	}
 	if st.courses[0].DisplayName == "" {
 		t.Fatalf("display_name should be derived from internal_name, got empty")
+	}
+}
+
+func TestTeacherCanJoinCourseByInviteCode(t *testing.T) {
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}, {ID: "assistant", Name: "Assistant", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI", InviteCode: "ABC123", CreatedAt: time.Now(), UpdatedAt: time.Now()}},
+	}
+	s := New(Config{}, st)
+	s.authTokens["assistant-token"] = authSession{TeacherID: "assistant", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+
+	body := strings.NewReader(`{"invite_code":"abc123","permission":"view"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/courses/join", body)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "assistant-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("join course got status %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, err := st.GetCourseTeacher(context.Background(), 1, "assistant"); err != nil {
+		t.Fatalf("assistant membership not stored: %v", err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/teacher/courses", nil)
+	listReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "assistant-token"})
+	listRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("list courses got status %d: %s", listRR.Code, listRR.Body.String())
+	}
+	var resp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(listRR.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0]["access"] != "assistant" || resp.Items[0]["permission"] != "view" {
+		t.Fatalf("unexpected assistant course payload: %#v", resp.Items)
+	}
+}
+
+func TestReadOnlyAssistantCannotModifyCourse(t *testing.T) {
+	st := &memStore{
+		teachers:       []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}, {ID: "assistant", Name: "Assistant", Role: domain.RoleTeacher}},
+		courses:        []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI", InviteCode: "ABC123"}},
+		courseTeachers: []domain.CourseTeacher{{CourseID: 1, TeacherID: "assistant", Permission: domain.CoursePermissionView}},
+	}
+	s := New(Config{}, st)
+	s.authTokens["assistant-token"] = authSession{TeacherID: "assistant", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/teacher/courses/entry?course_id=1", strings.NewReader(`{"open":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "assistant-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest && rr.Code != http.StatusForbidden {
+		t.Fatalf("read-only assistant modify got status %d, want forbidden/bad request: %s", rr.Code, rr.Body.String())
 	}
 }

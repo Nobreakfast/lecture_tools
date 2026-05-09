@@ -72,6 +72,14 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			quiz_yaml TEXT,
 			quiz_source_path TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS course_teachers (
+			course_id INTEGER NOT NULL REFERENCES courses(id),
+			teacher_id TEXT NOT NULL REFERENCES teachers(id),
+			permission TEXT NOT NULL DEFAULT 'manage',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(course_id, teacher_id)
+		);`,
 		`CREATE TABLE IF NOT EXISTS attempts (
 			id TEXT PRIMARY KEY,
 			session_token TEXT UNIQUE NOT NULL,
@@ -195,6 +203,7 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_course_scope ON homework_submissions(course_id, assignment_id, student_no) WHERE course_id > 0;`,
 		`CREATE INDEX IF NOT EXISTS idx_courses_teacher ON courses(teacher_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_courses_invite ON courses(invite_code);`,
+		`CREATE INDEX IF NOT EXISTS idx_course_teachers_teacher ON course_teachers(teacher_id);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_teacher_slug ON courses(teacher_id, slug) WHERE slug != '';`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_summaries_course_quiz ON admin_summaries(course_id, quiz_id);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_share_token ON quiz_share(share_token) WHERE revoked_at IS NULL;`,
@@ -678,12 +687,92 @@ func (s *SQLiteStore) GetCourseByInviteCode(ctx context.Context, code string) (*
 
 func (s *SQLiteStore) ListCoursesByTeacher(ctx context.Context, teacherID string) ([]domain.Course, error) {
 	return s.listCourses(ctx,
-		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses WHERE teacher_id = ? ORDER BY created_at`, teacherID)
+		`SELECT DISTINCT c.id, c.teacher_id, c.name, COALESCE(c.display_name,''), COALESCE(c.internal_name,''), COALESCE(c.slug,''), c.invite_code, c.created_at, c.updated_at
+		 FROM courses c
+		 LEFT JOIN course_teachers ct ON ct.course_id = c.id
+		 WHERE c.teacher_id = ? OR ct.teacher_id = ?
+		 ORDER BY c.created_at`, teacherID, teacherID)
 }
 
 func (s *SQLiteStore) ListAllCourses(ctx context.Context) ([]domain.Course, error) {
 	return s.listCourses(ctx,
 		`SELECT id, teacher_id, name, COALESCE(display_name,''), COALESCE(internal_name,''), COALESCE(slug,''), invite_code, created_at, updated_at FROM courses ORDER BY teacher_id, created_at`)
+}
+
+func (s *SQLiteStore) AddCourseTeacher(ctx context.Context, ct *domain.CourseTeacher) error {
+	if ct.Permission == "" {
+		ct.Permission = domain.CoursePermissionManage
+	}
+	now := time.Now()
+	if ct.CreatedAt.IsZero() {
+		ct.CreatedAt = now
+	}
+	if ct.UpdatedAt.IsZero() {
+		ct.UpdatedAt = now
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO course_teachers(course_id, teacher_id, permission, created_at, updated_at) VALUES(?, ?, ?, ?, ?)
+		 ON CONFLICT(course_id, teacher_id) DO UPDATE SET permission=excluded.permission, updated_at=excluded.updated_at`,
+		ct.CourseID, ct.TeacherID, string(ct.Permission), ct.CreatedAt.Format(time.RFC3339Nano), ct.UpdatedAt.Format(time.RFC3339Nano))
+	return err
+}
+
+func (s *SQLiteStore) GetCourseTeacher(ctx context.Context, courseID int, teacherID string) (*domain.CourseTeacher, error) {
+	var ct domain.CourseTeacher
+	var created, updated string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT course_id, teacher_id, permission, created_at, updated_at FROM course_teachers WHERE course_id = ? AND teacher_id = ?`,
+		courseID, teacherID).Scan(&ct.CourseID, &ct.TeacherID, &ct.Permission, &created, &updated)
+	if err != nil {
+		return nil, err
+	}
+	ct.CreatedAt = parseTime(time.RFC3339Nano, created)
+	ct.UpdatedAt = parseTime(time.RFC3339Nano, updated)
+	return &ct, nil
+}
+
+func (s *SQLiteStore) ListCourseTeachers(ctx context.Context, courseID int) ([]domain.CourseTeacher, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT course_id, teacher_id, permission, created_at, updated_at FROM course_teachers WHERE course_id = ? ORDER BY created_at`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.CourseTeacher
+	for rows.Next() {
+		var ct domain.CourseTeacher
+		var created, updated string
+		if err := rows.Scan(&ct.CourseID, &ct.TeacherID, &ct.Permission, &created, &updated); err != nil {
+			return nil, err
+		}
+		ct.CreatedAt = parseTime(time.RFC3339Nano, created)
+		ct.UpdatedAt = parseTime(time.RFC3339Nano, updated)
+		items = append(items, ct)
+	}
+	return items, rows.Err()
+}
+
+func (s *SQLiteStore) UpdateCourseTeacherPermission(ctx context.Context, courseID int, teacherID string, permission domain.CoursePermission) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE course_teachers SET permission = ?, updated_at = ? WHERE course_id = ? AND teacher_id = ?`, string(permission), time.Now().Format(time.RFC3339Nano), courseID, teacherID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLiteStore) RemoveCourseTeacher(ctx context.Context, courseID int, teacherID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM course_teachers WHERE course_id = ? AND teacher_id = ?`, courseID, teacherID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *SQLiteStore) UpdateCourse(ctx context.Context, c *domain.Course) error {
@@ -734,6 +823,10 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM quiz_share WHERE course_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM course_teachers WHERE course_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

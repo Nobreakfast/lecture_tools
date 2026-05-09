@@ -229,6 +229,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/system/login", s.apiAdminLogin)
 	mux.HandleFunc("/api/admin/courses", s.apiTeacherCourses)
 	mux.HandleFunc("/api/teacher/courses", s.apiTeacherCourses)
+	mux.HandleFunc("/api/teacher/courses/join", s.apiTeacherCourseJoin)
+	mux.HandleFunc("/api/teacher/courses/collaborators", s.apiTeacherCourseCollaborators)
 	mux.HandleFunc("/api/teacher/courses/delete", s.apiTeacherCourseDelete)
 	mux.HandleFunc("/api/teacher/courses/load-quiz", s.apiTeacherCourseLoadQuiz)
 	mux.HandleFunc("/api/teacher/courses/entry", s.apiTeacherCourseEntry)
@@ -2536,7 +2538,7 @@ func (s *Server) apiTeacherCourses(w http.ResponseWriter, r *http.Request) {
 		}
 		items := make([]map[string]any, 0, len(courses))
 		for _, c := range courses {
-			items = append(items, coursePayload(c))
+			items = append(items, s.coursePayloadForTeacher(r.Context(), c, sess))
 		}
 		writeJSON(w, map[string]any{"items": items})
 	case http.MethodPost:
@@ -2600,7 +2602,129 @@ func (s *Server) apiTeacherCourses(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "创建失败: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "course": coursePayload(*c)})
+		writeJSON(w, map[string]any{"ok": true, "course": s.coursePayloadForTeacher(r.Context(), *c, sess)})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func validCoursePermission(permission domain.CoursePermission) bool {
+	return permission == domain.CoursePermissionManage || permission == domain.CoursePermissionView
+}
+
+func (s *Server) apiTeacherCourseJoin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		InviteCode string                  `json:"invite_code"`
+		Permission domain.CoursePermission `json:"permission"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	code := strings.ToUpper(strings.TrimSpace(req.InviteCode))
+	if code == "" {
+		http.Error(w, "缺少邀请码", http.StatusBadRequest)
+		return
+	}
+	if req.Permission == "" {
+		req.Permission = domain.CoursePermissionManage
+	}
+	if !validCoursePermission(req.Permission) {
+		http.Error(w, "权限无效", http.StatusBadRequest)
+		return
+	}
+	course, err := s.store.GetCourseByInviteCode(r.Context(), code)
+	if err != nil {
+		http.Error(w, "邀请码无效", http.StatusNotFound)
+		return
+	}
+	if course.TeacherID == sess.TeacherID {
+		writeJSON(w, map[string]any{"ok": true, "course": s.coursePayloadForTeacher(r.Context(), *course, sess)})
+		return
+	}
+	now := time.Now()
+	ct := &domain.CourseTeacher{CourseID: course.ID, TeacherID: sess.TeacherID, Permission: req.Permission, CreatedAt: now, UpdatedAt: now}
+	if err := s.store.AddCourseTeacher(r.Context(), ct); err != nil {
+		http.Error(w, "加入失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "course": s.coursePayloadForTeacher(r.Context(), *course, sess)})
+}
+
+func (s *Server) apiTeacherCourseCollaborators(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
+		http.Error(w, "只有主讲教师可以管理协作教师", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		members, err := s.store.ListCourseTeachers(r.Context(), course.ID)
+		if err != nil {
+			http.Error(w, "读取失败", http.StatusInternalServerError)
+			return
+		}
+		items := make([]map[string]any, 0, len(members))
+		for _, m := range members {
+			teacherName := ""
+			if t, err := s.store.GetTeacher(r.Context(), m.TeacherID); err == nil {
+				teacherName = t.Name
+			}
+			items = append(items, map[string]any{"teacher_id": m.TeacherID, "teacher_name": teacherName, "permission": m.Permission})
+		}
+		writeJSON(w, map[string]any{"items": items})
+	case http.MethodPost:
+		var req struct {
+			TeacherID  string                  `json:"teacher_id"`
+			Permission domain.CoursePermission `json:"permission"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		req.TeacherID = strings.TrimSpace(req.TeacherID)
+		if req.TeacherID == "" || !validCoursePermission(req.Permission) {
+			http.Error(w, "参数无效", http.StatusBadRequest)
+			return
+		}
+		if req.TeacherID == course.TeacherID {
+			http.Error(w, "不能修改主讲教师", http.StatusBadRequest)
+			return
+		}
+		if err := s.store.UpdateCourseTeacherPermission(r.Context(), course.ID, req.TeacherID, req.Permission); err != nil {
+			http.Error(w, "更新失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	case http.MethodDelete:
+		teacherID := strings.TrimSpace(r.URL.Query().Get("teacher_id"))
+		if teacherID == "" {
+			http.Error(w, "缺少 teacher_id", http.StatusBadRequest)
+			return
+		}
+		if err := s.store.RemoveCourseTeacher(r.Context(), course.ID, teacherID); err != nil {
+			http.Error(w, "移除失败", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -2677,6 +2801,26 @@ func coursePayload(c domain.Course) map[string]any {
 		"created_at":    c.CreatedAt,
 		"updated_at":    c.UpdatedAt,
 	}
+}
+
+func (s *Server) coursePayloadForTeacher(ctx context.Context, c domain.Course, sess *authSession) map[string]any {
+	p := coursePayload(c)
+	access := "owner"
+	permission := string(domain.CoursePermissionManage)
+	if sess != nil && sess.Role != domain.RoleAdmin && c.TeacherID != sess.TeacherID {
+		access = "assistant"
+		permission = string(domain.CoursePermissionView)
+		if ct, err := s.store.GetCourseTeacher(ctx, c.ID, sess.TeacherID); err == nil && ct.Permission != "" {
+			permission = string(ct.Permission)
+		}
+	}
+	if sess != nil && sess.Role == domain.RoleAdmin {
+		access = "admin"
+	}
+	p["access"] = access
+	p["permission"] = permission
+	p["can_manage"] = access == "owner" || access == "admin" || permission == string(domain.CoursePermissionManage)
+	return p
 }
 
 // Course-scoped quiz APIs and quiz bank management are in quiz_bank.go
@@ -3746,8 +3890,15 @@ func (s *Server) resolveTeacherCourse(r *http.Request, sess *authSession) (int, 
 	if err != nil {
 		return 0, nil, fmt.Errorf("课程不存在")
 	}
-	if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
+	if sess.Role == domain.RoleAdmin || course.TeacherID == sess.TeacherID {
+		return courseID, course, nil
+	}
+	member, err := s.store.GetCourseTeacher(r.Context(), courseID, sess.TeacherID)
+	if err != nil {
 		return 0, nil, fmt.Errorf("无权限访问此课程")
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && member.Permission != domain.CoursePermissionManage {
+		return 0, nil, fmt.Errorf("无权限修改此课程")
 	}
 	return courseID, course, nil
 }

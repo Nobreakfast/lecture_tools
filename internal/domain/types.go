@@ -40,6 +40,21 @@ type CourseState struct {
 	QuizSourcePath string
 }
 
+type CoursePermission string
+
+const (
+	CoursePermissionManage CoursePermission = "manage"
+	CoursePermissionView   CoursePermission = "view"
+)
+
+type CourseTeacher struct {
+	CourseID   int
+	TeacherID  string
+	Permission CoursePermission
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type AttemptStatus string
 
 const (

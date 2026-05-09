@@ -662,6 +662,7 @@
         </div>
       </div>
       <div class="card">
+        <p><strong>创建课程</strong></p>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <label for="newCourseName" style="font-size:14px;font-weight:600;white-space:nowrap;">课程名称</label>
           <input type="text" id="newCourseName" placeholder="如：机器学习导论" style="flex:1;min-width:120px;" />
@@ -670,6 +671,20 @@
             style="flex:1;min-width:100px;" />
           <button id="createCourseBtn">创建课程</button>
         </div>
+      </div>
+      <div class="card">
+        <p><strong>通过邀请码加入课程</strong></p>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <label for="joinCourseCode" style="font-size:14px;font-weight:600;white-space:nowrap;">邀请码</label>
+          <input type="text" id="joinCourseCode" placeholder="输入主讲教师提供的邀请码" style="flex:1;min-width:160px;text-transform:uppercase;" />
+          <label for="joinCoursePermission" style="font-size:14px;font-weight:600;white-space:nowrap;">申请权限</label>
+          <select id="joinCoursePermission" style="width:auto;min-width:110px;">
+            <option value="manage">可管理</option>
+            <option value="view">仅查看</option>
+          </select>
+          <button id="joinCourseBtn">加入课程</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">主讲教师可在课程卡片中调整辅助教师权限。</p>
       </div>
     </div>
 
@@ -1348,9 +1363,12 @@
           </div>` : '';
         const englishName = c.display_name || c.slug || '';
         const internalName = c.internal_name || c.slug || '';
+        const access = c.access === 'assistant' ? (c.permission === 'view' ? '辅助教师 · 仅查看' : '辅助教师 · 可管理') : (c.access === 'admin' ? '管理员' : '主讲教师');
         const englishMeta = englishName
-          ? `<code class="course-meta" title="${escapeHTML(internalName ? ('内部名：' + internalName) : '')}">${escapeHTML(englishName)}</code>`
-          : '';
+          ? `<code class="course-meta" title="${escapeHTML(internalName ? ('内部名：' + internalName) : '')}">${escapeHTML(englishName)}</code><span class="course-meta">${escapeHTML(access)}</span>`
+          : `<span class="course-meta">${escapeHTML(access)}</span>`;
+        const ownerActions = c.access === 'owner' || c.access === 'admin';
+        const canManage = !!c.can_manage;
         return `<div class="course-card" id="courseCard_${cid}">
           <div class="course-card-header">
             <div class="course-card-info">
@@ -1358,9 +1376,10 @@
               ${englishMeta}
             </div>
             <div class="course-card-actions">
-              <button class="small" style="margin:0;font-size:10px;padding:2px 8px;background:var(--success);" onclick="quickToggleEntry('${cid}', true)">开启</button>
-              <button class="small btn-danger" style="margin:0;font-size:10px;padding:2px 8px;" onclick="quickToggleEntry('${cid}', false)">关闭</button>
-              <button class="small btn-danger" style="margin:0;font-size:10px;padding:2px 8px;opacity:0.6;" onclick="deleteCourse('${cid}', '${escapeHTML(c.name)}')">删除</button>
+              ${canManage ? `<button class="small" style="margin:0;font-size:10px;padding:2px 8px;background:var(--success);" onclick="quickToggleEntry('${cid}', true)">开启</button>
+              <button class="small btn-danger" style="margin:0;font-size:10px;padding:2px 8px;" onclick="quickToggleEntry('${cid}', false)">关闭</button>` : ''}
+              ${ownerActions ? `<button class="small btn-secondary" style="margin:0;font-size:10px;padding:2px 8px;" onclick="loadCollaborators('${cid}')">协作</button>
+              <button class="small btn-danger" style="margin:0;font-size:10px;padding:2px 8px;opacity:0.6;" onclick="deleteCourse('${cid}', '${escapeHTML(c.name)}')">删除</button>` : ''}
             </div>
           </div>
           ${inviteRow}
@@ -1368,9 +1387,10 @@
             <select id="quizSelect_${cid}" style="margin:0;padding:3px 8px;font-size:12px;max-width:140px;width:auto;border-radius:6px;border:1px solid var(--border);">
               <option value="">-- 题库 --</option>
             </select>
-            <button class="small" style="margin:0;font-size:10px;padding:2px 8px;" onclick="quickLoadQuiz('${cid}')">加载</button>
+            ${canManage ? `<button class="small" style="margin:0;font-size:10px;padding:2px 8px;" onclick="quickLoadQuiz('${cid}')">加载</button>` : ''}
             <span id="quizState_${cid}" style="font-size:12px;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;"></span>
           </div>
+          ${ownerActions ? `<div class="course-card-row hidden" id="collab_${cid}" style="display:none;"></div>` : ''}
         </div>`;
       }).join('');
       coursesCache.forEach(c => loadCourseCardState(c.id));
@@ -1470,6 +1490,71 @@
         showToast('课程创建成功');
         loadCourses();
       } finally { btn.disabled = false; }
+    }
+
+    async function joinCourse() {
+      const codeInput = document.getElementById('joinCourseCode');
+      const code = toHalfWidth(codeInput.value).trim().toUpperCase();
+      const permission = document.getElementById('joinCoursePermission').value || 'manage';
+      if (!code) { alert('请输入邀请码'); return; }
+      const btn = document.getElementById('joinCourseBtn');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/teacher/courses/join', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ invite_code: code, permission })
+        });
+        if (!r.ok) { alert(await r.text()); return; }
+        codeInput.value = '';
+        showToast('课程已加入');
+        loadCourses();
+      } finally { btn.disabled = false; }
+    }
+
+    async function loadCollaborators(courseId, forceOpen) {
+      const panel = document.getElementById('collab_' + courseId);
+      if (!panel) return;
+      if (!forceOpen && panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+      panel.style.display = 'flex';
+      panel.innerHTML = '<span style="font-size:12px;color:var(--text-secondary);">加载协作教师…</span>';
+      const r = await fetch('/api/teacher/courses/collaborators?course_id=' + courseId, { credentials: 'include' });
+      if (!r.ok) { panel.innerHTML = '<span style="font-size:12px;color:var(--danger);">加载失败</span>'; return; }
+      const data = await r.json();
+      const items = data.items || [];
+      if (!items.length) {
+        panel.innerHTML = '<span style="font-size:12px;color:var(--text-secondary);">暂无辅助教师。对方可用上方邀请码加入。</span>';
+        return;
+      }
+      panel.innerHTML = items.map(item => {
+        const tid = escapeHTML(item.teacher_id || '');
+        const name = escapeHTML(item.teacher_name || item.teacher_id || '');
+        const perm = item.permission || 'manage';
+        return `<span style="font-size:12px;color:var(--text-secondary);">${name}（${tid}）</span>
+          <select onchange="updateCollaboratorPermission('${courseId}', '${tid}', this.value)" style="width:auto;min-width:92px;margin:0;padding:3px 8px;font-size:12px;">
+            <option value="manage" ${perm === 'manage' ? 'selected' : ''}>可管理</option>
+            <option value="view" ${perm === 'view' ? 'selected' : ''}>仅查看</option>
+          </select>
+          <button class="small btn-danger" style="margin:0;font-size:10px;padding:2px 8px;" onclick="removeCollaborator('${courseId}', '${tid}')">移除</button>`;
+      }).join('');
+    }
+
+    async function updateCollaboratorPermission(courseId, teacherId, permission) {
+      const r = await fetch('/api/teacher/courses/collaborators?course_id=' + courseId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ teacher_id: teacherId, permission })
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      showToast('协作权限已更新');
+    }
+
+    async function removeCollaborator(courseId, teacherId) {
+      if (!await showConfirm('确认移除该辅助教师？', { title: '移除协作教师', okLabel: '确认移除' })) return;
+      const r = await fetch('/api/teacher/courses/collaborators?course_id=' + courseId + '&teacher_id=' + encodeURIComponent(teacherId), {
+        method: 'DELETE', credentials: 'include'
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      showToast('辅助教师已移除');
+      loadCollaborators(courseId, true);
     }
 
     async function deleteCourse(id, name) {
@@ -2976,6 +3061,7 @@
     document.getElementById('loginBtn').onclick = doLogin;
     document.getElementById('loginPwd').onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
     document.getElementById('createCourseBtn').onclick = createCourse;
+    document.getElementById('joinCourseBtn').onclick = joinCourse;
     document.getElementById('changePwdBtn').onclick = doChangePassword;
     document.getElementById('changePwdModal').onclick = (evt) => { if (evt.target.id === 'changePwdModal') closeChangePasswordModal(); };
     document.getElementById('detailModal').onclick = (evt) => { if (evt.target.id === 'detailModal') closeDetail(); };

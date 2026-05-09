@@ -816,3 +816,49 @@ func TestForeignKeysEnforced(t *testing.T) {
 		t.Fatal("expected FK violation when inserting course with non-existent teacher_id")
 	}
 }
+
+func TestCourseTeacherMembershipListsSharedCourses(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-course-teachers?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	now := time.Now()
+	for _, teacherID := range []string{"owner", "assistant"} {
+		if err := st.CreateTeacher(ctx, &domain.Teacher{ID: teacherID, Name: teacherID, PasswordHash: "h", Role: domain.RoleTeacher, CreatedAt: now, UpdatedAt: now}); err != nil {
+			t.Fatalf("create teacher %s: %v", teacherID, err)
+		}
+	}
+	course := &domain.Course{TeacherID: "owner", Name: "AI", Slug: "ai", InviteCode: "INVITE", CreatedAt: now, UpdatedAt: now}
+	if err := st.CreateCourse(ctx, course); err != nil {
+		t.Fatalf("create course: %v", err)
+	}
+	if err := st.AddCourseTeacher(ctx, &domain.CourseTeacher{CourseID: course.ID, TeacherID: "assistant", Permission: domain.CoursePermissionView, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("add course teacher: %v", err)
+	}
+	shared, err := st.ListCoursesByTeacher(ctx, "assistant")
+	if err != nil {
+		t.Fatalf("list shared courses: %v", err)
+	}
+	if len(shared) != 1 || shared[0].ID != course.ID {
+		t.Fatalf("expected assistant to see shared course, got %#v", shared)
+	}
+	member, err := st.GetCourseTeacher(ctx, course.ID, "assistant")
+	if err != nil {
+		t.Fatalf("get course teacher: %v", err)
+	}
+	if member.Permission != domain.CoursePermissionView {
+		t.Fatalf("permission = %q", member.Permission)
+	}
+	if err := st.UpdateCourseTeacherPermission(ctx, course.ID, "assistant", domain.CoursePermissionManage); err != nil {
+		t.Fatalf("update permission: %v", err)
+	}
+	member, _ = st.GetCourseTeacher(ctx, course.ID, "assistant")
+	if member.Permission != domain.CoursePermissionManage {
+		t.Fatalf("updated permission = %q", member.Permission)
+	}
+}
