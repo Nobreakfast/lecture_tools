@@ -26,6 +26,12 @@ test.describe("Teacher panel", () => {
     await expect(teacherPage.courseList).toContainText("E2E测试课程");
   });
 
+  test("teacher agent entry opens read-only chat panel", async () => {
+    await teacherPage.page.locator("#agentLauncher").click();
+    await expect(teacherPage.page.locator("#agentPanel")).toBeVisible();
+    await expect(teacherPage.page.locator("#agentMessages")).toContainText("仅支持只读查询");
+  });
+
   test("opens teacher docs in a new page", async () => {
     const popup = await teacherPage.openDocsPage();
     await expect(popup).toHaveURL(/\/teacher\/docs$/);
