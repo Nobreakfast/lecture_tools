@@ -316,6 +316,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/share", s.apiShareDetail)
 	mux.HandleFunc("/api/teacher/mcp", s.apiTeacherMCP)
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
+	mux.HandleFunc("/api/student/mcp", s.apiStudentMCP)
 	mux.HandleFunc("/api/teacher/agent/chat", s.apiTeacherAgentChat)
 	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix
 	// stripping the SSE server sees /mcp/sse and /mcp/message.

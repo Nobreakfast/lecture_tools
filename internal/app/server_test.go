@@ -949,6 +949,60 @@ func TestAPITeacherMCPPersistentTokenToggle(t *testing.T) {
 	}
 }
 
+func TestAPIStudentMCPPersistentTokenToggle(t *testing.T) {
+	st := &memStore{
+		settings: map[string]string{},
+		homeworkSubmissions: []domain.HomeworkSubmission{{
+			ID:           "sub-1",
+			SessionToken: "homework-token",
+			CourseID:     1,
+			Course:       "course-one",
+			AssignmentID: "hw1",
+			Name:         "学生一",
+			StudentNo:    "S01",
+			ClassName:    "一班",
+		}},
+	}
+	s := New(Config{}, st)
+
+	enableReq := httptest.NewRequest(http.MethodPost, "/api/student/mcp", strings.NewReader(`{"enabled":true}`))
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableReq.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "homework-token"})
+	enableRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(enableRR, enableReq)
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("enable status: %d body=%s", enableRR.Code, enableRR.Body.String())
+	}
+	var enabledResp struct {
+		Enabled      bool   `json:"enabled"`
+		HasToken     bool   `json:"has_token"`
+		Token        string `json:"token"`
+		CourseID     int    `json:"course_id"`
+		AssignmentID string `json:"assignment_id"`
+	}
+	if err := json.Unmarshal(enableRR.Body.Bytes(), &enabledResp); err != nil {
+		t.Fatalf("unmarshal enable response: %v", err)
+	}
+	if !enabledResp.Enabled || !enabledResp.HasToken || enabledResp.Token == "" || enabledResp.CourseID != 1 || enabledResp.AssignmentID != "hw1" {
+		t.Fatalf("unexpected enable response: %+v", enabledResp)
+	}
+	if submission := s.getPersistentStudentMCPSessionByToken(context.Background(), enabledResp.Token); submission == nil || submission.ID != "sub-1" {
+		t.Fatalf("persistent student token should authenticate submission, got %+v", submission)
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/api/student/mcp", strings.NewReader(`{"enabled":false}`))
+	disableReq.Header.Set("Content-Type", "application/json")
+	disableReq.AddCookie(&http.Cookie{Name: homeworkCookieName, Value: "homework-token"})
+	disableRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(disableRR, disableReq)
+	if disableRR.Code != http.StatusOK {
+		t.Fatalf("disable status: %d body=%s", disableRR.Code, disableRR.Body.String())
+	}
+	if submission := s.getPersistentStudentMCPSessionByToken(context.Background(), enabledResp.Token); submission != nil {
+		t.Fatalf("disabled persistent student token should not authenticate, got %+v", submission)
+	}
+}
+
 func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
 	st := &memStore{
 		courses: []domain.Course{{
