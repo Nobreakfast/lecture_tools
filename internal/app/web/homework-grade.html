@@ -19,6 +19,12 @@
     .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
     .meta-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font-size: 13px; color: var(--text-secondary); }
     .meta-item strong { display: block; color: var(--text); font-size: 12px; margin-bottom: 3px; }
+    .pregrade-card { display: none; margin: 12px 0 16px; padding: 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
+    .pregrade-card.show { display: block; }
+    .pregrade-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .pregrade-title { font-size: 14px; font-weight: 750; color: #1e40af; }
+    .pregrade-body { white-space: pre-wrap; font-size: 13px; line-height: 1.7; color: #1e3a8a; }
+    .pregrade-meta { margin-top: 8px; font-size: 12px; color: #475569; line-height: 1.6; }
     .nav-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
     .nav-row .nav-status { color: var(--text-secondary); font-size: 12px; }
     .mask-toggle { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: 13px; color: var(--text); font-weight: 650; }
@@ -75,6 +81,18 @@
         匿名评分
       </label>
       <div class="meta-grid" id="studentMeta"></div>
+
+      <div id="aiPregradeCard" class="pregrade-card">
+        <div class="pregrade-head">
+          <div>
+            <div class="pregrade-title">AI预评</div>
+            <div id="aiPregradeScore" style="font-size:13px;margin-top:3px;"></div>
+          </div>
+          <button id="useAIPregradeBtn" class="secondary" type="button" style="padding:7px 10px;font-size:13px;">采用预评</button>
+        </div>
+        <div id="aiPregradeBody" class="pregrade-body"></div>
+        <div id="aiPregradeMeta" class="pregrade-meta"></div>
+      </div>
 
       <label for="scoreInput">总分（0-100）</label>
       <input id="scoreInput" type="number" min="0" max="100" step="0.1" placeholder="例如 92.5" />
@@ -202,6 +220,7 @@
       document.getElementById('publishBadge').textContent = published ? '成绩已公布' : '成绩未公布';
       document.getElementById('publishBadge').className = published ? 'badge badge-ok' : 'badge badge-muted';
       renderMeta();
+      renderAIPregrade();
       document.getElementById('scoreInput').value = submission.score !== undefined && submission.score !== null ? formatScore(submission.score) : '';
       document.getElementById('feedbackInput').value = submission.feedback || '';
       const report = submission.files && submission.files.report;
@@ -233,6 +252,36 @@
         '<div class="meta-item"><strong>班级</strong>' + masked(submission.class_name) + '</div>' +
         '<div class="meta-item"><strong>更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
         '<div class="meta-item"><strong>评分</strong>' + (hasScore ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
+    }
+
+    function renderAIPregrade() {
+      const card = document.getElementById('aiPregradeCard');
+      const hasScore = submission.ai_pregrade_score !== undefined && submission.ai_pregrade_score !== null;
+      const feedback = submission.ai_pregrade_feedback || '';
+      const error = submission.ai_pregrade_error || '';
+      if (!hasScore && !feedback && !error) {
+        card.className = 'pregrade-card';
+        return;
+      }
+      card.className = 'pregrade-card show';
+      document.getElementById('useAIPregradeBtn').disabled = !hasScore && !feedback;
+      document.getElementById('aiPregradeScore').textContent = hasScore ? `建议分：${formatScore(submission.ai_pregrade_score)}/100` : '建议分：暂无';
+      document.getElementById('aiPregradeBody').textContent = feedback || ('预评失败：' + error);
+      const parts = [];
+      if (submission.ai_pregraded_at) parts.push('生成时间：' + formatTime(submission.ai_pregraded_at));
+      if (submission.ai_pregrade_prompt) parts.push('点评维度：' + submission.ai_pregrade_prompt);
+      if (error && feedback) parts.push('最近错误：' + error);
+      document.getElementById('aiPregradeMeta').textContent = parts.join('\n');
+    }
+
+    function useAIPregrade() {
+      if (submission.ai_pregrade_score !== undefined && submission.ai_pregrade_score !== null) {
+        document.getElementById('scoreInput').value = formatScore(submission.ai_pregrade_score);
+      }
+      if (submission.ai_pregrade_feedback) {
+        document.getElementById('feedbackInput').value = submission.ai_pregrade_feedback;
+      }
+      setMsg('info', 'AI 预评已填入评分表单，可继续修改后保存。');
     }
 
     async function saveGrade() {
@@ -286,6 +335,7 @@
 
     document.getElementById('saveBtn').onclick = saveGrade;
     document.getElementById('aiBtn').onclick = generateFeedback;
+    document.getElementById('useAIPregradeBtn').onclick = useAIPregrade;
     document.getElementById('prevBtn').onclick = () => goRelative(-1);
     document.getElementById('nextBtn').onclick = () => goRelative(1);
     document.getElementById('anonymousToggle').onchange = (e) => {

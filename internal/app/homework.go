@@ -1225,6 +1225,212 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionGradeAI(w http.ResponseWriter
 	writeJSON(w, map[string]any{"feedback": feedback})
 }
 
+type homeworkPregradeJob struct {
+	ID           string    `json:"id"`
+	CourseID     int       `json:"course_id"`
+	AssignmentID string    `json:"assignment_id"`
+	Status       string    `json:"status"`
+	Total        int       `json:"total"`
+	Done         int       `json:"done"`
+	Success      int       `json:"success"`
+	Failed       int       `json:"failed"`
+	Skipped      int       `json:"skipped"`
+	Current      string    `json:"current"`
+	LastError    string    `json:"last_error"`
+	StartedAt    time.Time `json:"started_at"`
+	FinishedAt   time.Time `json:"finished_at,omitempty"`
+}
+
+func (s *Server) apiTeacherCourseHomeworkPregradeStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if s.aiClient == nil {
+		http.Error(w, "AI 服务未配置", http.StatusBadGateway)
+		return
+	}
+	var req struct {
+		AssignmentID string `json:"assignment_id"`
+		Prompt       string `json:"prompt"`
+		Overwrite    bool   `json:"overwrite"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "请先选择有效作业编号", http.StatusBadRequest)
+		return
+	}
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		http.Error(w, "请输入点评维度或评分要求", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(prompt)) > 2000 {
+		http.Error(w, "点评维度不能超过 2000 字", http.StatusBadRequest)
+		return
+	}
+	items, err := s.store.ListHomeworkSubmissions(r.Context(), courseID, course.Slug, assignmentID)
+	if err != nil {
+		http.Error(w, "读取提交失败", http.StatusInternalServerError)
+		return
+	}
+	job := &homeworkPregradeJob{
+		ID:           newID(),
+		CourseID:     courseID,
+		AssignmentID: assignmentID,
+		Status:       "running",
+		Total:        len(items),
+		StartedAt:    time.Now(),
+	}
+	s.saveHomeworkPregradeJob(job)
+	go s.runHomeworkPregradeJob(job.ID, course, items, prompt, req.Overwrite)
+	writeJSON(w, map[string]any{"job_id": job.ID, "job": job})
+}
+
+func (s *Server) apiTeacherCourseHomeworkPregradeStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	job := s.getHomeworkPregradeJob(jobID)
+	if job == nil || job.CourseID != courseID {
+		http.Error(w, "AI 预评任务不存在", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"job": job})
+}
+
+func (s *Server) runHomeworkPregradeJob(jobID string, course *domain.Course, items []domain.HomeworkSubmission, prompt string, overwrite bool) {
+	ctx := context.Background()
+	for _, item := range items {
+		label := strings.TrimSpace(item.Name)
+		if label == "" {
+			label = item.StudentNo
+		}
+		s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+			job.Current = label
+		})
+		if !overwrite && (item.AIPregradeScore != nil || strings.TrimSpace(item.AIPregradeFeedback) != "") {
+			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+				job.Skipped++
+				job.Done++
+			})
+			continue
+		}
+		score, feedback, errMsg := s.pregradeHomeworkSubmission(ctx, course, &item, prompt)
+		if errMsg != "" {
+			_ = s.store.SaveHomeworkAIPregrade(ctx, item.ID, nil, "", prompt, errMsg)
+			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+				job.Failed++
+				job.Done++
+				job.LastError = errMsg
+			})
+			continue
+		}
+		if err := s.store.SaveHomeworkAIPregrade(ctx, item.ID, &score, feedback, prompt, ""); err != nil {
+			errMsg = "保存 AI 预评失败"
+			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+				job.Failed++
+				job.Done++
+				job.LastError = errMsg
+			})
+			continue
+		}
+		s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+			job.Success++
+			job.Done++
+		})
+	}
+	s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+		job.Status = "done"
+		job.Current = ""
+		job.FinishedAt = time.Now()
+	})
+}
+
+func (s *Server) pregradeHomeworkSubmission(ctx context.Context, course *domain.Course, submission *domain.HomeworkSubmission, prompt string) (float64, string, string) {
+	if strings.TrimSpace(submission.ReportOriginalName) == "" {
+		return 0, "", "该提交没有报告 PDF，无法预评"
+	}
+	reportPath := filepath.Join(s.resolveHomeworkSubmissionDirForCourse(course, submission), homeworkDiskFilename(domain.HomeworkSlotReport))
+	text, err := pdftext.ExtractText(reportPath)
+	if err != nil {
+		return 0, "", err.Error()
+	}
+	if strings.TrimSpace(text) == "" {
+		return 0, "", "PDF 未提取到可用文本，无法预评"
+	}
+	result, err := s.aiClient.PregradeHomework(ctx, ai.HomeworkGradeFeedbackInput{
+		CourseName:    course.DisplayName,
+		AssignmentID:  submission.AssignmentID,
+		StudentName:   submission.Name,
+		StudentNo:     submission.StudentNo,
+		ClassName:     submission.ClassName,
+		TeacherNote:   prompt,
+		ReportContext: text,
+	})
+	if err != nil {
+		return 0, "", "AI 预评失败: " + err.Error()
+	}
+	return result.SuggestedScore, result.Feedback, ""
+}
+
+func (s *Server) saveHomeworkPregradeJob(job *homeworkPregradeJob) {
+	s.pregradeMu.Lock()
+	defer s.pregradeMu.Unlock()
+	if s.homeworkPregradeJobs == nil {
+		s.homeworkPregradeJobs = map[string]*homeworkPregradeJob{}
+	}
+	cp := *job
+	s.homeworkPregradeJobs[job.ID] = &cp
+}
+
+func (s *Server) getHomeworkPregradeJob(jobID string) *homeworkPregradeJob {
+	s.pregradeMu.RLock()
+	defer s.pregradeMu.RUnlock()
+	job := s.homeworkPregradeJobs[jobID]
+	if job == nil {
+		return nil
+	}
+	cp := *job
+	return &cp
+}
+
+func (s *Server) updateHomeworkPregradeJob(jobID string, fn func(*homeworkPregradeJob)) {
+	s.pregradeMu.Lock()
+	defer s.pregradeMu.Unlock()
+	job := s.homeworkPregradeJobs[jobID]
+	if job == nil {
+		return
+	}
+	fn(job)
+}
+
 func (s *Server) apiTeacherCourseHomeworkGradeVisibility(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2133,6 +2339,13 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		payload["feedback"] = submission.Feedback
 		payload["graded_at"] = submission.GradedAt
 		payload["grade_updated_at"] = submission.GradeUpdatedAt
+		if submission.AIPregradeScore != nil {
+			payload["ai_pregrade_score"] = *submission.AIPregradeScore
+		}
+		payload["ai_pregrade_feedback"] = submission.AIPregradeFeedback
+		payload["ai_pregrade_prompt"] = submission.AIPregradePrompt
+		payload["ai_pregraded_at"] = submission.AIPregradedAt
+		payload["ai_pregrade_error"] = submission.AIPregradeError
 		payload["grade_published"] = s.homeworkGradePublished(context.Background(), submission.Course, submission.AssignmentID)
 		payload["report_preview_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report")
 		payload["report_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/submissions/download?" + dlParams("report") + "&download=1"

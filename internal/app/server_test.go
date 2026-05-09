@@ -448,6 +448,22 @@ func (m *memStore) SaveHomeworkGrade(_ context.Context, submissionID string, sco
 	}
 	return errors.New("not found")
 }
+func (m *memStore) SaveHomeworkAIPregrade(_ context.Context, submissionID string, score *float64, feedback, prompt, errorMessage string) error {
+	for i := range m.homeworkSubmissions {
+		if m.homeworkSubmissions[i].ID != submissionID {
+			continue
+		}
+		now := time.Now()
+		m.homeworkSubmissions[i].AIPregradeScore = score
+		m.homeworkSubmissions[i].AIPregradeFeedback = feedback
+		m.homeworkSubmissions[i].AIPregradePrompt = prompt
+		m.homeworkSubmissions[i].AIPregradedAt = &now
+		m.homeworkSubmissions[i].AIPregradeError = errorMessage
+		m.homeworkSubmissions[i].UpdatedAt = now
+		return nil
+	}
+	return errors.New("not found")
+}
 func (m *memStore) DeleteHomeworkSubmission(_ context.Context, submissionID string) error {
 	for i := range m.homeworkSubmissions {
 		if m.homeworkSubmissions[i].ID == submissionID {

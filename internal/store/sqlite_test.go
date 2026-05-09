@@ -242,6 +242,23 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	if graded.GradedAt == nil || graded.GradeUpdatedAt == nil {
 		t.Fatalf("expected grade timestamps: %+v", graded)
 	}
+	preScore := 88.5
+	if err := st.SaveHomeworkAIPregrade(ctx, submission.ID, &preScore, "AI 预评内容", "按实验分析评分", ""); err != nil {
+		t.Fatalf("SaveHomeworkAIPregrade failed: %v", err)
+	}
+	pregraded, err := st.GetHomeworkSubmissionByID(ctx, submission.ID)
+	if err != nil {
+		t.Fatalf("GetHomeworkSubmissionByID after AI pregrade failed: %v", err)
+	}
+	if pregraded.AIPregradeScore == nil || *pregraded.AIPregradeScore != preScore {
+		t.Fatalf("unexpected AI pregrade score: %+v", pregraded.AIPregradeScore)
+	}
+	if pregraded.AIPregradeFeedback != "AI 预评内容" || pregraded.AIPregradePrompt != "按实验分析评分" {
+		t.Fatalf("unexpected AI pregrade text: %+v", pregraded)
+	}
+	if pregraded.AIPregradedAt == nil || pregraded.AIPregradeError != "" {
+		t.Fatalf("unexpected AI pregrade metadata: %+v", pregraded)
+	}
 
 	items, err := st.ListHomeworkSubmissions(ctx, 0, "course-a", "task-1")
 	if err != nil {

@@ -90,6 +90,7 @@ type HomeworkStore interface {
 	SaveHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error
 	DeleteHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot) error
 	SaveHomeworkGrade(ctx context.Context, submissionID string, score *float64, feedback string) error
+	SaveHomeworkAIPregrade(ctx context.Context, submissionID string, score *float64, feedback, prompt, errorMessage string) error
 	DeleteHomeworkSubmission(ctx context.Context, submissionID string) error
 	CreateHomeworkQuestion(ctx context.Context, qa *domain.HomeworkQA) error
 	ListHomeworkQA(ctx context.Context, courseID int, course, assignmentID string, includeUnanswered, includeHidden bool) ([]domain.HomeworkQA, error)

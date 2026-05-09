@@ -940,15 +940,16 @@ func nullStr(s string) any {
 	return s
 }
 
-const homeworkSubmissionSelectCols = `id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, created_at, updated_at`
+const homeworkSubmissionSelectCols = `id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, ai_pregrade_score, ai_pregrade_feedback, ai_pregrade_prompt, ai_pregraded_at, ai_pregrade_error, created_at, updated_at`
 
 func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *domain.HomeworkSubmission) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO homework_submissions(
 		id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key,
 		report_original_name, report_uploaded_at, code_original_name, code_uploaded_at,
 		extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at,
+		ai_pregrade_score, ai_pregrade_feedback, ai_pregrade_prompt, ai_pregraded_at, ai_pregrade_error,
 		created_at, updated_at
-	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		submission.ID,
 		submission.SessionToken,
 		submission.Course,
@@ -968,6 +969,11 @@ func (s *SQLiteStore) CreateHomeworkSubmission(ctx context.Context, submission *
 		submission.Feedback,
 		formatTimePtr(submission.GradedAt),
 		formatTimePtr(submission.GradeUpdatedAt),
+		floatPtrValue(submission.AIPregradeScore),
+		submission.AIPregradeFeedback,
+		submission.AIPregradePrompt,
+		formatTimePtr(submission.AIPregradedAt),
+		submission.AIPregradeError,
 		submission.CreatedAt.Format(time.RFC3339Nano),
 		submission.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -1115,6 +1121,23 @@ func (s *SQLiteStore) DeleteHomeworkFileMetadata(ctx context.Context, submission
 func (s *SQLiteStore) SaveHomeworkGrade(ctx context.Context, submissionID string, score *float64, feedback string) error {
 	now := time.Now().Format(time.RFC3339Nano)
 	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET score = ?, feedback = ?, graded_at = COALESCE(graded_at, ?), grade_updated_at = ?, updated_at = ? WHERE id = ?`, floatPtrValue(score), feedback, now, now, now, submissionID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (s *SQLiteStore) SaveHomeworkAIPregrade(ctx context.Context, submissionID string, score *float64, feedback, prompt, errorMessage string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET ai_pregrade_score = ?, ai_pregrade_feedback = ?, ai_pregrade_prompt = ?, ai_pregraded_at = ?, ai_pregrade_error = ?, updated_at = ? WHERE id = ?`,
+		floatPtrValue(score), feedback, prompt, now, errorMessage, now, submissionID)
 	if err != nil {
 		return err
 	}
@@ -1325,6 +1348,8 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	var score sql.NullFloat64
 	var gradedAt sql.NullString
 	var gradeUpdatedAt sql.NullString
+	var aiPregradeScore sql.NullFloat64
+	var aiPregradedAt sql.NullString
 	var created string
 	var updated string
 	if err := sc.Scan(
@@ -1347,6 +1372,11 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 		&item.Feedback,
 		&gradedAt,
 		&gradeUpdatedAt,
+		&aiPregradeScore,
+		&item.AIPregradeFeedback,
+		&item.AIPregradePrompt,
+		&aiPregradedAt,
+		&item.AIPregradeError,
 		&created,
 		&updated,
 	); err != nil {
@@ -1362,6 +1392,10 @@ func scanHomeworkSubmissionRows(sc rowScanner) (*domain.HomeworkSubmission, erro
 	}
 	item.GradedAt = parseTimePtr(gradedAt)
 	item.GradeUpdatedAt = parseTimePtr(gradeUpdatedAt)
+	if aiPregradeScore.Valid {
+		item.AIPregradeScore = &aiPregradeScore.Float64
+	}
+	item.AIPregradedAt = parseTimePtr(aiPregradedAt)
 	return &item, nil
 }
 
@@ -1478,6 +1512,11 @@ func (s *SQLiteStore) ensureHomeworkSubmissionSchema(ctx context.Context) error 
 		feedback TEXT NOT NULL DEFAULT '',
 		graded_at TEXT,
 		grade_updated_at TEXT,
+		ai_pregrade_score REAL,
+		ai_pregrade_feedback TEXT NOT NULL DEFAULT '',
+		ai_pregrade_prompt TEXT NOT NULL DEFAULT '',
+		ai_pregraded_at TEXT,
+		ai_pregrade_error TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`)
@@ -1838,12 +1877,17 @@ func (s *SQLiteStore) ensureHomeworkCourseID(ctx context.Context) error {
 			feedback TEXT NOT NULL DEFAULT '',
 			graded_at TEXT,
 			grade_updated_at TEXT,
+			ai_pregrade_score REAL,
+			ai_pregrade_feedback TEXT NOT NULL DEFAULT '',
+			ai_pregrade_prompt TEXT NOT NULL DEFAULT '',
+			ai_pregraded_at TEXT,
+			ai_pregrade_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO homework_submissions(id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, created_at, updated_at) SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, NULL, '', NULL, NULL, created_at, updated_at FROM homework_submissions_old`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO homework_submissions(id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, score, feedback, graded_at, grade_updated_at, ai_pregrade_score, ai_pregrade_feedback, ai_pregrade_prompt, ai_pregraded_at, ai_pregrade_error, created_at, updated_at) SELECT id, session_token, course, course_id, assignment_id, name, student_no, class_name, secret_key, report_original_name, report_uploaded_at, code_original_name, code_uploaded_at, extra_original_name, extra_uploaded_at, NULL, '', NULL, NULL, NULL, '', '', NULL, '', created_at, updated_at FROM homework_submissions_old`); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DROP TABLE homework_submissions_old`); err != nil {
@@ -1881,6 +1925,11 @@ func (s *SQLiteStore) ensureHomeworkGradeColumns(ctx context.Context) error {
 		{"feedback", `ALTER TABLE homework_submissions ADD COLUMN feedback TEXT NOT NULL DEFAULT ''`},
 		{"graded_at", `ALTER TABLE homework_submissions ADD COLUMN graded_at TEXT`},
 		{"grade_updated_at", `ALTER TABLE homework_submissions ADD COLUMN grade_updated_at TEXT`},
+		{"ai_pregrade_score", `ALTER TABLE homework_submissions ADD COLUMN ai_pregrade_score REAL`},
+		{"ai_pregrade_feedback", `ALTER TABLE homework_submissions ADD COLUMN ai_pregrade_feedback TEXT NOT NULL DEFAULT ''`},
+		{"ai_pregrade_prompt", `ALTER TABLE homework_submissions ADD COLUMN ai_pregrade_prompt TEXT NOT NULL DEFAULT ''`},
+		{"ai_pregraded_at", `ALTER TABLE homework_submissions ADD COLUMN ai_pregraded_at TEXT`},
+		{"ai_pregrade_error", `ALTER TABLE homework_submissions ADD COLUMN ai_pregrade_error TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, stmt := range stmts {
 		if cols[stmt.name] {

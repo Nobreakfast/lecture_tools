@@ -153,6 +153,15 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		return fmt.Errorf("homework schema: %w", err)
 	}
 	ensureColumn(db, ctx, "homework_submissions", "course_id", `INTEGER NOT NULL DEFAULT 0`)
+	ensureColumn(db, ctx, "homework_submissions", "score", `REAL`)
+	ensureColumn(db, ctx, "homework_submissions", "feedback", `TEXT NOT NULL DEFAULT ''`)
+	ensureColumn(db, ctx, "homework_submissions", "graded_at", `TEXT`)
+	ensureColumn(db, ctx, "homework_submissions", "grade_updated_at", `TEXT`)
+	ensureColumn(db, ctx, "homework_submissions", "ai_pregrade_score", `REAL`)
+	ensureColumn(db, ctx, "homework_submissions", "ai_pregrade_feedback", `TEXT NOT NULL DEFAULT ''`)
+	ensureColumn(db, ctx, "homework_submissions", "ai_pregrade_prompt", `TEXT NOT NULL DEFAULT ''`)
+	ensureColumn(db, ctx, "homework_submissions", "ai_pregraded_at", `TEXT`)
+	ensureColumn(db, ctx, "homework_submissions", "ai_pregrade_error", `TEXT NOT NULL DEFAULT ''`)
 	ensureColumn(db, ctx, "admin_summaries", "course_id", `INTEGER NOT NULL DEFAULT 0`)
 	ok("列/辅助 schema 已确认")
 
@@ -938,6 +947,15 @@ func ensureHomeworkSchema(ctx context.Context, db *sql.DB) error {
 			code_uploaded_at TEXT,
 			extra_original_name TEXT NOT NULL DEFAULT '',
 			extra_uploaded_at TEXT,
+			score REAL,
+			feedback TEXT NOT NULL DEFAULT '',
+			graded_at TEXT,
+			grade_updated_at TEXT,
+			ai_pregrade_score REAL,
+			ai_pregrade_feedback TEXT NOT NULL DEFAULT '',
+			ai_pregrade_prompt TEXT NOT NULL DEFAULT '',
+			ai_pregraded_at TEXT,
+			ai_pregrade_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`)
@@ -980,6 +998,15 @@ func ensureHomeworkSchema(ctx context.Context, db *sql.DB) error {
 		code_uploaded_at TEXT,
 		extra_original_name TEXT NOT NULL DEFAULT '',
 		extra_uploaded_at TEXT,
+		score REAL,
+		feedback TEXT NOT NULL DEFAULT '',
+		graded_at TEXT,
+		grade_updated_at TEXT,
+		ai_pregrade_score REAL,
+		ai_pregrade_feedback TEXT NOT NULL DEFAULT '',
+		ai_pregrade_prompt TEXT NOT NULL DEFAULT '',
+		ai_pregraded_at TEXT,
+		ai_pregrade_error TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`); err != nil {
@@ -991,6 +1018,8 @@ func ensureHomeworkSchema(ctx context.Context, db *sql.DB) error {
 		"student_no", "class_name", "created_at", "updated_at",
 		"report_original_name", "report_uploaded_at",
 		"code_original_name", "code_uploaded_at",
+		"score", "feedback", "graded_at", "grade_updated_at",
+		"ai_pregrade_score", "ai_pregrade_feedback", "ai_pregrade_prompt", "ai_pregraded_at", "ai_pregrade_error",
 	}
 	var common []string
 	for _, c := range newCols {

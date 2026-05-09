@@ -185,6 +185,11 @@ type HomeworkSubmission struct {
 	Feedback           string
 	GradedAt           *time.Time
 	GradeUpdatedAt     *time.Time
+	AIPregradeScore    *float64
+	AIPregradeFeedback string
+	AIPregradePrompt   string
+	AIPregradedAt      *time.Time
+	AIPregradeError    string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

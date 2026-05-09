@@ -122,6 +122,16 @@
       color: var(--warning);
     }
 
+    .badge-danger {
+      background: rgba(239, 68, 68, .12);
+      color: var(--danger);
+    }
+
+    .badge-muted {
+      background: #f1f5f9;
+      color: var(--text-muted);
+    }
+
     .badge-dot {
       display: inline-block;
       width: 6px;
@@ -867,10 +877,12 @@
               <option value="">-- 全部作业 --</option>
             </select>
             <button id="homeworkQABtn" class="small btn-secondary" style="margin-top:0;">Q&A</button>
+            <button id="homeworkAIPregradeBtn" class="small btn-secondary" style="margin-top:0;">AI预评</button>
             <button id="homeworkGradeVisibilityBtn" class="small btn-secondary" style="margin-top:0;">公布成绩</button>
             <button id="downloadHomeworkBulkBtn" class="small" style="margin-top:0;background:#0f766e;">下载全部</button>
             <button id="refreshHomeworkBtn" class="small" style="margin-top:0;">刷新</button>
           </div>
+          <div id="homeworkPregradeProgress" style="display:none;margin-bottom:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:13px;color:var(--text-secondary);line-height:1.6;"></div>
           <div id="homeworkQAPanel"
             style="display:none;margin-bottom:10px;padding:12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;">
           </div>
@@ -993,6 +1005,26 @@
       <div style="display:flex;gap:12px;">
         <button id="confirmCancelBtn" style="flex:1;background:#e2e8f0;color:#1e293b;">取消</button>
         <button id="confirmOkBtn" style="flex:1;" class="btn-danger">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiPregradeModal" class="modal">
+    <div class="modal-box" style="width:min(520px,100%);">
+      <h3 style="margin-bottom:12px;">AI预评</h3>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:12px;">
+        将按当前选中的作业逐份生成建议分和预评内容。
+      </p>
+      <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px;">点评维度 / 评分要求</label>
+      <textarea id="aiPregradePrompt" placeholder="例如：重点评价报告结构、实验结果分析、代码说明和改进建议；满分 100 分。" style="width:100%;min-height:150px;"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;color:var(--text);font-weight:650;">
+        <input id="aiPregradeOverwrite" type="checkbox" style="width:auto;margin:0;" />
+        覆盖已有 AI 预评
+      </label>
+      <div id="aiPregradeStatus" style="font-size:13px;color:var(--text-secondary);line-height:1.6;min-height:22px;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:12px;">
+        <button id="aiPregradeCancelBtn" style="flex:1;background:#e2e8f0;color:#1e293b;">取消</button>
+        <button id="aiPregradeStartBtn" style="flex:1;">开始预评</button>
       </div>
     </div>
   </div>
@@ -2590,6 +2622,7 @@
       hwSubmissionsCache = data.items || [];
       renderHomeworkSubmissions();
       updateHomeworkGradeVisibilityButton();
+      updateHomeworkAIPregradeButton();
     }
 
     function renderHomeworkSubmissions() {
@@ -2617,6 +2650,7 @@
         const gradeStatus = hasGrade
           ? `<span class="badge badge-success">已评分</span><span style="font-size:12px;color:var(--text-secondary);margin-left:6px;">${escapeHTML(formatScore(item.score))}/100</span>`
           : '<span class="badge badge-warning">未评分</span>';
+        const pregradeStatus = homeworkPregradeStatusCell(item);
         const keyCell = item.secret_key
           ? `<span style="font-family:monospace;font-size:11px;user-select:all;cursor:pointer;" title="点击可选中复制">${escapeHTML(item.secret_key)}</span>`
           : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
@@ -2628,6 +2662,7 @@
           <td>${keyCell}</td>
           <td>${dlCell}</td>
           <td>${gradeStatus}</td>
+          <td>${pregradeStatus}</td>
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '-')}</td>
           <td>
             <button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="openHomeworkGrade('${escapeHTML(item.id)}')">评分</button>
@@ -2635,7 +2670,19 @@
           </td>
         </tr>`;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>AI预评</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function homeworkPregradeStatusCell(item) {
+      if (item.ai_pregrade_error) {
+        return `<span class="badge badge-danger">预评失败</span><div style="font-size:11px;color:var(--text-secondary);margin-top:3px;max-width:160px;">${escapeHTML(item.ai_pregrade_error)}</div>`;
+      }
+      const hasScore = item.ai_pregrade_score !== undefined && item.ai_pregrade_score !== null;
+      if (hasScore || item.ai_pregrade_feedback) {
+        const score = hasScore ? `<span style="font-size:12px;color:var(--text-secondary);margin-left:6px;">${escapeHTML(formatScore(item.ai_pregrade_score))}/100</span>` : '';
+        return `<span class="badge badge-success">已预评</span>${score}`;
+      }
+      return '<span class="badge badge-muted">未预评</span>';
     }
 
     function formatScore(value) {
@@ -2668,6 +2715,91 @@
       btn.dataset.published = published ? 'true' : 'false';
       btn.textContent = published ? '隐藏成绩' : '公布成绩';
       btn.className = published ? 'small btn-danger' : 'small btn-secondary';
+    }
+
+    function updateHomeworkAIPregradeButton() {
+      const btn = document.getElementById('homeworkAIPregradeBtn');
+      if (!btn) return;
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      btn.disabled = !selectedCourseId || !assignmentID;
+      btn.title = assignmentID ? '为当前作业批量生成 AI 预评' : '请先在左侧选择一个具体作业';
+    }
+
+    function openHomeworkAIPregradeModal() {
+      if (!selectedCourseId) { alert('请先选择课程'); return; }
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      if (!assignmentID) { alert('请先选择一个具体作业'); return; }
+      document.getElementById('aiPregradeStatus').textContent = '';
+      document.getElementById('aiPregradeStartBtn').disabled = false;
+      const modal = document.getElementById('aiPregradeModal');
+      modal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => document.getElementById('aiPregradePrompt').focus(), 0);
+    }
+
+    function closeHomeworkAIPregradeModal() {
+      document.getElementById('aiPregradeModal').classList.remove('show');
+      document.body.style.overflow = '';
+    }
+
+    async function startHomeworkAIPregrade() {
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      const prompt = document.getElementById('aiPregradePrompt').value.trim();
+      const overwrite = document.getElementById('aiPregradeOverwrite').checked;
+      if (!assignmentID) { alert('请先选择作业编号'); return; }
+      if (!prompt) {
+        document.getElementById('aiPregradeStatus').textContent = '请输入点评维度或评分要求。';
+        return;
+      }
+      const btn = document.getElementById('aiPregradeStartBtn');
+      btn.disabled = true;
+      document.getElementById('aiPregradeStatus').textContent = '正在创建 AI 预评任务...';
+      try {
+        const r = await fetch('/api/teacher/courses/homework/pregrade/start?course_id=' + selectedCourseId, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ assignment_id: assignmentID, prompt, overwrite })
+        });
+        if (!r.ok) {
+          document.getElementById('aiPregradeStatus').textContent = await r.text();
+          btn.disabled = false;
+          return;
+        }
+        const data = await r.json();
+        closeHomeworkAIPregradeModal();
+        pollHomeworkAIPregrade(data.job_id);
+      } catch (err) {
+        document.getElementById('aiPregradeStatus').textContent = err && err.message ? err.message : '启动失败';
+        btn.disabled = false;
+      }
+    }
+
+    async function pollHomeworkAIPregrade(jobId) {
+      const box = document.getElementById('homeworkPregradeProgress');
+      box.style.display = '';
+      box.textContent = 'AI 预评已开始...';
+      const tick = async () => {
+        const r = await fetch('/api/teacher/courses/homework/pregrade/status?course_id=' + selectedCourseId + '&job_id=' + encodeURIComponent(jobId), { credentials: 'include' });
+        if (!r.ok) {
+          box.textContent = await r.text();
+          return;
+        }
+        const data = await r.json();
+        const job = data.job || {};
+        const bits = [`进度 ${job.done || 0}/${job.total || 0}`, `成功 ${job.success || 0}`, `失败 ${job.failed || 0}`, `跳过 ${job.skipped || 0}`];
+        if (job.current) bits.push('当前：' + job.current);
+        if (job.last_error) bits.push('最近错误：' + job.last_error);
+        box.textContent = bits.join('　');
+        if (job.status === 'done') {
+          box.textContent = 'AI 预评完成：' + bits.join('　');
+          await loadHomeworkSubmissions();
+          setTimeout(() => { box.style.display = 'none'; }, 8000);
+          return;
+        }
+        setTimeout(tick, 1200);
+      };
+      tick();
     }
 
     async function uploadHomeworkAssignment() {
@@ -3117,6 +3249,7 @@
     document.getElementById('homeworkAssignmentFilter').onchange = () => {
       loadHomeworkSubmissions();
       updateHomeworkGradeVisibilityButton();
+      updateHomeworkAIPregradeButton();
       if (document.getElementById('homeworkQAPanel').style.display !== 'none') loadHomeworkQA();
     };
     document.getElementById('homeworkQABtn').onclick = function () {
@@ -3127,6 +3260,10 @@
       window.location.href = url;
     };
     document.getElementById('homeworkGradeVisibilityBtn').onclick = toggleHomeworkGradeVisibility;
+    document.getElementById('homeworkAIPregradeBtn').onclick = openHomeworkAIPregradeModal;
+    document.getElementById('aiPregradeCancelBtn').onclick = closeHomeworkAIPregradeModal;
+    document.getElementById('aiPregradeStartBtn').onclick = startHomeworkAIPregrade;
+    document.getElementById('aiPregradeModal').onclick = (evt) => { if (evt.target.id === 'aiPregradeModal') closeHomeworkAIPregradeModal(); };
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };
 
