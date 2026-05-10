@@ -1071,6 +1071,25 @@ func TestStudentAgentPromptUsesInternalContextWithoutMCPConfig(t *testing.T) {
 	}
 }
 
+func TestParseStudentAgentDecisionAcceptsFencedJSON(t *testing.T) {
+	raw := "```json\n{\"action\":\"create_qa\",\"answer\":\"已整理\",\"qa_title\":\"作业要求\",\"qa_summary\":\"学生想确认提交格式\"}\n```"
+	decision, ok := parseStudentAgentDecision(raw)
+	if !ok {
+		t.Fatalf("expected fenced JSON to parse")
+	}
+	if decision.Action != "create_qa" || decision.QATitle != "作业要求" || decision.QASummary != "学生想确认提交格式" {
+		t.Fatalf("unexpected decision: %+v", decision)
+	}
+}
+
+func TestTruncateAgentTextCapsLongInput(t *testing.T) {
+	long := strings.Repeat("问", agentMaxMessageRunes+10)
+	got := truncateAgentText(long)
+	if len([]rune(got)) != agentMaxMessageRunes+3 || !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncateAgentText length/suffix mismatch: len=%d suffix=%q", len([]rune(got)), got[len(got)-3:])
+	}
+}
+
 func TestAPICourseByInviteCodeReturnsDisplayAndInternalName(t *testing.T) {
 	st := &memStore{
 		courses: []domain.Course{{

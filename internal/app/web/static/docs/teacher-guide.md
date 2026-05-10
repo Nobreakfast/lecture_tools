@@ -234,6 +234,8 @@
 - `get_quiz_feedback`：查询单次小测的反馈汇总（问卷题选项分布 + 简答题高频反馈）
 - `get_quiz_question_stats`：查询单次小测逐题统计（正确率、作答数、常见错误选项）
 - `get_homework_submissions`：查询课程作业提交情况（可按作业编号筛选）
+- `get_qa_issues`：查看课程 Q&A 列表和最近消息，辅助判断优先处理事项
+- `reply_qa_issue`：以教师身份回复 Q&A，并可标记为已解决；协作教师需具备管理权限
 
 常用提问示例（直接对智能助手说）：
 

@@ -1080,6 +1080,17 @@
     function escapeHTML(s) {
       return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
+    function renderMd(text) {
+      if (!text) return '暂无';
+      var s = escapeHTML(text);
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      s = s.replace(/`(.+?)`/g, '<code style="background:#f1f5f9;padding:1px 4px;border-radius:4px;font-size:13px;">$1</code>');
+      s = s.replace(/^(\d+)\.\s/gm, '<strong>$1.</strong> ');
+      s = s.replace(/^[-•]\s/gm, '• ');
+      s = s.replace(/\n/g, '<br/>');
+      return s;
+    }
     function formatTime(v) {
       if (!v) return '—';
       var d = new Date(v);

@@ -62,3 +62,24 @@ func TestTeacherMCPReplyQAIssueSavesTeacherReplyAndResolves(t *testing.T) {
 		t.Fatalf("teacher message not saved correctly: %#v", st.qaMessages)
 	}
 }
+
+func TestTeacherMCPReadAllowsViewCollaboratorButReplyRequiresManage(t *testing.T) {
+	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
+	st := &memStore{
+		courses:        []domain.Course{{ID: 7, TeacherID: "owner", DisplayName: "软件工程", Slug: "se"}},
+		courseTeachers: []domain.CourseTeacher{{CourseID: 7, TeacherID: "assistant", Permission: domain.CoursePermissionView}},
+		qaIssues:       []domain.QAIssue{{ID: 9, CourseID: 7, AssignmentID: "hw1", StudentNo: "S1", Title: "怎么提交", Status: "open", MessageCount: 1, UpdatedAt: now}},
+	}
+	srv := &Server{store: st}
+	if _, err := srv.teacherMCPQAIssues(context.Background(), &authSession{TeacherID: "assistant"}, 7, "", "open", false, 10, 0); err != nil {
+		t.Fatalf("view collaborator should read Q&A issues: %v", err)
+	}
+	if _, err := srv.teacherMCPReplyQAIssue(context.Background(), &authSession{TeacherID: "assistant"}, 9, "请参考说明。", true); err == nil || !strings.Contains(err.Error(), "无权限修改") {
+		t.Fatalf("view collaborator reply error = %v, want no modify permission", err)
+	}
+
+	st.courseTeachers[0].Permission = domain.CoursePermissionManage
+	if _, err := srv.teacherMCPReplyQAIssue(context.Background(), &authSession{TeacherID: "assistant"}, 9, "请参考说明。", true); err != nil {
+		t.Fatalf("manage collaborator should reply: %v", err)
+	}
+}

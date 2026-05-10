@@ -10,7 +10,7 @@ import (
 	"course-assistant/internal/domain"
 )
 
-func (s *Server) teacherMCPCourse(ctx context.Context, sess *authSession, courseID int) (*domain.Course, error) {
+func (s *Server) teacherMCPReadCourse(ctx context.Context, sess *authSession, courseID int) (*domain.Course, error) {
 	if sess == nil {
 		return nil, fmt.Errorf("unauthorized")
 	}
@@ -18,14 +18,32 @@ func (s *Server) teacherMCPCourse(ctx context.Context, sess *authSession, course
 	if err != nil || course == nil {
 		return nil, fmt.Errorf("课程不存在")
 	}
-	if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-		return nil, fmt.Errorf("无权限访问此课程")
+	if sess.Role == domain.RoleAdmin || course.TeacherID == sess.TeacherID {
+		return course, nil
 	}
-	return course, nil
+	if _, err := s.store.GetCourseTeacher(ctx, courseID, sess.TeacherID); err == nil {
+		return course, nil
+	}
+	return nil, fmt.Errorf("无权限访问此课程")
+}
+
+func (s *Server) teacherMCPManageCourse(ctx context.Context, sess *authSession, courseID int) (*domain.Course, error) {
+	course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
+	if err != nil {
+		return nil, err
+	}
+	if sess.Role == domain.RoleAdmin || course.TeacherID == sess.TeacherID {
+		return course, nil
+	}
+	member, err := s.store.GetCourseTeacher(ctx, courseID, sess.TeacherID)
+	if err == nil && member.Permission == domain.CoursePermissionManage {
+		return course, nil
+	}
+	return nil, fmt.Errorf("无权限修改此课程")
 }
 
 func (s *Server) teacherMCPQAIssues(ctx context.Context, sess *authSession, courseID int, assignmentID, status string, includeHidden bool, limit, maxMessages int) (string, error) {
-	course, err := s.teacherMCPCourse(ctx, sess, courseID)
+	course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +165,7 @@ func (s *Server) teacherMCPReplyQAIssue(ctx context.Context, sess *authSession, 
 	if err != nil || issue == nil {
 		return "", fmt.Errorf("Q&A 不存在")
 	}
-	if _, err := s.teacherMCPCourse(ctx, sess, issue.CourseID); err != nil {
+	if _, err := s.teacherMCPManageCourse(ctx, sess, issue.CourseID); err != nil {
 		return "", err
 	}
 	now := time.Now()

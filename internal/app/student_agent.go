@@ -12,7 +12,10 @@ import (
 	"course-assistant/internal/domain"
 )
 
-const studentAgentMaxMessages = 8
+const (
+	studentAgentMaxMessages = 8
+	agentMaxMessageRunes    = 2000
+)
 
 type studentAgentDecision struct {
 	Action    string `json:"action"`
@@ -48,6 +51,7 @@ func (s *Server) apiStudentAgentChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "问题不能为空", http.StatusBadRequest)
 		return
 	}
+	req.Message = truncateAgentText(req.Message)
 
 	prompt := s.studentAgentPrompt(r, submission, req.Message, req.Messages)
 	raw, err := s.aiClient.StudentAgentChat(r.Context(), prompt)
@@ -93,13 +97,29 @@ func (s *Server) apiStudentAgentChat(w http.ResponseWriter, r *http.Request) {
 func parseStudentAgentDecision(raw string) (studentAgentDecision, bool) {
 	raw = strings.TrimSpace(raw)
 	var decision studentAgentDecision
-	if raw == "" || !strings.HasPrefix(raw, "{") {
+	if raw == "" {
 		return decision, false
 	}
-	if err := json.Unmarshal([]byte(raw), &decision); err != nil {
-		return decision, false
+	if strings.HasPrefix(raw, "```") {
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "```json"))
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "```"))
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "```"))
 	}
-	return decision, true
+	if strings.HasPrefix(raw, "{") {
+		if err := json.Unmarshal([]byte(raw), &decision); err == nil {
+			return decision, true
+		}
+	}
+	for i, r := range raw {
+		if r != '{' {
+			continue
+		}
+		decoder := json.NewDecoder(strings.NewReader(raw[i:]))
+		if err := decoder.Decode(&decision); err == nil {
+			return decision, true
+		}
+	}
+	return decision, false
 }
 
 func (s *Server) studentAgentPrompt(r *http.Request, submission *domain.HomeworkSubmission, latest string, messages []struct {
@@ -139,6 +159,7 @@ func (s *Server) studentAgentPrompt(r *http.Request, submission *domain.Homework
 		if content == "" {
 			continue
 		}
+		content = truncateAgentText(content)
 		if role != "assistant" {
 			role = "student"
 		}
@@ -151,4 +172,12 @@ func (s *Server) studentAgentPrompt(r *http.Request, submission *domain.Homework
 
 func (s *Server) apiStudentMCPDisabled(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
+}
+
+func truncateAgentText(text string) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= agentMaxMessageRunes {
+		return string(runes)
+	}
+	return string(runes[:agentMaxMessageRunes]) + "..."
 }

@@ -44,6 +44,7 @@ func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "问题不能为空", http.StatusBadRequest)
 		return
 	}
+	req.Message = truncateAgentText(req.Message)
 
 	ctxText, err := s.teacherAgentContext(r, sess, strings.TrimSpace(req.CourseID))
 	if err != nil {
@@ -77,6 +78,7 @@ func (s *Server) teacherAgentPrompt(ctxText, latest string, messages []struct {
 		if content == "" {
 			continue
 		}
+		content = truncateAgentText(content)
 		if role != "assistant" {
 			role = "teacher"
 		}

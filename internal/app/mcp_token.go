@@ -11,13 +11,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"course-assistant/internal/domain"
 )
 
 const (
 	teacherMCPTokenSettingPrefix = "teacher_mcp_token:"
-	studentMCPTokenSettingPrefix = "student_mcp_token:"
 )
 
 type mcpTokenState struct {
@@ -31,16 +28,8 @@ func teacherMCPTokenSettingKey(teacherID string) string {
 	return teacherMCPTokenSettingPrefix + teacherID
 }
 
-func studentMCPTokenSettingKey(submissionID string) string {
-	return studentMCPTokenSettingPrefix + submissionID
-}
-
 func newTeacherMCPToken(teacherID string) string {
 	return "mcp-" + hex.EncodeToString([]byte(teacherID)) + "-" + newID() + newID()
-}
-
-func newStudentMCPToken(submissionID string) string {
-	return "smcp-" + hex.EncodeToString([]byte(submissionID)) + "-" + newID() + newID()
 }
 
 func teacherIDFromMCPToken(token string) (string, bool) {
@@ -53,22 +42,6 @@ func teacherIDFromMCPToken(token string) (string, bool) {
 		return "", false
 	}
 	raw, err := hex.DecodeString(teacherHex)
-	if err != nil || len(raw) == 0 {
-		return "", false
-	}
-	return string(raw), true
-}
-
-func submissionIDFromStudentMCPToken(token string) (string, bool) {
-	rest, ok := strings.CutPrefix(token, "smcp-")
-	if !ok {
-		return "", false
-	}
-	submissionHex, _, ok := strings.Cut(rest, "-")
-	if !ok || submissionHex == "" {
-		return "", false
-	}
-	raw, err := hex.DecodeString(submissionHex)
 	if err != nil || len(raw) == 0 {
 		return "", false
 	}
@@ -89,22 +62,6 @@ func (s *Server) loadTeacherMCPTokenState(ctx context.Context, teacherID string)
 
 func (s *Server) saveTeacherMCPTokenState(ctx context.Context, teacherID string, state mcpTokenState) error {
 	return s.saveMCPTokenState(ctx, teacherMCPTokenSettingKey(teacherID), state)
-}
-
-func (s *Server) loadStudentMCPTokenState(ctx context.Context, submissionID string) (mcpTokenState, error) {
-	raw, err := s.store.GetSetting(ctx, studentMCPTokenSettingKey(submissionID))
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return mcpTokenState{}, nil
-	}
-	var state mcpTokenState
-	if err := json.Unmarshal([]byte(raw), &state); err != nil {
-		return mcpTokenState{}, err
-	}
-	return state, nil
-}
-
-func (s *Server) saveStudentMCPTokenState(ctx context.Context, submissionID string, state mcpTokenState) error {
-	return s.saveMCPTokenState(ctx, studentMCPTokenSettingKey(submissionID), state)
 }
 
 func (s *Server) saveMCPTokenState(ctx context.Context, key string, state mcpTokenState) error {
@@ -132,92 +89,6 @@ func (s *Server) getPersistentMCPSessionByToken(ctx context.Context, token strin
 		return nil
 	}
 	return &authSession{TeacherID: teacher.ID, Role: teacher.Role}
-}
-
-func (s *Server) getPersistentStudentMCPSessionByToken(ctx context.Context, token string) *domain.HomeworkSubmission {
-	submissionID, ok := submissionIDFromStudentMCPToken(token)
-	if !ok {
-		return nil
-	}
-	state, err := s.loadStudentMCPTokenState(ctx, submissionID)
-	if err != nil || !state.Enabled || state.Token == "" {
-		return nil
-	}
-	if subtle.ConstantTimeCompare([]byte(state.Token), []byte(token)) != 1 {
-		return nil
-	}
-	submission, err := s.store.GetHomeworkSubmissionByID(ctx, submissionID)
-	if err != nil {
-		return nil
-	}
-	return submission
-}
-
-func (s *Server) writeStudentMCPState(w http.ResponseWriter, r *http.Request, submission *domain.HomeworkSubmission) {
-	state, err := s.loadStudentMCPTokenState(r.Context(), submission.ID)
-	if err != nil {
-		http.Error(w, "读取 MCP 配置失败", http.StatusInternalServerError)
-		return
-	}
-	resp := map[string]any{
-		"enabled":       state.Enabled,
-		"has_token":     state.Token != "",
-		"created_at":    state.CreatedAt,
-		"updated_at":    state.UpdatedAt,
-		"course_id":     submission.CourseID,
-		"assignment_id": submission.AssignmentID,
-	}
-	if state.Enabled && state.Token != "" {
-		resp["token"] = state.Token
-	}
-	writeJSON(w, resp)
-}
-
-func (s *Server) apiStudentMCP(w http.ResponseWriter, r *http.Request) {
-	submission, err := s.requireHomeworkStudent(r)
-	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		s.writeStudentMCPState(w, r, submission)
-		return
-	case http.MethodPost:
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now().Format(time.RFC3339Nano)
-	s.settingMu.Lock()
-	state, err := s.loadStudentMCPTokenState(r.Context(), submission.ID)
-	if err == nil {
-		if state.Token == "" && req.Enabled {
-			state.Token = newStudentMCPToken(submission.ID)
-			state.CreatedAt = now
-		}
-		state.Enabled = req.Enabled
-		if state.CreatedAt == "" && state.Token != "" {
-			state.CreatedAt = now
-		}
-		state.UpdatedAt = now
-		err = s.saveStudentMCPTokenState(r.Context(), submission.ID, state)
-	}
-	s.settingMu.Unlock()
-	if err != nil {
-		http.Error(w, "保存 MCP 配置失败", http.StatusInternalServerError)
-		return
-	}
-	s.writeStudentMCPState(w, r, submission)
 }
 
 func (s *Server) writeTeacherMCPState(w http.ResponseWriter, r *http.Request, sess *authSession) {

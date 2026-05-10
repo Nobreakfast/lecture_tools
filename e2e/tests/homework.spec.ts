@@ -52,6 +52,10 @@ test.describe("Homework lifecycle", () => {
       "作业班",
       "secret123"
     );
+    await expect(studentPage.page.locator("#studentAgentLauncher")).toBeVisible();
+    await studentPage.page.locator("#studentAgentLauncher").click();
+    await expect(studentPage.page.locator("#studentAgentPanel")).toBeVisible();
+    await expect(studentPage.page.locator("#studentAgentMessages")).toContainText("历史小测");
 
     // Upload PDF report via API
     const pdfPath = path.resolve(__dirname, "../fixtures/sample.pdf");

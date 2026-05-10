@@ -41,12 +41,10 @@ func (s *Server) mcpAuthMiddleware(next http.Handler) http.Handler {
 				token = c.Value
 			}
 		}
-		if !strings.HasPrefix(token, "smcp-") {
-			if sess := s.getAuthSessionByToken(token); sess != nil {
-				ctx := context.WithValue(r.Context(), mcpAuthKey{}, sess)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
+		if sess := s.getAuthSessionByToken(token); sess != nil {
+			ctx := context.WithValue(r.Context(), mcpAuthKey{}, sess)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -100,7 +98,13 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if sess == nil {
 			return mcp.NewToolResultError("unauthorized"), nil
 		}
-		courses, err := s.store.ListCoursesByTeacher(ctx, sess.TeacherID)
+		var courses []domain.Course
+		var err error
+		if sess.Role == domain.RoleAdmin {
+			courses, err = s.store.ListAllCourses(ctx)
+		} else {
+			courses, err = s.store.ListCoursesByTeacher(ctx, sess.TeacherID)
+		}
 		if err != nil {
 			return mcp.NewToolResultError("读取课程列表失败: " + err.Error()), nil
 		}
@@ -112,7 +116,11 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		b.WriteString("|----|----------|------|--------|----------|\n")
 		for _, c := range courses {
 			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s |\n",
-				c.ID, c.Name, c.Slug, c.InviteCode, c.CreatedAt.Format("2006-01-02")))
+				c.ID,
+				escapeTableCell(teacherAgentCourseName(&c)),
+				escapeTableCell(c.Slug),
+				escapeTableCell(c.InviteCode),
+				c.CreatedAt.Format("2006-01-02")))
 		}
 		b.WriteString(fmt.Sprintf("\n共 %d 门课程", len(courses)))
 		return mcp.NewToolResultText(b.String()), nil
@@ -139,12 +147,9 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("course_id 无效"), nil
 		}
-		course, err := s.store.GetCourse(ctx, courseID)
-		if err != nil || course == nil {
-			return mcp.NewToolResultError("课程不存在"), nil
-		}
-		if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-			return mcp.NewToolResultError("无权限访问此课程"), nil
+		course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		items, err := s.store.ListAttemptsByCourse(ctx, courseID)
@@ -171,8 +176,13 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 				score = fmt.Sprintf("%d/%d", item.Correct, item.Total)
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s | %s | %s |\n",
-				a.Name, a.StudentNo, a.ClassName, a.AttemptNo,
-				string(a.Status), score, a.QuizID))
+				escapeTableCell(a.Name),
+				escapeTableCell(a.StudentNo),
+				escapeTableCell(a.ClassName),
+				a.AttemptNo,
+				escapeTableCell(string(a.Status)),
+				escapeTableCell(score),
+				escapeTableCell(a.QuizID)))
 		}
 		b.WriteString(fmt.Sprintf("\n共 %d 条记录", len(bestItems)))
 		if q != nil {
@@ -205,12 +215,9 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("course_id 无效"), nil
 		}
-		course, err := s.store.GetCourse(ctx, courseID)
-		if err != nil || course == nil {
-			return mcp.NewToolResultError("课程不存在"), nil
-		}
-		if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-			return mcp.NewToolResultError("无权限访问此课程"), nil
+		course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		assignmentID := request.GetString("assignment_id", "")
@@ -239,7 +246,10 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 				extra = "✓"
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-				item.Name, item.StudentNo, item.ClassName, item.AssignmentID,
+				escapeTableCell(item.Name),
+				escapeTableCell(item.StudentNo),
+				escapeTableCell(item.ClassName),
+				escapeTableCell(item.AssignmentID),
 				report, code, extra, item.UpdatedAt.Format("2006-01-02 15:04")))
 		}
 		b.WriteString(fmt.Sprintf("\n共 %d 条记录", len(items)))
@@ -267,12 +277,8 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("course_id 无效"), nil
 		}
-		course, err := s.store.GetCourse(ctx, courseID)
-		if err != nil || course == nil {
-			return mcp.NewToolResultError("课程不存在"), nil
-		}
-		if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-			return mcp.NewToolResultError("无权限访问此课程"), nil
+		if _, err := s.teacherMCPReadCourse(ctx, sess, courseID); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		s.quizMu.RLock()
@@ -319,7 +325,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 					attemptNo = int(v)
 				}
 				b.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %d |\n",
-					name, studentNo, correct, total, attemptNo))
+					escapeTableCell(name), escapeTableCell(studentNo), correct, total, attemptNo))
 			}
 		}
 		return mcp.NewToolResultText(b.String()), nil
@@ -352,12 +358,9 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("course_id 无效"), nil
 		}
-		course, err := s.store.GetCourse(ctx, courseID)
-		if err != nil || course == nil {
-			return mcp.NewToolResultError("课程不存在"), nil
-		}
-		if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-			return mcp.NewToolResultError("无权限访问此课程"), nil
+		course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		quizID := strings.TrimSpace(request.GetString("quiz_id", ""))
@@ -396,7 +399,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if title == "" {
 			title = q.QuizID
 		}
-		b.WriteString(fmt.Sprintf("题库：%s（%s）\n", title, q.QuizID))
+		b.WriteString(fmt.Sprintf("题库：%s（%s）\n", escapeTableCell(title), escapeTableCell(q.QuizID)))
 		b.WriteString(fmt.Sprintf("答题人数（取每人最高分 attempt）：%d\n\n", input.StudentCount))
 
 		hasAny := false
@@ -496,12 +499,9 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("course_id 无效"), nil
 		}
-		course, err := s.store.GetCourse(ctx, courseID)
-		if err != nil || course == nil {
-			return mcp.NewToolResultError("课程不存在"), nil
-		}
-		if sess.Role != domain.RoleAdmin && course.TeacherID != sess.TeacherID {
-			return mcp.NewToolResultError("无权限访问此课程"), nil
+		course, err := s.teacherMCPReadCourse(ctx, sess, courseID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		quizID := strings.TrimSpace(request.GetString("quiz_id", ""))
@@ -629,7 +629,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if title == "" {
 			title = q.QuizID
 		}
-		b.WriteString(fmt.Sprintf("题库：%s（%s）\n", title, q.QuizID))
+		b.WriteString(fmt.Sprintf("题库：%s（%s）\n", escapeTableCell(title), escapeTableCell(q.QuizID)))
 		b.WriteString(fmt.Sprintf("答题人数（取每人最高分 attempt）：%d\n\n", input.StudentCount))
 		b.WriteString("| 题号 | 知识点 | 正确率 | 作答 | 常见错误 | 题干 |\n")
 		b.WriteString("|------|--------|--------|------|----------|------|\n")

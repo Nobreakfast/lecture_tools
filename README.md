@@ -148,7 +148,7 @@ snapshots/
 - `GET /api/teacher/courses/attempts`、`/attempts-check`、`/export-csv` 会按“同一学生 + 同一题库”自动去重，保留最高分；教师页可查看重复检查结果
 - 教师端作业下载（单个 PDF、单个学生压缩包、批量压缩包内学生目录/文件）统一使用 `班级_作业编号_姓名_学号` 命名
 - “其它 > MCP” 支持开启/关闭教师专属长效 token；开启后页面直接给出可复制的 MCP 配置，关闭后旧 token 立即失效
-  - 教师 MCP tools：`list_courses`、`get_quiz_attempts`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`
+  - 教师 MCP tools：`list_courses`、`get_quiz_attempts`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`、`get_qa_issues`、`reply_qa_issue`
 - 学生在作业页进入 / 恢复作业后可使用学生智能助手浮窗；学生端不会展示 MCP token 或外部 MCP 配置
   - 学生助手在服务端内部读取历史小测、当前作业状态和学习建议线索；遇到需要教师确认的作业/小测/课程问题时会整理并新建 Q&A
 
