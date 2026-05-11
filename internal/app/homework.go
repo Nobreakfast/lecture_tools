@@ -1209,20 +1209,26 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionGradeAI(w http.ResponseWriter
 		http.Error(w, "PDF 未提取到可用文本，无法生成 AI 评语", http.StatusBadRequest)
 		return
 	}
-	feedback, err := s.aiClient.GenerateHomeworkFeedback(r.Context(), ai.HomeworkGradeFeedbackInput{
-		CourseName:    course.DisplayName,
-		AssignmentID:  submission.AssignmentID,
-		StudentName:   submission.Name,
-		StudentNo:     submission.StudentNo,
-		ClassName:     submission.ClassName,
-		TeacherNote:   strings.TrimSpace(req.Note),
-		ReportContext: text,
+	out, err := s.runTeacherTaskAgent(r.Context(), teacherTaskAgentRequest{
+		TaskType: "homework_feedback",
+		Session:  sess,
+		CourseID: courseID,
+		Prompt:   strings.TrimSpace(req.Note),
+		Args: map[string]any{"assignment_id": submission.AssignmentID, "homework_input": ai.HomeworkGradeFeedbackInput{
+			CourseName:    course.DisplayName,
+			AssignmentID:  submission.AssignmentID,
+			StudentName:   submission.Name,
+			StudentNo:     submission.StudentNo,
+			ClassName:     submission.ClassName,
+			TeacherNote:   strings.TrimSpace(req.Note),
+			ReportContext: text,
+		}},
 	})
 	if err != nil {
 		http.Error(w, "AI 生成失败: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, map[string]any{"feedback": feedback})
+	writeJSON(w, map[string]any{"feedback": out.Text})
 }
 
 type homeworkPregradeJob struct {
@@ -1385,18 +1391,25 @@ func (s *Server) pregradeHomeworkSubmission(ctx context.Context, course *domain.
 	if strings.TrimSpace(text) == "" {
 		return 0, "", "PDF 未提取到可用文本，无法预评"
 	}
-	result, err := s.aiClient.PregradeHomework(ctx, ai.HomeworkGradeFeedbackInput{
-		CourseName:    course.DisplayName,
-		AssignmentID:  submission.AssignmentID,
-		StudentName:   submission.Name,
-		StudentNo:     submission.StudentNo,
-		ClassName:     submission.ClassName,
-		TeacherNote:   prompt,
-		ReportContext: text,
+	out, err := s.runTeacherTaskAgent(ctx, teacherTaskAgentRequest{
+		TaskType: "homework_pregrade",
+		Session:  &authSession{TeacherID: course.TeacherID, Role: domain.RoleTeacher},
+		CourseID: course.ID,
+		Prompt:   prompt,
+		Args: map[string]any{"assignment_id": submission.AssignmentID, "homework_input": ai.HomeworkGradeFeedbackInput{
+			CourseName:    course.DisplayName,
+			AssignmentID:  submission.AssignmentID,
+			StudentName:   submission.Name,
+			StudentNo:     submission.StudentNo,
+			ClassName:     submission.ClassName,
+			TeacherNote:   prompt,
+			ReportContext: text,
+		}},
 	})
 	if err != nil {
 		return 0, "", "AI 预评失败: " + err.Error()
 	}
+	result, _ := out.Value.(ai.HomeworkPregradeResult)
 	return result.SuggestedScore, result.Feedback, ""
 }
 

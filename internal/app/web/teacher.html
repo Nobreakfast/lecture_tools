@@ -581,10 +581,123 @@
       color: #fff;
     }
 
+    .agent-process {
+      margin-bottom: 8px;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    .agent-process summary {
+      cursor: pointer;
+      padding: 7px 9px;
+      font-weight: 700;
+    }
+
+    .agent-process-list {
+      padding: 0 9px 8px;
+      white-space: normal;
+    }
+
+    .agent-process-item {
+      border-top: 1px solid rgba(147, 197, 253, 0.65);
+      padding: 6px 0;
+    }
+
+    .agent-process-item code {
+      font-size: 11px;
+      color: #1d4ed8;
+    }
+
     .agent-input-wrap {
       padding: 12px;
       border-top: 1px solid var(--border);
       background: var(--surface);
+      position: relative;
+    }
+
+    .agent-mention-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .agent-mention-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .agent-mention-chip button {
+      width: 16px;
+      height: 16px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0;
+      margin: 0;
+      background: rgba(67, 56, 202, 0.16);
+      color: #3730a3;
+      font-size: 12px;
+      line-height: 16px;
+      cursor: pointer;
+    }
+
+    .agent-mention-menu {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 76px;
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+      z-index: 3;
+      display: none;
+    }
+
+    .agent-mention-menu.show {
+      display: block;
+    }
+
+    .agent-mention-option {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      margin: 0;
+      border: 0;
+      border-bottom: 1px solid #f1f5f9;
+      background: #fff;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .agent-mention-option:hover,
+    .agent-mention-option.active {
+      background: #f8fafc;
+    }
+
+    .agent-mention-kind {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
     }
 
     .agent-input-row {
@@ -1266,13 +1379,18 @@
         <div style="font-weight:700;">课堂数据助手</div>
         <div style="font-size:12px;color:var(--text-muted);">只读查询：可基于课程、小测、作业数据回答</div>
       </div>
-      <button id="agentCloseBtn" class="small btn-secondary" type="button" style="margin-top:0;">关闭</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="agentNewBtn" class="small btn-secondary" type="button" style="margin-top:0;">新对话</button>
+        <button id="agentCloseBtn" class="small btn-secondary" type="button" style="margin-top:0;">关闭</button>
+      </div>
     </div>
     <div id="agentMessages" class="agent-messages" role="log" aria-live="polite"></div>
-    <div class="agent-input-wrap">
-      <div class="agent-input-row">
-        <textarea id="agentInput" placeholder="例如：张三同学最近的小测表现如何？"></textarea>
-        <button id="agentSendBtn" type="button" style="height:48px;">发送</button>
+      <div class="agent-input-wrap">
+        <div id="agentMentionChips" class="agent-mention-chips"></div>
+        <div id="agentMentionMenu" class="agent-mention-menu"></div>
+        <div class="agent-input-row">
+          <textarea id="agentInput" placeholder="例如：张三同学最近的小测表现如何？"></textarea>
+          <button id="agentSendBtn" type="button" style="height:48px;">发送</button>
       </div>
       <div class="agent-readonly-note">当前阶段不会修改数据库或文件；如已选择课程，会优先查询该课程。</div>
     </div>
@@ -1353,6 +1471,10 @@
 
     let agentMessages = [];
     let agentBusy = false;
+    let agentMentions = [];
+    let agentMentionCandidates = [];
+    let agentMentionActiveIndex = 0;
+    let agentMentionQuery = '';
 
 
     function setAgentVisible(visible) {
@@ -1390,6 +1512,21 @@
       launcher.focus();
     }
 
+    function resetTeacherAgentConversation() {
+      if (agentBusy) return;
+      agentMessages = [];
+      agentMentions = [];
+      agentMentionCandidates = [];
+      agentMentionActiveIndex = 0;
+      agentMentionQuery = '';
+      const input = document.getElementById('agentInput');
+      if (input) input.value = '';
+      renderAgentMentionChips();
+      hideAgentMentionMenu();
+      addAgentMessage('assistant', '你好，我可以基于你有权限访问的课程、小测、作业和资料数据回答问题。当前阶段仅支持只读查询，不会修改数据库或文件。');
+      if (input) input.focus();
+    }
+
     function addAgentMessage(role, content) {
       const text = String(content || '').trim();
       if (!text) return;
@@ -1397,9 +1534,159 @@
       renderAgentMessages();
     }
 
+    function mentionKindLabel(type) {
+      return ({ course: '课程', quiz: '小测', material: '资料', student: '学生', assignment: '作业', qa_issue: 'Q&A', attempt: '记录' })[type] || type || '引用';
+    }
+
+    function renderAgentMentionChips() {
+      const box = document.getElementById('agentMentionChips');
+      if (!box) return;
+      box.innerHTML = agentMentions.map((m, idx) => `
+        <span class="agent-mention-chip" title="${escapeHTML(mentionKindLabel(m.type) + ': ' + (m.label || m.id))}">
+          @${escapeHTML(m.label || m.id)}
+          <button type="button" aria-label="移除引用" onclick="removeAgentMention(${idx})">×</button>
+        </span>
+      `).join('');
+    }
+
+    function removeAgentMention(index) {
+      agentMentions.splice(index, 1);
+      renderAgentMentionChips();
+    }
+
+    function currentAgentMentionToken() {
+      const input = document.getElementById('agentInput');
+      const value = input.value;
+      const pos = input.selectionStart || value.length;
+      const before = value.slice(0, pos);
+      const match = before.match(/(?:^|\s)@([^\s@]*)$/);
+      if (!match) return null;
+      const start = pos - match[1].length - 1;
+      return { query: match[1], start, end: pos };
+    }
+
+    async function refreshAgentMentionCandidates(query) {
+      if (!selectedCourseId) {
+        agentMentionCandidates = coursesCache.map(c => ({ type: 'course', id: String(c.id), label: c.name, course_id: c.id, meta: { slug: c.slug || '' } }));
+      } else {
+        try {
+          const r = await fetch('/api/teacher/agent/mentions?course_id=' + encodeURIComponent(selectedCourseId) + '&q=' + encodeURIComponent(query || ''), { credentials: 'include' });
+          if (r.ok) {
+            const data = await r.json();
+            agentMentionCandidates = data.items || [];
+          }
+        } catch (_) { agentMentionCandidates = []; }
+      }
+      agentMentionActiveIndex = 0;
+      renderAgentMentionMenu();
+    }
+
+    function renderAgentMentionMenu() {
+      const menu = document.getElementById('agentMentionMenu');
+      if (!menu) return;
+      if (!agentMentionCandidates.length) {
+        menu.classList.remove('show');
+        menu.innerHTML = '';
+        return;
+      }
+      menu.innerHTML = agentMentionCandidates.slice(0, 40).map((m, idx) => {
+        const meta = m.meta || {};
+        const sub = meta.student_no || meta.class_name || meta.stem || meta.assignment_id || meta.status || '';
+        return `<button type="button" class="agent-mention-option ${idx === agentMentionActiveIndex ? 'active' : ''}" onmousedown="event.preventDefault();selectAgentMention(${idx})">
+          <span><strong>${escapeHTML(m.label || m.id)}</strong>${sub ? `<span style="display:block;font-size:11px;color:var(--text-muted);">${escapeHTML(String(sub))}</span>` : ''}</span>
+          <span class="agent-mention-kind">${escapeHTML(mentionKindLabel(m.type))}</span>
+        </button>`;
+      }).join('');
+      menu.classList.add('show');
+    }
+
+    function hideAgentMentionMenu() {
+      const menu = document.getElementById('agentMentionMenu');
+      if (menu) menu.classList.remove('show');
+    }
+
+    function selectAgentMention(index) {
+      const item = agentMentionCandidates[index];
+      const token = currentAgentMentionToken();
+      const input = document.getElementById('agentInput');
+      if (!item || !token || !input) return;
+      const value = input.value;
+      const label = item.label || item.id;
+      input.value = value.slice(0, token.start) + '@' + label + ' ' + value.slice(token.end);
+      const mention = {
+        type: item.type,
+        id: String(item.id),
+        label,
+        course_id: item.course_id || selectedCourseId || 0,
+        meta: item.meta || {}
+      };
+      const exists = agentMentions.some(m => m.type === mention.type && String(m.id) === String(mention.id) && String(m.course_id || '') === String(mention.course_id || ''));
+      if (!exists) agentMentions.push(mention);
+      renderAgentMentionChips();
+      hideAgentMentionMenu();
+      input.focus();
+    }
+
+    function onAgentInputChange() {
+      const token = currentAgentMentionToken();
+      if (!token) {
+        hideAgentMentionMenu();
+        return;
+      }
+      if (token.query === agentMentionQuery && agentMentionCandidates.length) {
+        renderAgentMentionMenu();
+        return;
+      }
+      agentMentionQuery = token.query;
+      refreshAgentMentionCandidates(token.query);
+    }
+
+    function onAgentInputKeydown(evt) {
+      const menu = document.getElementById('agentMentionMenu');
+      if (!menu || !menu.classList.contains('show')) return false;
+      if (evt.key === 'ArrowDown') {
+        evt.preventDefault();
+        agentMentionActiveIndex = Math.min(agentMentionActiveIndex + 1, agentMentionCandidates.length - 1);
+        renderAgentMentionMenu();
+        return true;
+      }
+      if (evt.key === 'ArrowUp') {
+        evt.preventDefault();
+        agentMentionActiveIndex = Math.max(agentMentionActiveIndex - 1, 0);
+        renderAgentMentionMenu();
+        return true;
+      }
+      if (evt.key === 'Enter') {
+        evt.preventDefault();
+        selectAgentMention(agentMentionActiveIndex);
+        return true;
+      }
+      if (evt.key === 'Escape') {
+        evt.preventDefault();
+        hideAgentMentionMenu();
+        return true;
+      }
+      return false;
+    }
+
+    function agentEventHTML(events) {
+      if (!Array.isArray(events) || events.length === 0) return '';
+      const rows = events.filter(e => e && e.type !== 'final').map(e => {
+        const title = e.title || e.type || '过程';
+        const tool = e.tool ? ` <code>${escapeHTML(e.tool)}</code>` : '';
+        const detail = e.error || e.content || '';
+        return `<div class="agent-process-item"><div>${escapeHTML(title)}${tool}</div>${detail ? `<div style="color:#475569;margin-top:3px;">${escapeHTML(detail)}</div>` : ''}</div>`;
+      }).join('');
+      if (!rows) return '';
+      return `<details class="agent-process"><summary>过程与工具调用</summary><div class="agent-process-list">${rows}</div></details>`;
+    }
+
     function renderAgentMessages() {
       const box = document.getElementById('agentMessages');
-      box.innerHTML = agentMessages.map(msg => `<div class="agent-message ${msg.role === 'user' ? 'user' : 'assistant'}">${renderMd(msg.content)}</div>`).join('');
+      box.innerHTML = agentMessages.map(msg => {
+        const process = msg.role === 'assistant' ? agentEventHTML(msg.events) : '';
+        return `<div class="agent-message ${msg.role === 'user' ? 'user' : 'assistant'}">${process}${renderMd(msg.content)}</div>`;
+      }).join('');
       box.scrollTop = box.scrollHeight;
     }
 
@@ -1412,7 +1699,9 @@
       addAgentMessage('user', message);
       agentBusy = true;
       const btn = document.getElementById('agentSendBtn');
+      const newBtn = document.getElementById('agentNewBtn');
       btn.disabled = true;
+      if (newBtn) newBtn.disabled = true;
       const typing = { role: 'assistant', content: '正在读取课堂数据并思考…' };
       agentMessages.push(typing);
       renderAgentMessages();
@@ -1421,14 +1710,18 @@
         const data = await App.fetchJSON('/api/teacher/agent/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ course_id: selectedCourseId || '', message, messages: history })
+          body: JSON.stringify({ course_id: selectedCourseId || '', message, messages: history, mentions: agentMentions })
         });
         typing.content = data.answer || '没有返回内容。';
+        typing.events = data.events || [];
+        agentMentions = [];
+        renderAgentMentionChips();
       } catch (e) {
         typing.content = '请求失败：' + (e && e.message ? e.message : e);
       } finally {
         agentBusy = false;
         btn.disabled = false;
+        if (newBtn) newBtn.disabled = false;
         renderAgentMessages();
       }
     }
@@ -3479,9 +3772,12 @@
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };
 
     document.getElementById('agentLauncher').onclick = openAgentPanel;
+    document.getElementById('agentNewBtn').onclick = resetTeacherAgentConversation;
     document.getElementById('agentCloseBtn').onclick = closeAgentPanel;
     document.getElementById('agentSendBtn').onclick = sendAgentMessage;
+    document.getElementById('agentInput').addEventListener('input', onAgentInputChange);
     document.getElementById('agentInput').addEventListener('keydown', (evt) => {
+      if (onAgentInputKeydown(evt)) return;
       if (evt.key === 'Enter' && !evt.shiftKey) {
         evt.preventDefault();
         sendAgentMessage();

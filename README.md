@@ -148,9 +148,15 @@ snapshots/
 - `GET /api/teacher/courses/attempts`、`/attempts-check`、`/export-csv` 会按“同一学生 + 同一题库”自动去重，保留最高分；教师页可查看重复检查结果
 - 教师端作业下载（单个 PDF、单个学生压缩包、批量压缩包内学生目录/文件）统一使用 `班级_作业编号_姓名_学号` 命名
 - “其它 > MCP” 支持开启/关闭教师专属长效 token；开启后页面直接给出可复制的 MCP 配置，关闭后旧 token 立即失效
-  - 教师 MCP tools：`list_courses`、`get_quiz_attempts`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`、`get_qa_issues`、`reply_qa_issue`
+  - 教师 MCP tools 统一从 Agent 工具层暴露：`list_courses`、`search_agent_mentions`、`get_course_context`、`get_quiz_bank_list`、`read_quiz_bank_yaml`、`list_materials`、`read_material_text`、`get_quiz_attempts`、`get_student_profile`、`get_attempt_detail`、`get_assignment_context`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`、`get_qa_issues`、`reply_qa_issue`
+  - 草稿生成 tools：`draft_quiz_from_prompt`、`draft_quiz_from_material`、`autofill_quiz_yaml`、`draft_class_summary`、`draft_history_summary`、`draft_homework_feedback`
+  - 写入 tools：`set_quiz_entry_open` 会修改系统状态；平台内 Agent 调用写工具需要二次确认，外部 MCP 客户端应在教师明确授权后再调用。题库保存/加载和批量预评已登记为受控工具，当前仍通过平台页面完成预览与确认。
 - 学生在作业页进入 / 恢复作业后可使用学生智能助手浮窗；学生端不会展示 MCP token 或外部 MCP 配置
-  - 学生助手在服务端内部读取历史小测、当前作业状态和学习建议线索；遇到需要教师确认的作业/小测/课程问题时会整理并新建 Q&A
+  - 学生助手只调用受限内部工具：`get_my_quiz_history`、`get_current_homework_status`、`search_visible_qa_issues`、`get_visible_course_materials`、`read_visible_material_text`、`get_visible_assignment_context`、`create_qa_issue`。它会先检索当前课程/作业可见 Q&A，再读取本人小测、当前作业状态和学生可见资料；隐藏资料、教师数据、MCP token 和进行中小测答案不会暴露给学生。
+  - 教师端 Agent 支持在输入框中输入 `@` 引用课程、小测、资料、学生、作业和 Q&A；引用会以结构化 mentions 发送到服务端，优先决定 Agent 读取的数据范围。
+  - 教师端 Agent 会展示可审计的过程摘要和工具调用记录；这些内容不是模型原始推理，生成完成后默认折叠。
+- 小测生成、资料初始化、AI 补全、课堂总结、历史总结、作业评语和批量预评等旧按钮式 AI 入口已统一为“固定任务 Agent”：按钮决定任务类型与输出格式，教师额外提示词可触发 Agent 按需读取历史题库、课程资料、作业或 Q&A 上下文。
+- Agent 对话和固定任务执行会将完整 trajectory 写入 `~/.lecture_tools/<教师>/<课程>/<姓名>/<yyyy_mm>/<dd_hh_mm_ss>/trajectory.json`，用于后续改进 Agent 系统；该目录不参与当前运行时检索。
 
 ## 题库 YAML
 

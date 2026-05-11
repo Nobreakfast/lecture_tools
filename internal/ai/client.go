@@ -98,6 +98,7 @@ func (c *Client) chat(ctx context.Context, systemPrompt, userMsg string, tempera
 	}
 
 	url := resolveEndpoint(endpoint)
+	systemPrompt = composeSystemPrompt(systemPrompt)
 	payload := map[string]any{
 		"model": model,
 		"messages": []map[string]string{

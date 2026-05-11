@@ -248,11 +248,21 @@ func (s *Server) apiTeacherCourseSummary(w http.ResponseWriter, r *http.Request)
 				input.PDFContext = text
 			}
 		}
-		summary, aiErr := s.aiClient.AdminSummarize(r.Context(), input)
+		out, aiErr := s.runTeacherTaskAgent(r.Context(), teacherTaskAgentRequest{
+			TaskType: "class_summary",
+			Session:  sess,
+			CourseID: courseID,
+			Prompt:   "生成课堂小测总结",
+			Args: map[string]any{
+				"summary_input": input,
+				"quiz_id":       q.QuizID,
+			},
+		})
 		if aiErr != nil {
 			writeJSON(w, map[string]any{"error": aiErr.Error(), "has_pdf": pdfPath != "", "quiz_id": q.QuizID, "course": course.Slug})
 			return
 		}
+		summary, _ := out.Value.(ai.AdminSummary)
 		summaryJSON, _ := json.Marshal(summary)
 		_ = s.store.UpsertAdminSummary(r.Context(), courseID, q.QuizID, string(summaryJSON))
 		writeJSON(w, map[string]any{"summary": summary, "has_pdf": pdfPath != "", "quiz_id": q.QuizID, "course": course.Slug})
@@ -381,11 +391,20 @@ func (s *Server) apiTeacherCourseHistorySummary(w http.ResponseWriter, r *http.R
 			CourseName: course.Name,
 			QuizStats:  quizStats,
 		}
-		summary, aiErr := s.aiClient.HistorySummarize(r.Context(), input)
+		out, aiErr := s.runTeacherTaskAgent(r.Context(), teacherTaskAgentRequest{
+			TaskType: "history_summary",
+			Session:  sess,
+			CourseID: courseID,
+			Prompt:   "生成课程历史小测趋势总结",
+			Args: map[string]any{
+				"history_input": input,
+			},
+		})
 		if aiErr != nil {
 			writeJSON(w, map[string]any{"error": aiErr.Error()})
 			return
 		}
+		summary, _ := out.Value.(ai.HistorySummary)
 		// Persist for subsequent GETs.
 		if b, err := json.Marshal(summary); err == nil {
 			_ = s.store.UpsertAdminSummary(r.Context(), courseID, historyKey, string(b))

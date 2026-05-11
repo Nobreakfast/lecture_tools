@@ -9,12 +9,31 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"course-assistant/internal/domain"
 )
 
 const teacherAgentMaxMessages = 8
+
+type teacherAgentEvent struct {
+	Type    string         `json:"type"`
+	Title   string         `json:"title,omitempty"`
+	Tool    string         `json:"tool,omitempty"`
+	Args    map[string]any `json:"args,omitempty"`
+	Content string         `json:"content,omitempty"`
+	Error   string         `json:"error,omitempty"`
+}
+
+type teacherAgentMention struct {
+	Type     string         `json:"type"`
+	ID       string         `json:"id"`
+	Label    string         `json:"label"`
+	CourseID int            `json:"course_id"`
+	Meta     map[string]any `json:"meta"`
+}
 
 func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -34,6 +53,7 @@ func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
+		Mentions []teacherAgentMention `json:"mentions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -46,18 +66,245 @@ func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Message = truncateAgentText(req.Message)
 
-	ctxText, err := s.teacherAgentContext(r, sess, strings.TrimSpace(req.CourseID))
+	courseID, _ := strconv.Atoi(strings.TrimSpace(req.CourseID))
+	answer, events, err := s.runTeacherAgent(r.Context(), sess, courseID, req.Message, req.Messages, req.Mentions)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "events": events})
+		return
+	}
+	writeJSON(w, map[string]any{"answer": answer, "events": events})
+}
+
+func (s *Server) apiTeacherAgentMentions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("course_id")))
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
+	if limit <= 0 || limit > 120 {
+		limit = 80
+	}
+	items, err := s.agentMentionCandidates(r.Context(), sess, courseID, strings.ToLower(query), limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	prompt := s.teacherAgentPrompt(ctxText, req.Message, req.Messages)
-	answer, err := s.aiClient.TeacherAgentChat(r.Context(), prompt)
-	if err != nil {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
+	writeJSON(w, map[string]any{"items": items})
+}
+
+func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseID int, latest string, messages []struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}, mentions []teacherAgentMention) (string, []teacherAgentEvent, error) {
+	events := []teacherAgentEvent{{Type: "thinking", Title: "理解教师问题并选择可用工具"}}
+	tc := agentToolContext{Session: sess, Platform: true, CourseID: courseID}
+	toolCalls, mentionEvents := s.planTeacherAgentMentionTools(ctx, sess, courseID, mentions)
+	events = append(events, mentionEvents...)
+	toolCalls = append(toolCalls, s.planTeacherAgentTools(latest, courseID)...)
+	if len(toolCalls) == 0 {
+		toolCalls = append(toolCalls, plannedAgentTool{Name: "list_courses", Args: map[string]any{}})
+		if courseID > 0 {
+			toolCalls = append(toolCalls, plannedAgentTool{Name: "get_course_context", Args: map[string]any{"course_id": courseID}})
+		}
 	}
-	writeJSON(w, map[string]any{"answer": answer})
+	var ctxText strings.Builder
+	for _, call := range toolCalls {
+		events = append(events, teacherAgentEvent{Type: "tool_call", Title: "调用工具 " + call.Name, Tool: call.Name, Args: call.Args})
+		text, err := s.callAgentTool(ctx, call.Name, tc, call.Args)
+		if err != nil {
+			events = append(events, teacherAgentEvent{Type: "tool_result", Title: "工具调用失败", Tool: call.Name, Error: err.Error()})
+			continue
+		}
+		brief := text
+		if len([]rune(brief)) > 500 {
+			brief = string([]rune(brief)[:500]) + "..."
+		}
+		events = append(events, teacherAgentEvent{Type: "tool_result", Title: "已获得工具结果", Tool: call.Name, Content: brief})
+		ctxText.WriteString("\n\n【工具 " + call.Name + "】\n")
+		ctxText.WriteString(text)
+	}
+	if strings.TrimSpace(ctxText.String()) == "" {
+		ctxText.WriteString("没有可用工具结果。")
+	}
+	prompt := s.teacherAgentPrompt(ctxText.String(), latest, messages)
+	events = append(events, teacherAgentEvent{Type: "thinking", Title: "基于工具结果生成回复"})
+	answer, err := s.aiClient.TeacherAgentChat(ctx, prompt)
+	if err != nil {
+		teacherLabel, courseLabel, nameLabel := s.teacherTrajectoryLabels(ctx, sess, courseID)
+		s.saveAgentTrajectory(ctx, agentTrajectory{
+			Kind:      "teacher",
+			CreatedAt: time.Now(),
+			Teacher:   teacherLabel,
+			Course:    courseLabel,
+			Name:      nameLabel,
+			Request: map[string]any{
+				"course_id":  courseID,
+				"message":    latest,
+				"messages":   messages,
+				"mentions":   mentions,
+				"tool_calls": toolCalls,
+			},
+			Prompt: prompt,
+			Events: events,
+			Error:  err.Error(),
+		})
+		return "", events, err
+	}
+	events = append(events, teacherAgentEvent{Type: "final", Title: "完成"})
+	teacherLabel, courseLabel, nameLabel := s.teacherTrajectoryLabels(ctx, sess, courseID)
+	s.saveAgentTrajectory(ctx, agentTrajectory{
+		Kind:      "teacher",
+		CreatedAt: time.Now(),
+		Teacher:   teacherLabel,
+		Course:    courseLabel,
+		Name:      nameLabel,
+		Request: map[string]any{
+			"course_id":  courseID,
+			"message":    latest,
+			"messages":   messages,
+			"mentions":   mentions,
+			"tool_calls": toolCalls,
+		},
+		Prompt:      prompt,
+		RawResponse: answer,
+		Answer:      answer,
+		Events:      events,
+	})
+	return answer, events, nil
+}
+
+func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSession, fallbackCourseID int, mentions []teacherAgentMention) ([]plannedAgentTool, []teacherAgentEvent) {
+	var calls []plannedAgentTool
+	var events []teacherAgentEvent
+	for _, mention := range mentions {
+		mtype := strings.ToLower(strings.TrimSpace(mention.Type))
+		mid := strings.TrimSpace(mention.ID)
+		if mtype == "" || mid == "" {
+			continue
+		}
+		courseID := mention.CourseID
+		if courseID <= 0 {
+			courseID = fallbackCourseID
+		}
+		if courseID <= 0 {
+			events = append(events, teacherAgentEvent{Type: "tool_result", Title: "忽略无课程范围的 @" + mtype, Error: mention.Label})
+			continue
+		}
+		if _, err := s.teacherMCPReadCourse(ctx, sess, courseID); err != nil {
+			events = append(events, teacherAgentEvent{Type: "tool_result", Title: "无权限读取 @" + mention.Label, Error: err.Error()})
+			continue
+		}
+		events = append(events, teacherAgentEvent{Type: "thinking", Title: "识别引用 @" + mention.Label, Content: mtype})
+		base := map[string]any{"course_id": courseID}
+		switch mtype {
+		case "course":
+			calls = append(calls, plannedAgentTool{Name: "get_course_context", Args: base})
+		case "quiz":
+			args := cloneAgentArgs(base)
+			args["quiz_id"] = mid
+			calls = append(calls,
+				plannedAgentTool{Name: "get_quiz_question_stats", Args: cloneAgentArgs(args)},
+				plannedAgentTool{Name: "get_quiz_feedback", Args: cloneAgentArgs(args)},
+			)
+		case "material":
+			args := cloneAgentArgs(base)
+			args["material_file"] = mid
+			calls = append(calls, plannedAgentTool{Name: "read_material_text", Args: args})
+		case "student":
+			args := cloneAgentArgs(base)
+			args["student_id"] = mid
+			for k, v := range mention.Meta {
+				args[k] = v
+			}
+			calls = append(calls, plannedAgentTool{Name: "get_student_profile", Args: args})
+		case "assignment":
+			args := cloneAgentArgs(base)
+			args["assignment_id"] = mid
+			calls = append(calls,
+				plannedAgentTool{Name: "get_assignment_context", Args: cloneAgentArgs(args)},
+				plannedAgentTool{Name: "get_homework_submissions", Args: cloneAgentArgs(args)},
+				plannedAgentTool{Name: "get_qa_issues", Args: cloneAgentArgs(args)},
+			)
+		case "qa_issue":
+			args := cloneAgentArgs(base)
+			args["status"] = "all"
+			args["max_messages"] = 8
+			if aid, ok := mention.Meta["assignment_id"]; ok {
+				args["assignment_id"] = aid
+			}
+			calls = append(calls, plannedAgentTool{Name: "get_qa_issues", Args: args})
+		case "attempt":
+			args := cloneAgentArgs(base)
+			args["attempt_id"] = mid
+			calls = append(calls, plannedAgentTool{Name: "get_attempt_detail", Args: args})
+		}
+	}
+	return dedupePlannedAgentTools(calls), events
+}
+
+type plannedAgentTool struct {
+	Name string
+	Args map[string]any
+}
+
+func (s *Server) planTeacherAgentTools(latest string, courseID int) []plannedAgentTool {
+	text := strings.ToLower(latest)
+	args := map[string]any{}
+	if courseID > 0 {
+		args["course_id"] = courseID
+	}
+	var calls []plannedAgentTool
+	if courseID <= 0 || strings.Contains(text, "课程") || strings.Contains(text, "邀请码") || strings.Contains(text, "list") {
+		calls = append(calls, plannedAgentTool{Name: "list_courses", Args: map[string]any{}})
+	}
+	if courseID > 0 && (strings.Contains(text, "概览") || strings.Contains(text, "情况") || strings.Contains(text, "总结") || strings.Contains(text, "表现")) {
+		calls = append(calls, plannedAgentTool{Name: "get_course_context", Args: cloneAgentArgs(args)})
+	}
+	if courseID > 0 && (strings.Contains(text, "逐题") || strings.Contains(text, "正确率") || strings.Contains(text, "错题") || strings.Contains(text, "薄弱")) {
+		calls = append(calls, plannedAgentTool{Name: "get_quiz_question_stats", Args: cloneAgentArgs(args)})
+	}
+	if courseID > 0 && (strings.Contains(text, "问卷") || strings.Contains(text, "反馈") || strings.Contains(text, "简答")) {
+		calls = append(calls, plannedAgentTool{Name: "get_quiz_feedback", Args: cloneAgentArgs(args)})
+	}
+	if courseID > 0 && (strings.Contains(text, "作业") || strings.Contains(text, "提交") || strings.Contains(text, "报告")) {
+		calls = append(calls, plannedAgentTool{Name: "get_homework_submissions", Args: cloneAgentArgs(args)})
+	}
+	if courseID > 0 && (strings.Contains(text, "资料") || strings.Contains(text, "课件") || strings.Contains(text, "pdf")) {
+		calls = append(calls, plannedAgentTool{Name: "list_materials", Args: cloneAgentArgs(args)})
+	}
+	if courseID > 0 && (strings.Contains(text, "q&a") || strings.Contains(text, "qa") || strings.Contains(text, "问题")) {
+		calls = append(calls, plannedAgentTool{Name: "get_qa_issues", Args: cloneAgentArgs(args)})
+	}
+	return dedupePlannedAgentTools(calls)
+}
+
+func cloneAgentArgs(in map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func dedupePlannedAgentTools(in []plannedAgentTool) []plannedAgentTool {
+	seen := map[string]bool{}
+	out := make([]plannedAgentTool, 0, len(in))
+	for _, item := range in {
+		key := item.Name + fmt.Sprint(item.Args)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *Server) teacherAgentPrompt(ctxText, latest string, messages []struct {
@@ -65,7 +312,7 @@ func (s *Server) teacherAgentPrompt(ctxText, latest string, messages []struct {
 	Content string `json:"content"`
 }) string {
 	var b strings.Builder
-	b.WriteString("以下是当前教师可访问的只读课堂数据快照。请只基于这些数据回答。\n\n")
+	b.WriteString("以下是教师 Agent 按需调用平台工具得到的结果。请只基于这些工具结果回答；不要声称已经执行未确认的写操作。\n\n")
 	b.WriteString(ctxText)
 	b.WriteString("\n\n最近对话：\n")
 	start := 0

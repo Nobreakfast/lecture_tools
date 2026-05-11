@@ -745,6 +745,173 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		}
 		return mcp.NewToolResultText(text), nil
 	})
+
+	registryCall := func(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+		sess := s.mcpSessionFromContext(ctx)
+		if sess == nil {
+			return mcp.NewToolResultError("unauthorized"), nil
+		}
+		text, err := s.callAgentTool(ctx, toolName, agentToolContext{Session: sess, Platform: false, Confirmed: true}, args)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	}
+
+	getCourseContextTool := mcp.NewTool("get_course_context",
+		mcp.WithDescription("读取课程概览、小测、作业和材料摘要"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+	)
+	mcpServer.AddTool(getCourseContextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_course_context", map[string]any{"course_id": request.GetString("course_id", "")})
+	})
+
+	searchAgentMentionsTool := mcp.NewTool("search_agent_mentions",
+		mcp.WithDescription("搜索教师 Agent 可引用的课程、小测、资料、学生、作业和 Q&A"),
+		mcp.WithString("course_id", mcp.Description("课程ID（可选）")),
+		mcp.WithString("q", mcp.Description("关键词（可选）")),
+		mcp.WithString("limit", mcp.Description("最多返回数量（可选，默认 80）")),
+	)
+	mcpServer.AddTool(searchAgentMentionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "search_agent_mentions", map[string]any{"course_id": request.GetString("course_id", ""), "q": request.GetString("q", ""), "limit": request.GetString("limit", "")})
+	})
+
+	getQuizBankListTool := mcp.NewTool("get_quiz_bank_list",
+		mcp.WithDescription("列出课程题库库，供选择历史小测"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+	)
+	mcpServer.AddTool(getQuizBankListTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_quiz_bank_list", map[string]any{"course_id": request.GetString("course_id", "")})
+	})
+
+	readQuizBankYAMLTool := mcp.NewTool("read_quiz_bank_yaml",
+		mcp.WithDescription("读取课程题库库中的 YAML 内容，用于参考历史小测"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("quiz_id", mcp.Required(), mcp.Description("题库ID")),
+	)
+	mcpServer.AddTool(readQuizBankYAMLTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "read_quiz_bank_yaml", map[string]any{"course_id": request.GetString("course_id", ""), "quiz_id": request.GetString("quiz_id", "")})
+	})
+
+	getStudentProfileTool := mcp.NewTool("get_student_profile",
+		mcp.WithDescription("读取单个学生跨小测、作业和 Q&A 的画像"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("student_no", mcp.Description("学号")),
+		mcp.WithString("name", mcp.Description("姓名")),
+		mcp.WithString("class_name", mcp.Description("班级")),
+	)
+	mcpServer.AddTool(getStudentProfileTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_student_profile", map[string]any{"course_id": request.GetString("course_id", ""), "student_no": request.GetString("student_no", ""), "name": request.GetString("name", ""), "class_name": request.GetString("class_name", "")})
+	})
+
+	getAttemptDetailTool := mcp.NewTool("get_attempt_detail",
+		mcp.WithDescription("读取某次小测提交详情和错题"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("attempt_id", mcp.Required(), mcp.Description("答题记录ID")),
+	)
+	mcpServer.AddTool(getAttemptDetailTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_attempt_detail", map[string]any{"course_id": request.GetString("course_id", ""), "attempt_id": request.GetString("attempt_id", "")})
+	})
+
+	getAssignmentContextTool := mcp.NewTool("get_assignment_context",
+		mcp.WithDescription("读取作业说明、提交概览、评分和预评状态"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("assignment_id", mcp.Required(), mcp.Description("作业编号")),
+	)
+	mcpServer.AddTool(getAssignmentContextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_assignment_context", map[string]any{"course_id": request.GetString("course_id", ""), "assignment_id": request.GetString("assignment_id", "")})
+	})
+
+	listMaterialsTool := mcp.NewTool("list_materials",
+		mcp.WithDescription("列出课程资料文件"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+	)
+	mcpServer.AddTool(listMaterialsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "list_materials", map[string]any{"course_id": request.GetString("course_id", "")})
+	})
+
+	readMaterialTextTool := mcp.NewTool("read_material_text",
+		mcp.WithDescription("读取课程资料文本，PDF 会提取正文"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("material_file", mcp.Required(), mcp.Description("资料文件名")),
+	)
+	mcpServer.AddTool(readMaterialTextTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "read_material_text", map[string]any{"course_id": request.GetString("course_id", ""), "material_file": request.GetString("material_file", "")})
+	})
+
+	draftQuizFromPromptTool := mcp.NewTool("draft_quiz_from_prompt",
+		mcp.WithDescription("根据教师提示生成题库 YAML 草稿，不自动保存"),
+		mcp.WithString("course_id", mcp.Description("课程ID（可选；提供后会按需检索历史题库和课程上下文）")),
+		mcp.WithString("prompt", mcp.Required(), mcp.Description("生成要求")),
+	)
+	mcpServer.AddTool(draftQuizFromPromptTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "draft_quiz_from_prompt", map[string]any{"course_id": request.GetString("course_id", ""), "prompt": request.GetString("prompt", "")})
+	})
+
+	draftQuizFromMaterialTool := mcp.NewTool("draft_quiz_from_material",
+		mcp.WithDescription("根据课程 PDF 资料生成题库 YAML 草稿，不自动保存"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("material_file", mcp.Required(), mcp.Description("PDF 资料文件名")),
+		mcp.WithString("quiz_id", mcp.Description("题库ID（可选）")),
+		mcp.WithString("quiz_title", mcp.Description("题库标题（可选）")),
+		mcp.WithString("question_count", mcp.Description("题目数量（可选，默认 8）")),
+		mcp.WithString("base_prompt", mcp.Description("额外生成要求（可选）")),
+	)
+	mcpServer.AddTool(draftQuizFromMaterialTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "draft_quiz_from_material", map[string]any{
+			"course_id":      request.GetString("course_id", ""),
+			"material_file":  request.GetString("material_file", ""),
+			"quiz_id":        request.GetString("quiz_id", ""),
+			"quiz_title":     request.GetString("quiz_title", ""),
+			"question_count": request.GetString("question_count", ""),
+			"base_prompt":    request.GetString("base_prompt", ""),
+		})
+	})
+
+	autofillQuizYAMLTool := mcp.NewTool("autofill_quiz_yaml",
+		mcp.WithDescription("补全题库 YAML 的 explanation 和 knowledge_tag，不自动保存"),
+		mcp.WithString("course_id", mcp.Description("课程ID（可选；提供后会参考课程上下文）")),
+		mcp.WithString("yaml", mcp.Required(), mcp.Description("题库 YAML 内容")),
+	)
+	mcpServer.AddTool(autofillQuizYAMLTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "autofill_quiz_yaml", map[string]any{"course_id": request.GetString("course_id", ""), "yaml": request.GetString("yaml", "")})
+	})
+
+	draftClassSummaryTool := mcp.NewTool("draft_class_summary",
+		mcp.WithDescription("生成当前或指定小测的课堂总结草稿，不自动覆盖已保存总结"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("quiz_id", mcp.Description("题库ID（可选）")),
+	)
+	mcpServer.AddTool(draftClassSummaryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "draft_class_summary", map[string]any{"course_id": request.GetString("course_id", ""), "quiz_id": request.GetString("quiz_id", "")})
+	})
+
+	draftHistorySummaryTool := mcp.NewTool("draft_history_summary",
+		mcp.WithDescription("生成课程历史小测趋势总结草稿，不自动覆盖已保存总结"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+	)
+	mcpServer.AddTool(draftHistorySummaryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "draft_history_summary", map[string]any{"course_id": request.GetString("course_id", "")})
+	})
+
+	draftHomeworkFeedbackTool := mcp.NewTool("draft_homework_feedback",
+		mcp.WithDescription("为单个作业提交生成评语草稿，不自动保存"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("submission_id", mcp.Required(), mcp.Description("作业提交ID")),
+		mcp.WithString("note", mcp.Description("教师简短批注意见（可选）")),
+	)
+	mcpServer.AddTool(draftHomeworkFeedbackTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "draft_homework_feedback", map[string]any{"course_id": request.GetString("course_id", ""), "submission_id": request.GetString("submission_id", ""), "note": request.GetString("note", "")})
+	})
+
+	setQuizEntryOpenTool := mcp.NewTool("set_quiz_entry_open",
+		mcp.WithDescription("开启或关闭课程小测入口，会修改系统状态；请仅在教师明确要求后调用"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithBoolean("open", mcp.Required(), mcp.Description("true=开启，false=关闭")),
+	)
+	mcpServer.AddTool(setQuizEntryOpenTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "set_quiz_entry_open", map[string]any{"course_id": request.GetString("course_id", ""), "open": request.GetBool("open", false)})
+	})
 	sseServer := server.NewSSEServer(mcpServer,
 		server.WithBasePath("/mcp"),
 		server.WithSessionIDGenerator(func(ctx context.Context, r *http.Request) (string, error) {

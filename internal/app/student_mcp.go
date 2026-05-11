@@ -7,11 +7,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"course-assistant/internal/domain"
+	"course-assistant/internal/pdftext"
 )
 
 func (s *Server) studentMCPQuizHistory(ctx context.Context, submission *domain.HomeworkSubmission, limit int) (string, error) {
@@ -143,6 +146,145 @@ func (s *Server) studentMCPHomeworkStatus(ctx context.Context, submission *domai
 	return b.String(), nil
 }
 
+func (s *Server) studentMCPSearchVisibleQAIssues(ctx context.Context, submission *domain.HomeworkSubmission, query string, limit int) (string, error) {
+	if submission == nil {
+		return "", fmt.Errorf("unauthorized")
+	}
+	if limit <= 0 || limit > 5 {
+		limit = 3
+	}
+	issues, err := s.store.ListQAIssues(ctx, submission.CourseID, submission.AssignmentID, false)
+	if err != nil {
+		return "", fmt.Errorf("读取 Q&A 失败: %w", err)
+	}
+	type hit struct {
+		issue    domain.QAIssue
+		messages []domain.QAMessage
+		score    int
+	}
+	hits := make([]hit, 0)
+	for _, issue := range issues {
+		if strings.TrimSpace(issue.StudentNo) != "" && strings.TrimSpace(issue.StudentNo) != strings.TrimSpace(submission.StudentNo) {
+			continue
+		}
+		messages, _ := s.store.ListQAMessages(ctx, issue.ID)
+		text := issue.Title
+		for _, msg := range messages {
+			text += "\n" + msg.Content
+		}
+		score := studentAgentTextScore(query, text)
+		if score == 0 && strings.TrimSpace(query) != "" {
+			continue
+		}
+		hits = append(hits, hit{issue: issue, messages: messages, score: score})
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		if hits[i].issue.Status != hits[j].issue.Status {
+			return hits[i].issue.Status == "resolved"
+		}
+		return hits[i].issue.UpdatedAt.After(hits[j].issue.UpdatedAt)
+	})
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	if len(hits) == 0 {
+		return "未找到与当前问题明显相关的已有 Q&A。", nil
+	}
+	var b strings.Builder
+	b.WriteString("以下是当前课程/作业范围内与学生问题相关的已有 Q&A。若已有回复足以回答，请复用其结论；若已有未解决相似问题，请不要重复创建。\n")
+	for _, h := range hits {
+		b.WriteString(fmt.Sprintf("\n#%d [%s] %s\n", h.issue.ID, h.issue.Status, strings.TrimSpace(h.issue.Title)))
+		msgLimit := len(h.messages)
+		if msgLimit > 4 {
+			msgLimit = 4
+		}
+		for _, msg := range h.messages[:msgLimit] {
+			content := truncateAgentText(msg.Content)
+			if len([]rune(content)) > 500 {
+				content = string([]rune(content)[:500]) + "..."
+			}
+			b.WriteString(fmt.Sprintf("- %s: %s\n", msg.Sender, strings.TrimSpace(content)))
+		}
+	}
+	return b.String(), nil
+}
+
+func (s *Server) studentMCPVisibleCourseMaterials(ctx context.Context, submission *domain.HomeworkSubmission) (string, error) {
+	course, err := s.studentAgentCourse(ctx, submission)
+	if err != nil {
+		return "", err
+	}
+	materials, err := s.scanMaterialsFromDir(s.metadataMaterialsDir(course.TeacherID, course.Slug), course.Slug, false)
+	if err != nil {
+		return "", fmt.Errorf("读取课程资料失败: %w", err)
+	}
+	if len(materials) == 0 {
+		return "该课程暂无学生可见的课程资料。", nil
+	}
+	var b strings.Builder
+	b.WriteString("学生可见课程资料：\n")
+	for _, group := range materials {
+		files := make([]string, 0, len(group.Downloads))
+		for _, item := range group.Downloads {
+			files = append(files, item.File)
+		}
+		b.WriteString(fmt.Sprintf("- %s：%s\n", group.Stem, strings.Join(files, "、")))
+	}
+	return b.String(), nil
+}
+
+func (s *Server) studentMCPReadVisibleMaterialText(ctx context.Context, submission *domain.HomeworkSubmission, file string) (string, error) {
+	course, err := s.studentAgentCourse(ctx, submission)
+	if err != nil {
+		return "", err
+	}
+	name, ext, err := normalizeMaterialFilename(file, "")
+	if err != nil {
+		return "", fmt.Errorf("资料文件名无效")
+	}
+	if !s.studentCanReadMaterial(ctx, course, name) {
+		return "", fmt.Errorf("资料不存在或当前不可见")
+	}
+	path := filepath.Join(s.metadataMaterialsDir(course.TeacherID, course.Slug), name)
+	text, err := extractStudentAgentReadableText(path, ext)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("资料 %s 的可读取内容：\n%s", name, text), nil
+}
+
+func (s *Server) studentMCPVisibleAssignmentContext(ctx context.Context, submission *domain.HomeworkSubmission) (string, error) {
+	course, err := s.studentAgentCourse(ctx, submission)
+	if err != nil {
+		return "", err
+	}
+	visibility := s.loadHomeworkAssignmentVisibility(ctx)
+	if homeworkAssignmentHidden(visibility, course.Slug, submission.AssignmentID) {
+		return "当前作业资料对学生不可见。", nil
+	}
+	files := s.listHomeworkAssignmentFiles(course.Slug, course.ID, submission.AssignmentID)
+	if len(files) == 0 {
+		return "当前作业没有可见附件。", nil
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("当前作业 %s 的可见附件：\n", submission.AssignmentID))
+	for _, item := range files {
+		b.WriteString(fmt.Sprintf("- %s\n", item["name"]))
+	}
+	for _, item := range files {
+		name, _ := item["name"].(string)
+		text, ok := s.readVisibleAssignmentFilePreview(ctx, course, submission.AssignmentID, name)
+		if ok {
+			b.WriteString(fmt.Sprintf("\n附件 %s 可读取内容：\n%s\n", name, text))
+			break
+		}
+	}
+	return b.String(), nil
+}
+
 func (s *Server) studentMCPCreateQAIssue(ctx context.Context, submission *domain.HomeworkSubmission, title, summary string) (string, error) {
 	if submission == nil {
 		return "", fmt.Errorf("unauthorized")
@@ -204,6 +346,106 @@ func (s *Server) studentQAIssueLink(courseID int, assignmentID string, issueID i
 		return s.pathPrefix() + path
 	}
 	return strings.TrimRight(s.cfg.BaseURL, "/") + path
+}
+
+func (s *Server) studentAgentCourse(ctx context.Context, submission *domain.HomeworkSubmission) (*domain.Course, error) {
+	if submission == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+	course, err := s.store.GetCourse(ctx, submission.CourseID)
+	if err != nil || course == nil {
+		return nil, fmt.Errorf("课程不存在")
+	}
+	return course, nil
+}
+
+func (s *Server) studentCanReadMaterial(ctx context.Context, course *domain.Course, name string) bool {
+	materials, err := s.scanMaterialsFromDir(s.metadataMaterialsDir(course.TeacherID, course.Slug), course.Slug, false)
+	if err != nil {
+		return false
+	}
+	for _, group := range materials {
+		for _, item := range group.Downloads {
+			if item.File == name && item.Visible {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func extractStudentAgentReadableText(path, ext string) (string, error) {
+	switch strings.ToLower(ext) {
+	case ".pdf":
+		text, err := pdftext.ExtractText(path)
+		if err != nil {
+			return "", err
+		}
+		return truncateAgentText(text), nil
+	case ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".py", ".ipynb":
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		return truncateAgentText(string(data)), nil
+	default:
+		return "该文件类型暂不支持正文提取，只能作为文件名和附件信息参考。", nil
+	}
+}
+
+func (s *Server) readVisibleAssignmentFilePreview(ctx context.Context, course *domain.Course, assignmentID, name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	visibility := s.loadHomeworkAssignmentVisibility(ctx)
+	if homeworkAssignmentHidden(visibility, course.Slug, assignmentID) {
+		return "", false
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	path := filepath.Join(s.metadataHomeworkAssignmentDir(course.TeacherID, course.Slug, assignmentID), name)
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(s.homeworkAssignmentDir(course.Slug, assignmentID), name)
+	}
+	if _, err := os.Stat(path); err != nil && name == assignmentID+".pdf" {
+		path = s.homeworkLegacyAssignmentPath(course.Slug, assignmentID)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", false
+	}
+	text, err := extractStudentAgentReadableText(path, ext)
+	if err != nil {
+		return "", false
+	}
+	return text, true
+}
+
+func studentAgentTextScore(query, text string) int {
+	query = strings.ToLower(strings.TrimSpace(query))
+	text = strings.ToLower(strings.TrimSpace(text))
+	if query == "" || text == "" {
+		return 0
+	}
+	if strings.Contains(text, query) {
+		return 100 + len([]rune(query))
+	}
+	score := 0
+	seen := map[string]struct{}{}
+	for _, token := range strings.FieldsFunc(query, func(r rune) bool {
+		return r == ' ' || r == '\n' || r == '\t' || r == '，' || r == '。' || r == '？' || r == '?' || r == '、' || r == ',' || r == '.'
+	}) {
+		token = strings.TrimSpace(token)
+		if len([]rune(token)) < 2 {
+			continue
+		}
+		if _, ok := seen[token]; ok {
+			continue
+		}
+		seen[token] = struct{}{}
+		if strings.Contains(text, token) {
+			score += len([]rune(token))
+		}
+	}
+	return score
 }
 
 func escapeMCPTableCell(value string) string {

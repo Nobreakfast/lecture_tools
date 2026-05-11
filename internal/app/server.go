@@ -317,6 +317,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/mcp", s.apiTeacherMCP)
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	mux.HandleFunc("/api/student/mcp", s.apiStudentMCPDisabled)
+	mux.HandleFunc("/api/teacher/agent/mentions", s.apiTeacherAgentMentions)
 	mux.HandleFunc("/api/student/agent/chat", s.apiStudentAgentChat)
 	mux.HandleFunc("/api/teacher/agent/chat", s.apiTeacherAgentChat)
 	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix
@@ -1615,7 +1616,7 @@ func (s *Server) apiAISummary(w http.ResponseWriter, r *http.Request) {
 		Weaknesses:     topKeys(knowledgeBad, 5),
 		WrongQuestions: wrongQs,
 	}
-	summary, aiErr := s.aiClient.Summarize(r.Context(), input)
+	summary, aiErr := s.studentAgentQuizSummary(r.Context(), input)
 	if aiErr != nil {
 		writeJSON(w, map[string]any{"summary": summary, "ai_error": aiErr.Error()})
 		return
@@ -1623,6 +1624,25 @@ func (s *Server) apiAISummary(w http.ResponseWriter, r *http.Request) {
 	summaryJSON, _ := json.Marshal(summary)
 	_ = s.store.UpsertSummary(r.Context(), attempt.ID, string(summaryJSON))
 	writeJSON(w, map[string]any{"summary": summary, "cached": false})
+}
+
+func (s *Server) studentAgentQuizSummary(ctx context.Context, input ai.SummarizeInput) (domain.ResultSummary, error) {
+	payload, _ := json.Marshal(input)
+	prompt := "你正在为学生生成一次已提交小测的学习建议。只能基于以下当前小测结果、错题、知识点和解析生成建议；不要提供正在进行的小测答案，不要暴露内部实现。请输出严格 JSON，字段为 strengths:string[]、weaknesses:string[]、next_actions:string[]、priority_level:string、encouragement:string。\n\n" + string(payload)
+	raw, err := s.aiClient.StudentAgentChat(ctx, prompt)
+	if err != nil {
+		summary, fallbackErr := s.aiClient.Summarize(ctx, input)
+		s.saveAgentTrajectory(ctx, agentTrajectory{Kind: "student_task:quiz_summary", CreatedAt: time.Now(), Teacher: "unknown_teacher", Course: input.QuizTitle, Name: "student", Request: map[string]any{"input": input}, Prompt: prompt, Error: err.Error()})
+		return summary, fallbackErr
+	}
+	var summary domain.ResultSummary
+	if parseErr := json.Unmarshal([]byte(strings.TrimSpace(raw)), &summary); parseErr != nil || len(summary.NextActions) == 0 {
+		fallback, fallbackErr := s.aiClient.Summarize(ctx, input)
+		s.saveAgentTrajectory(ctx, agentTrajectory{Kind: "student_task:quiz_summary", CreatedAt: time.Now(), Teacher: "unknown_teacher", Course: input.QuizTitle, Name: "student", Request: map[string]any{"input": input}, Prompt: prompt, RawResponse: raw, Answer: fmt.Sprint(fallback), Error: fmt.Sprint(parseErr)})
+		return fallback, fallbackErr
+	}
+	s.saveAgentTrajectory(ctx, agentTrajectory{Kind: "student_task:quiz_summary", CreatedAt: time.Now(), Teacher: "unknown_teacher", Course: input.QuizTitle, Name: "student", Request: map[string]any{"input": input}, Prompt: prompt, RawResponse: raw, Decision: summary, Answer: fmt.Sprint(summary)})
+	return summary, nil
 }
 
 func (s *Server) apiAdminAIConfig(w http.ResponseWriter, r *http.Request) {

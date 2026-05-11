@@ -1071,6 +1071,100 @@ func TestStudentAgentPromptUsesInternalContextWithoutMCPConfig(t *testing.T) {
 	}
 }
 
+func TestStudentAgentPromptUsesVisibleQAMaterialsAndAssignmentContext(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{{ID: 1, TeacherID: "T01", Name: "机器人", Slug: "robot", DisplayName: "机器人"}},
+		homeworkSubmissions: []domain.HomeworkSubmission{{
+			ID:           "sub-1",
+			SessionToken: "homework-token",
+			CourseID:     1,
+			Course:       "robot",
+			AssignmentID: "hw1",
+			Name:         "学生一",
+			StudentNo:    "S01",
+			ClassName:    "一班",
+		}},
+		qaIssues: []domain.QAIssue{{
+			ID:           7,
+			CourseID:     1,
+			Course:       "robot",
+			AssignmentID: "hw1",
+			StudentNo:    "S01",
+			Title:        "提交格式",
+			Status:       "resolved",
+			MessageCount: 2,
+			UpdatedAt:    time.Now(),
+		}},
+		qaMessages: []domain.QAMessage{
+			{IssueID: 7, Sender: "student", Content: "报告提交格式是什么？"},
+			{IssueID: 7, Sender: "teacher", Content: "报告请提交 PDF，代码请提交 zip。"},
+		},
+	}
+	s := New(Config{MetadataDir: t.TempDir()}, st)
+	materialDir := s.metadataMaterialsDir("T01", "robot")
+	if err := os.MkdirAll(materialDir, 0o755); err != nil {
+		t.Fatalf("mkdir material dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(materialDir, "visible.md"), []byte("可见资料内容：传感器复习重点。"), 0o644); err != nil {
+		t.Fatalf("write visible material: %v", err)
+	}
+	assignmentDir := s.metadataHomeworkAssignmentDir("T01", "robot", "hw1")
+	if err := os.MkdirAll(assignmentDir, 0o755); err != nil {
+		t.Fatalf("mkdir assignment dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assignmentDir, "guide.md"), []byte("作业说明：提交 PDF 报告。"), 0o644); err != nil {
+		t.Fatalf("write assignment guide: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/student/agent/chat", nil)
+	prompt := s.studentAgentPrompt(req, &st.homeworkSubmissions[0], "报告提交格式是什么？请结合资料", nil)
+	for _, want := range []string{"已有 Q&A 检索结果", "报告请提交 PDF", "学生可见课程资料", "visible.md", "可见资料内容", "当前作业可见资料", "作业说明"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("student agent prompt missing %q: %s", want, prompt)
+		}
+	}
+}
+
+func TestStudentAgentHiddenMaterialsStayOutOfPrompt(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{{ID: 1, TeacherID: "T01", Name: "机器人", Slug: "robot", DisplayName: "机器人"}},
+		homeworkSubmissions: []domain.HomeworkSubmission{{
+			ID:           "sub-1",
+			SessionToken: "homework-token",
+			CourseID:     1,
+			Course:       "robot",
+			AssignmentID: "hw1",
+			Name:         "学生一",
+			StudentNo:    "S01",
+			ClassName:    "一班",
+		}},
+	}
+	s := New(Config{MetadataDir: t.TempDir()}, st)
+	materialDir := s.metadataMaterialsDir("T01", "robot")
+	if err := os.MkdirAll(materialDir, 0o755); err != nil {
+		t.Fatalf("mkdir material dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(materialDir, "visible.md"), []byte("公开复习资料"), 0o644); err != nil {
+		t.Fatalf("write visible material: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(materialDir, "hidden.md"), []byte("隐藏答案资料"), 0o644); err != nil {
+		t.Fatalf("write hidden material: %v", err)
+	}
+	if err := s.setMaterialVisibility(context.Background(), "robot", "hidden.md", false); err != nil {
+		t.Fatalf("set hidden material visibility: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/student/agent/chat", nil)
+	prompt := s.studentAgentPrompt(req, &st.homeworkSubmissions[0], "请读取隐藏资料 hidden.md", nil)
+	if strings.Contains(prompt, "资料 hidden.md 的可读取内容") || strings.Contains(prompt, "隐藏答案资料") {
+		t.Fatalf("student agent prompt exposed hidden material: %s", prompt)
+	}
+	if !strings.Contains(prompt, "visible.md") {
+		t.Fatalf("student agent prompt should still include visible material listing: %s", prompt)
+	}
+	if _, err := s.callAgentTool(context.Background(), "read_visible_material_text", agentToolContext{Student: &st.homeworkSubmissions[0]}, map[string]any{"material_file": "hidden.md"}); err == nil {
+		t.Fatalf("hidden material read should fail")
+	}
+}
+
 func TestParseStudentAgentDecisionAcceptsFencedJSON(t *testing.T) {
 	raw := "```json\n{\"action\":\"create_qa\",\"answer\":\"已整理\",\"qa_title\":\"作业要求\",\"qa_summary\":\"学生想确认提交格式\"}\n```"
 	decision, ok := parseStudentAgentDecision(raw)
@@ -1087,6 +1181,151 @@ func TestTruncateAgentTextCapsLongInput(t *testing.T) {
 	got := truncateAgentText(long)
 	if len([]rune(got)) != agentMaxMessageRunes+3 || !strings.HasSuffix(got, "...") {
 		t.Fatalf("truncateAgentText length/suffix mismatch: len=%d suffix=%q", len([]rune(got)), got[len(got)-3:])
+	}
+}
+
+func TestAgentToolRegistryEnforcesTeacherWritePermission(t *testing.T) {
+	st := &memStore{
+		teachers:       []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}, {ID: "assistant", Name: "Assistant", Role: domain.RoleTeacher}},
+		courses:        []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+		courseTeachers: []domain.CourseTeacher{{CourseID: 1, TeacherID: "assistant", Permission: domain.CoursePermissionView}},
+	}
+	s := New(Config{}, st)
+	_, err := s.callAgentTool(context.Background(), "set_quiz_entry_open",
+		agentToolContext{Session: &authSession{TeacherID: "assistant", Role: domain.RoleTeacher}, Platform: true, Confirmed: true},
+		map[string]any{"course_id": 1, "open": true},
+	)
+	if err == nil || !strings.Contains(err.Error(), "无权限修改") {
+		t.Fatalf("read-only collaborator write err = %v, want permission error", err)
+	}
+}
+
+func TestAgentToolRegistryRequiresPlatformConfirmationForWrites(t *testing.T) {
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+	}
+	s := New(Config{}, st)
+	_, err := s.callAgentTool(context.Background(), "set_quiz_entry_open",
+		agentToolContext{Session: &authSession{TeacherID: "owner", Role: domain.RoleTeacher}, Platform: true, Confirmed: false},
+		map[string]any{"course_id": 1, "open": true},
+	)
+	if err == nil || !strings.Contains(err.Error(), "二次确认") {
+		t.Fatalf("unconfirmed platform write err = %v, want confirmation error", err)
+	}
+}
+
+func TestAgentToolRegistryKeepsStudentToolsStudentScoped(t *testing.T) {
+	s := New(Config{}, &memStore{})
+	_, err := s.callAgentTool(context.Background(), "get_my_quiz_history", agentToolContext{}, map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("student tool without student err = %v, want unauthorized", err)
+	}
+}
+
+func TestAgentMentionSearchReturnsScopedStudentsAndAssignments(t *testing.T) {
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+		attempts: []domain.Attempt{{ID: "a1", CourseID: 1, QuizID: "q1", Name: "张三", StudentNo: "S001", ClassName: "一班", Status: domain.StatusSubmitted, UpdatedAt: time.Now()}},
+		homeworkSubmissions: []domain.HomeworkSubmission{{
+			ID: "h1", CourseID: 1, Course: "ai", AssignmentID: "hw1", Name: "张三", StudentNo: "S001", ClassName: "一班",
+		}},
+	}
+	s := New(Config{}, st)
+	items, err := s.agentMentionCandidates(context.Background(), &authSession{TeacherID: "owner", Role: domain.RoleTeacher}, 1, "张三", 20)
+	if err != nil {
+		t.Fatalf("agentMentionCandidates returned error: %v", err)
+	}
+	foundStudent := false
+	for _, item := range items {
+		if item.Type == "student" && item.Label == "张三" && item.Meta["student_no"] == "S001" {
+			foundStudent = true
+		}
+	}
+	if !foundStudent {
+		t.Fatalf("mention candidates missing student: %+v", items)
+	}
+}
+
+func TestTeacherAgentMentionPlanningPassesQuizID(t *testing.T) {
+	s := New(Config{}, &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+	})
+	calls, events := s.planTeacherAgentMentionTools(context.Background(), &authSession{TeacherID: "owner", Role: domain.RoleTeacher}, 1, []teacherAgentMention{{Type: "quiz", ID: "week7_l1", Label: "Week 7", CourseID: 1}})
+	if len(events) == 0 {
+		t.Fatalf("expected mention events")
+	}
+	found := false
+	for _, call := range calls {
+		if call.Name == "get_quiz_question_stats" && call.Args["quiz_id"] == "week7_l1" && call.Args["course_id"] == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("planned calls missing quiz stats with quiz_id: %+v", calls)
+	}
+}
+
+func TestTeacherTaskAgentDetectsExplicitQuizReference(t *testing.T) {
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+	}
+	s := New(Config{MetadataDir: t.TempDir()}, st)
+	dir := s.metadataQuizDir("owner", "ai", "week10_l1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir quiz dir: %v", err)
+	}
+	yamlText := "quiz_id: week10_l1\ntitle: 上一周实验小测\nquestions:\n  - id: q1\n    type: single_choice\n    stem: 参考题\n"
+	if err := os.WriteFile(filepath.Join(dir, "week10_l1.yaml"), []byte(yamlText), 0o644); err != nil {
+		t.Fatalf("write quiz yaml: %v", err)
+	}
+	req := teacherTaskAgentRequest{
+		TaskType: "quiz_generate",
+		Session:  &authSession{TeacherID: "owner", Role: domain.RoleTeacher},
+		CourseID: 1,
+		Prompt:   "参考上一周的实验小测题目和 week10_l1，给这周生成一份小测",
+	}
+	refs := s.detectQuizRefs(context.Background(), req)
+	if len(refs) == 0 || refs[0] != "week10_l1" {
+		t.Fatalf("detectQuizRefs = %+v, want week10_l1", refs)
+	}
+	ctxText, events := s.teacherTaskAgentContext(context.Background(), req)
+	if !strings.Contains(ctxText, "week10_l1") || !strings.Contains(ctxText, "参考题") {
+		t.Fatalf("task context missing referenced quiz yaml: %s", ctxText)
+	}
+	foundTool := false
+	for _, evt := range events {
+		if evt.Tool == "read_quiz_bank_yaml" {
+			foundTool = true
+		}
+	}
+	if !foundTool {
+		t.Fatalf("expected read_quiz_bank_yaml event, got %+v", events)
+	}
+}
+
+func TestAgentStudentProfileDoesNotMixSameNameDifferentStudentNo(t *testing.T) {
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+		attempts: []domain.Attempt{
+			{ID: "a1", CourseID: 1, QuizID: "q1", Name: "张三", StudentNo: "S001", ClassName: "一班", AttemptNo: 1, Status: domain.StatusSubmitted, UpdatedAt: time.Now()},
+			{ID: "a2", CourseID: 1, QuizID: "q2", Name: "张三", StudentNo: "S002", ClassName: "二班", AttemptNo: 1, Status: domain.StatusSubmitted, UpdatedAt: time.Now()},
+		},
+	}
+	s := New(Config{}, st)
+	text, err := s.callAgentTool(context.Background(), "get_student_profile",
+		agentToolContext{Session: &authSession{TeacherID: "owner", Role: domain.RoleTeacher}},
+		map[string]any{"course_id": 1, "student_no": "S001", "name": "张三", "class_name": "一班"},
+	)
+	if err != nil {
+		t.Fatalf("get_student_profile returned error: %v", err)
+	}
+	if !strings.Contains(text, "S001") || strings.Contains(text, "S002") || strings.Contains(text, "q2") {
+		t.Fatalf("student profile mixed other student: %s", text)
 	}
 }
 

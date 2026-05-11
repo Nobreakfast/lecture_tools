@@ -1051,7 +1051,10 @@
         <strong>学生智能助手</strong>
         <div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">可询问历史小测、作业状态和学习建议；需教师确认的问题会自动整理为 Q&A。</div>
       </div>
-      <button id="studentAgentCloseBtn" class="small secondary" type="button" style="margin-top:0;">关闭</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="studentAgentNewBtn" class="small secondary" type="button" style="margin-top:0;">新对话</button>
+        <button id="studentAgentCloseBtn" class="small secondary" type="button" style="margin-top:0;">关闭</button>
+      </div>
     </div>
     <div id="studentAgentMessages" class="agent-messages" role="log" aria-live="polite"></div>
     <div class="agent-input-wrap">
@@ -1938,6 +1941,15 @@
       launcher.focus();
     }
 
+    function resetStudentAgentConversation() {
+      if (studentAgentBusy) return;
+      studentAgentMessages = [];
+      var input = document.getElementById('studentAgentInput');
+      if (input) input.value = '';
+      addStudentAgentMessage('assistant', '你好，我可以基于你当前作业身份查看历史小测、作业状态、可见课程资料，并先查询已有 Q&A 后再决定是否帮你整理新问题。');
+      if (input) input.focus();
+    }
+
     function addStudentAgentMessage(role, content) {
       var text = String(content || '').trim();
       if (!text) return;
@@ -1962,7 +1974,9 @@
       addStudentAgentMessage('user', message);
       studentAgentBusy = true;
       var btn = document.getElementById('studentAgentSendBtn');
+      var newBtn = document.getElementById('studentAgentNewBtn');
       btn.disabled = true;
+      if (newBtn) newBtn.disabled = true;
       var typing = { role: 'assistant', content: '正在读取你的课程数据并思考…' };
       studentAgentMessages.push(typing);
       renderStudentAgentMessages();
@@ -1982,6 +1996,7 @@
       } finally {
         studentAgentBusy = false;
         btn.disabled = false;
+        if (newBtn) newBtn.disabled = false;
         renderStudentAgentMessages();
       }
     }
@@ -2010,6 +2025,7 @@
     };
     document.getElementById('qaSubmitBtn').onclick = submitQAQuestion;
     document.getElementById('studentAgentLauncher').onclick = openStudentAgentPanel;
+    document.getElementById('studentAgentNewBtn').onclick = resetStudentAgentConversation;
     document.getElementById('studentAgentCloseBtn').onclick = closeStudentAgentPanel;
     document.getElementById('studentAgentSendBtn').onclick = sendStudentAgentMessage;
     document.getElementById('studentAgentInput').addEventListener('keydown', function (evt) {

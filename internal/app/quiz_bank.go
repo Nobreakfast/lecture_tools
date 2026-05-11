@@ -655,7 +655,7 @@ func (s *Server) apiTeacherCourseQuizBankAIGenerate(w http.ResponseWriter, r *ht
 		http.Error(w, "prompt 不能为空", http.StatusBadRequest)
 		return
 	}
-	yaml, err := s.aiClient.GenerateQuiz(r.Context(), req.Prompt)
+	yaml, err := s.callAgentTool(r.Context(), "draft_quiz_from_prompt", agentToolContext{Session: sess, Platform: true, CourseID: req.CourseID}, map[string]any{"course_id": req.CourseID, "prompt": req.Prompt})
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
@@ -713,19 +713,33 @@ func (s *Server) apiTeacherCourseQuizBankAIInitialize(w http.ResponseWriter, r *
 		http.Error(w, "未能从该 PDF 提取文本", http.StatusBadRequest)
 		return
 	}
-	yaml, err := s.aiClient.InitializeQuiz(r.Context(), ai.QuizInitializeInput{
-		QuizID:        strings.TrimSpace(req.QuizID),
-		QuizTitle:     strings.TrimSpace(req.QuizTitle),
-		MaterialName:  name,
-		QuestionCount: req.QuestionCount,
-		BasePrompt:    strings.TrimSpace(req.BasePrompt),
-		PDFText:       pdfText,
+	out, err := s.runTeacherTaskAgent(r.Context(), teacherTaskAgentRequest{
+		TaskType: "quiz_initialize",
+		Session:  sess,
+		CourseID: course.ID,
+		Prompt:   strings.TrimSpace(req.BasePrompt),
+		Args: map[string]any{
+			"course_id":      course.ID,
+			"quiz_id":        strings.TrimSpace(req.QuizID),
+			"quiz_title":     strings.TrimSpace(req.QuizTitle),
+			"material_file":  name,
+			"question_count": req.QuestionCount,
+			"base_prompt":    strings.TrimSpace(req.BasePrompt),
+			"initialize_input": ai.QuizInitializeInput{
+				QuizID:        strings.TrimSpace(req.QuizID),
+				QuizTitle:     strings.TrimSpace(req.QuizTitle),
+				MaterialName:  name,
+				QuestionCount: req.QuestionCount,
+				BasePrompt:    strings.TrimSpace(req.BasePrompt),
+				PDFText:       pdfText,
+			},
+		},
 	})
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]any{"yaml": yaml, "material_file": name})
+	writeJSON(w, map[string]any{"yaml": out.Text, "material_file": name})
 }
 
 func (s *Server) apiTeacherCourseQuizBankAIAutoFill(w http.ResponseWriter, r *http.Request) {
@@ -750,7 +764,7 @@ func (s *Server) apiTeacherCourseQuizBankAIAutoFill(w http.ResponseWriter, r *ht
 		http.Error(w, "yaml 不能为空", http.StatusBadRequest)
 		return
 	}
-	result, err := s.aiClient.AutoFillQuiz(r.Context(), req.YAML)
+	result, err := s.callAgentTool(r.Context(), "autofill_quiz_yaml", agentToolContext{Session: sess, Platform: true, CourseID: req.CourseID}, map[string]any{"course_id": req.CourseID, "yaml": req.YAML})
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
