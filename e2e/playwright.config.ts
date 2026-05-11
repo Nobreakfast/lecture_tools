@@ -1,7 +1,7 @@
 // Copyright 2024-2026 course-assistant contributors.
 // SPDX-License-Identifier: MIT
 
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 19876;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -25,6 +25,31 @@ export default defineConfig({
     {
       name: "chromium",
       use: { browserName: "chromium" },
+    },
+    {
+      name: "firefox-smoke",
+      testMatch: /responsive-smoke\.spec\.ts/,
+      use: { browserName: "firefox" },
+    },
+    {
+      name: "webkit-smoke",
+      testMatch: /responsive-smoke\.spec\.ts/,
+      use: { browserName: "webkit" },
+    },
+    {
+      name: "mobile-chrome-smoke",
+      testMatch: /responsive-smoke\.spec\.ts/,
+      use: { ...devices["Pixel 7"] },
+    },
+    {
+      name: "mobile-safari-smoke",
+      testMatch: /responsive-smoke\.spec\.ts/,
+      use: { ...devices["iPhone 14"] },
+    },
+    {
+      name: "ipad-safari-smoke",
+      testMatch: /responsive-smoke\.spec\.ts/,
+      use: { ...devices["iPad Pro 11"] },
     },
   ],
 });

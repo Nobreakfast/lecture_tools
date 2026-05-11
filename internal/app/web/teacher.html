@@ -731,6 +731,21 @@
         margin-bottom: 12px;
       }
 
+      .logout-row > div:first-child {
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+
+      #headerRight {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .course-pills {
+        min-width: 0;
+        max-width: 100%;
+      }
+
       .tab-bar {
         font-size: 13px;
       }
@@ -742,10 +757,19 @@
 
       .course-card-header {
         flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
+
+      .course-card-info {
+        flex: 1 1 100%;
+        width: 100%;
       }
 
       .course-card-actions {
+        width: 100%;
         flex-wrap: wrap;
+        justify-content: flex-start;
       }
 
       .modal-box {
