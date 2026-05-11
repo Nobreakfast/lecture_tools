@@ -194,7 +194,12 @@ func (s *Server) studentMCPCreateQAIssue(ctx context.Context, submission *domain
 }
 
 func (s *Server) studentQAIssueLink(courseID int, assignmentID string, issueID int) string {
-	path := fmt.Sprintf("/student/qa?course_id=%d&assignment_id=%s&focus=%d", courseID, url.QueryEscape(assignmentID), issueID)
+	returnTo := "/?tab=tab-homework"
+	if strings.TrimSpace(assignmentID) != "" {
+		returnTo += "&assignment_id=" + url.QueryEscape(assignmentID)
+	}
+	path := fmt.Sprintf("/student/qa?course_id=%d&assignment_id=%s&focus=%d&return_to=%s",
+		courseID, url.QueryEscape(assignmentID), issueID, url.QueryEscape(returnTo))
 	if strings.TrimSpace(s.cfg.BaseURL) == "" {
 		return s.pathPrefix() + path
 	}

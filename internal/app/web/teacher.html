@@ -3462,6 +3462,12 @@
       var aid = document.getElementById('homeworkAssignmentFilter').value;
       var url = '/teacher/qa?course_id=' + encodeURIComponent(selectedCourseId);
       if (aid) url += '&assignment_id=' + encodeURIComponent(aid);
+      var hp = new URLSearchParams();
+      hp.set('tab', 'tab-upload');
+      hp.set('subtab', 'sub-homework');
+      hp.set('course', selectedCourseId);
+      if (aid) hp.set('assignment_id', aid);
+      url += '&return_to=' + encodeURIComponent('/teacher#' + hp.toString());
       window.location.href = url;
     };
     document.getElementById('homeworkGradeVisibilityBtn').onclick = toggleHomeworkGradeVisibility;

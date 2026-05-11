@@ -612,7 +612,7 @@ func (s *Server) saveUploadedMaterial(ctx context.Context, dir, folder string, h
 	if err := os.WriteFile(fp, data, 0o644); err != nil {
 		return nil, &materialUploadFailure{File: name, Error: "写入文件失败"}
 	}
-	if err := s.setMaterialVisibility(ctx, folder, name, true); err != nil {
+	if err := s.setMaterialVisibility(ctx, folder, name, false); err != nil {
 		_ = os.Remove(fp)
 		return nil, &materialUploadFailure{File: name, Error: "保存文件状态失败"}
 	}

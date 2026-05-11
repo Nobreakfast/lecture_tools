@@ -500,6 +500,13 @@ func TestAPIAdminPDFUploadPartialSuccess(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.pptDir(), "course-a", "lab.ipynb")); err != nil {
 		t.Fatalf("expected lab.ipynb to be saved: %v", err)
 	}
+	visibility := readMaterialVisibilitySetting(t, s)
+	if visibility[materialVisibilityPath("course-a", "quiz1.pdf")] != false {
+		t.Fatalf("expected uploaded pdf to default hidden, got visibility=%+v", visibility)
+	}
+	if visibility[materialVisibilityPath("course-a", "lab.ipynb")] != false {
+		t.Fatalf("expected uploaded ipynb to default hidden, got visibility=%+v", visibility)
+	}
 }
 
 func TestAPIAdminPDFUploadNormalizesUppercasePDFExtension(t *testing.T) {

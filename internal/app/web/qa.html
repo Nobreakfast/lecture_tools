@@ -564,6 +564,7 @@
         var courseId = params.get('course_id') || '';
         var assignmentId = params.get('assignment_id') || '';
         var issueId = params.get('issue_id') || '';
+        var returnTo = params.get('return_to') || '';
         var currentIssue = null;
 
         function escapeHTML(s) {
@@ -591,10 +592,31 @@
         }
 
         // ── Navigation ──
+        function safeReturnTarget() {
+            if (!returnTo) return '';
+            try {
+                var target = new URL(returnTo, window.location.origin);
+                if (target.origin !== window.location.origin) return '';
+                return target.pathname + target.search + target.hash;
+            } catch (e) {
+                return '';
+            }
+        }
+
         function goBack() {
             if (isTeacherMode) {
+                var teacherTarget = safeReturnTarget();
+                if (teacherTarget) {
+                    window.location.href = teacherTarget;
+                    return;
+                }
                 window.location.href = '/teacher';
             } else if (isStudentMode) {
+                var target = safeReturnTarget();
+                if (target) {
+                    window.location.href = target;
+                    return;
+                }
                 var url = '/';
                 var parts = [];
                 if (courseId) parts.push('code=' + encodeURIComponent(getInviteCodeFromStorage() || ''));
@@ -947,6 +969,7 @@
             if (courseId) q.push('course_id=' + encodeURIComponent(courseId));
             if (assignmentId) q.push('assignment_id=' + encodeURIComponent(assignmentId));
             if (inviteCode) q.push('invite=' + encodeURIComponent(inviteCode));
+            if (returnTo) q.push('return_to=' + encodeURIComponent(returnTo));
             for (var k in overrides) {
                 if (overrides.hasOwnProperty(k) && overrides[k]) {
                     q.push(k + '=' + encodeURIComponent(overrides[k]));

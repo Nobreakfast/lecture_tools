@@ -111,7 +111,7 @@ test.describe("Teacher materials management", () => {
     const seed = getSeedResult();
     await teacherPage.selectCourse(seed.courseId);
 
-    // Upload a visible material
+    // Upload a material and explicitly publish it.
     const visFile = `vis-${Date.now()}.txt`;
     await teacherPage.page.evaluate(
       async ({ courseId, fileName }) => {
@@ -124,6 +124,15 @@ test.describe("Teacher materials management", () => {
         await fetch(
           `/api/teacher/courses/materials/upload?course_id=${courseId}`,
           { method: "POST", credentials: "include", body: fd }
+        );
+        await fetch(
+          `/api/teacher/courses/materials/visibility?course_id=${courseId}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ file: fileName, visible: true }),
+          }
         );
       },
       { courseId: seed.courseId, fileName: visFile }
