@@ -595,6 +595,22 @@ func (m *memStore) UpdateQAIssueStatus(_ context.Context, id int, status string)
 	}
 	return sql.ErrNoRows
 }
+func (m *memStore) UpdateQAIssueQuestion(_ context.Context, id int, title, question string) error {
+	for i := range m.qaIssues {
+		if m.qaIssues[i].ID == id {
+			m.qaIssues[i].Title = title
+			m.qaIssues[i].UpdatedAt = time.Now()
+			for j := range m.qaMessages {
+				if m.qaMessages[j].IssueID == id && m.qaMessages[j].Sender == "student" {
+					m.qaMessages[j].Content = question
+					return nil
+				}
+			}
+			return sql.ErrNoRows
+		}
+	}
+	return sql.ErrNoRows
+}
 func (m *memStore) SetQAIssuePinned(_ context.Context, id int, pinned bool) error {
 	for i := range m.qaIssues {
 		if m.qaIssues[i].ID == id {

@@ -427,6 +427,61 @@ func TestHomeworkQALifecycle(t *testing.T) {
 	}
 }
 
+func TestQAIssueQuestionUpdate(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-qa-issue-question?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	issueID, err := st.CreateQAIssue(ctx, &domain.QAIssue{
+		CourseID:     10,
+		Course:       "course-a",
+		AssignmentID: "task-1",
+		StudentNo:    "2026001",
+		Title:        "原始问题含姓名",
+		Status:       "open",
+		Hidden:       true,
+		MessageCount: 1,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("CreateQAIssue failed: %v", err)
+	}
+	if _, err := st.CreateQAMessage(ctx, &domain.QAMessage{
+		IssueID:   int(issueID),
+		Sender:    "student",
+		Content:   "我是张三，问题是递归是什么？",
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateQAMessage failed: %v", err)
+	}
+
+	if err := st.UpdateQAIssueQuestion(ctx, int(issueID), "问题是递归是什么？", "问题是递归是什么？"); err != nil {
+		t.Fatalf("UpdateQAIssueQuestion failed: %v", err)
+	}
+	issue, err := st.GetQAIssueByID(ctx, int(issueID))
+	if err != nil {
+		t.Fatalf("GetQAIssueByID failed: %v", err)
+	}
+	if issue.Title != "问题是递归是什么？" || !issue.Hidden {
+		t.Fatalf("unexpected issue after edit: %+v", issue)
+	}
+	messages, err := st.ListQAMessages(ctx, int(issueID))
+	if err != nil {
+		t.Fatalf("ListQAMessages failed: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Content != "问题是递归是什么？" {
+		t.Fatalf("unexpected messages after edit: %+v", messages)
+	}
+}
+
 func TestHomeworkSubmissionSchemaCutoverDropsLegacyColumns(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-homework-schema-cutover?mode=memory&cache=shared")

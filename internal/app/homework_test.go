@@ -718,6 +718,10 @@ func TestHomeworkQAWithImagesLifecycle(t *testing.T) {
 	if pinRR.Code != http.StatusOK {
 		t.Fatalf("expected pin 200, got %d body=%s", pinRR.Code, pinRR.Body.String())
 	}
+	showRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/qa/hidden?course_id=1", []byte(`{"id":"`+qaID+`","value":false}`), adminCookie)
+	if showRR.Code != http.StatusOK {
+		t.Fatalf("expected show 200, got %d body=%s", showRR.Code, showRR.Body.String())
+	}
 
 	publicRR = doHomeworkJSON(t, h, http.MethodGet, "/api/homework/qa?course_id=1&assignment_id=task-1", nil)
 	if err := json.Unmarshal(publicRR.Body.Bytes(), &publicResp); err != nil {

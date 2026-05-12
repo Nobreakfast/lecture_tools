@@ -82,6 +82,7 @@ func (s *Server) apiQAIssueCreate(w http.ResponseWriter, r *http.Request) {
 		StudentNo:    submission.StudentNo,
 		Title:        title,
 		Status:       "open",
+		Hidden:       true,
 		MessageCount: 1,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -360,6 +361,58 @@ func (s *Server) apiTeacherQAIssuePin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiTeacherQAIssueHide(w http.ResponseWriter, r *http.Request) {
 	s.apiTeacherQAIssueToggle(w, r, "hidden")
+}
+
+func (s *Server) apiTeacherQAIssueQuestion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		ID       int    `json:"id"`
+		Question string `json:"question"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	question := strings.TrimSpace(req.Question)
+	if req.ID <= 0 || question == "" {
+		http.Error(w, "问题不能为空", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(question)) > 3000 {
+		http.Error(w, "问题不能超过 3000 字", http.StatusBadRequest)
+		return
+	}
+	issue, err := s.store.GetQAIssueByID(r.Context(), req.ID)
+	if err != nil {
+		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.CourseID != courseID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	title := question
+	if len([]rune(title)) > 80 {
+		title = string([]rune(title)[:80]) + "..."
+	}
+	if err := s.store.UpdateQAIssueQuestion(r.Context(), req.ID, title, question); err != nil {
+		http.Error(w, "更新失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "title": title})
 }
 
 func (s *Server) apiTeacherQAIssueBoolAction(w http.ResponseWriter, r *http.Request, status string) {

@@ -314,6 +314,33 @@
             white-space: nowrap;
         }
 
+        .edit-question-form {
+            display: none;
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius-lg, 12px);
+            padding: 12px;
+            margin-bottom: 14px;
+        }
+
+        .edit-question-form.show {
+            display: block;
+        }
+
+        .edit-question-form textarea {
+            width: 100%;
+            min-height: 92px;
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius, 8px);
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+            background: var(--bg, #f5f7fa);
+            color: var(--text, #1a1a2e);
+        }
+
         /* Message Thread */
         .msg-item {
             display: flex;
@@ -535,6 +562,14 @@
             </div>
             <div id="detailHeader"></div>
             <div id="teacherActions" class="teacher-actions" style="display:none;"></div>
+            <div id="editQuestionForm" class="edit-question-form">
+                <textarea id="editQuestionText" maxlength="3000" placeholder="编辑学生问题，保存后会更新公开显示的标题和首条提问。"></textarea>
+                <div class="form-actions">
+                    <div style="flex:1;"></div>
+                    <button class="btn btn-secondary btn-sm" onclick="cancelEditQuestion()">取消</button>
+                    <button class="btn btn-primary btn-sm" onclick="saveEditedQuestion()">保存问题</button>
+                </div>
+            </div>
             <div id="detailMessages"></div>
             <div id="replyForm" class="reply-form">
                 <textarea id="replyMsg" placeholder="添加回复..." maxlength="3000"></textarea>
@@ -716,8 +751,8 @@
                 document.getElementById('newIssueMsg').value = '';
                 document.getElementById('newIssueImages').value = '';
                 document.getElementById('newIssueForm').classList.remove('show');
-                showToast('提问已创建');
-                openIssue(data.issue_id);
+                showToast('提问已提交，教师审核后会公开显示');
+                loadIssues();
             } catch (e) { showToast('提交失败'); }
         }
 
@@ -826,10 +861,12 @@
             var container = document.getElementById('teacherActions');
             if (!isTeacherMode) {
                 container.style.display = 'none';
+                document.getElementById('editQuestionForm').classList.remove('show');
                 return;
             }
             container.style.display = 'flex';
             var html = '';
+            html += '<button class="btn btn-secondary btn-sm" onclick="showEditQuestion()">✏️ 编辑问题</button>';
             // Pin/Unpin
             if (iss.pinned) {
                 html += '<button class="btn btn-secondary btn-sm" onclick="togglePin(false)">📌 取消置顶</button>';
@@ -849,6 +886,45 @@
                 html += '<button class="btn btn-secondary btn-sm" onclick="reopenIssue()">🔄 重新打开</button>';
             }
             container.innerHTML = html;
+        }
+
+        function firstStudentMessage() {
+            if (!currentIssue || !currentIssue.messages) return null;
+            for (var i = 0; i < currentIssue.messages.length; i++) {
+                if (currentIssue.messages[i].sender === 'student') return currentIssue.messages[i];
+            }
+            return null;
+        }
+
+        function showEditQuestion() {
+            var msg = firstStudentMessage();
+            if (!msg) { showToast('没有可编辑的学生问题'); return; }
+            var form = document.getElementById('editQuestionForm');
+            var box = document.getElementById('editQuestionText');
+            box.value = msg.content || currentIssue.title || '';
+            form.classList.add('show');
+            box.focus();
+        }
+
+        function cancelEditQuestion() {
+            document.getElementById('editQuestionForm').classList.remove('show');
+        }
+
+        async function saveEditedQuestion() {
+            if (!currentIssue) return;
+            var question = document.getElementById('editQuestionText').value.trim();
+            if (!question) { showToast('问题不能为空'); return; }
+            try {
+                var r = await fetch('/api/teacher/qa/issue/question?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: currentIssue.id, question: question })
+                });
+                if (!r.ok) { showToast(await r.text()); return; }
+                document.getElementById('editQuestionForm').classList.remove('show');
+                showToast('问题已更新');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('保存失败'); }
         }
 
         async function togglePin(value) {

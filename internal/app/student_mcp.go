@@ -314,6 +314,7 @@ func (s *Server) studentMCPCreateQAIssue(ctx context.Context, submission *domain
 		StudentNo:    submission.StudentNo,
 		Title:        title,
 		Status:       "open",
+		Hidden:       true,
 		MessageCount: 1,
 		CreatedAt:    now,
 		UpdatedAt:    now,

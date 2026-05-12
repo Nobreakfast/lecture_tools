@@ -226,6 +226,7 @@ func (s *Server) apiHomeworkQA(w http.ResponseWriter, r *http.Request) {
 			AssignmentID:   assignmentID,
 			Question:       question,
 			QuestionImages: images,
+			Hidden:         true,
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}

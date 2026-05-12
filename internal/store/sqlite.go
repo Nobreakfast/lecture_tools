@@ -2142,6 +2142,32 @@ func (s *SQLiteStore) UpdateQAIssueStatus(ctx context.Context, id int, status st
 	return nil
 }
 
+func (s *SQLiteStore) UpdateQAIssueQuestion(ctx context.Context, id int, title, question string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE qa_issues SET title = ?, updated_at = ? WHERE id = ?`, title, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE qa_messages SET content = ? WHERE id = (
+		SELECT id FROM qa_messages WHERE issue_id = ? AND sender = 'student' ORDER BY created_at ASC, id ASC LIMIT 1
+	)`, question, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) SetQAIssuePinned(ctx context.Context, id int, pinned bool) error {
 	now := time.Now().Format(time.RFC3339Nano)
 	res, err := s.db.ExecContext(ctx, `UPDATE qa_issues SET pinned = ?, updated_at = ? WHERE id = ?`, boolToInt(pinned), now, id)

@@ -107,6 +107,7 @@ type QAIssueStore interface {
 	ListQAIssues(ctx context.Context, courseID int, assignmentID string, includeHidden bool) ([]domain.QAIssue, error)
 	ListQAIssuesByCourse(ctx context.Context, courseID int, includeHidden bool) ([]domain.QAIssue, error)
 	UpdateQAIssueStatus(ctx context.Context, id int, status string) error
+	UpdateQAIssueQuestion(ctx context.Context, id int, title, question string) error
 	SetQAIssuePinned(ctx context.Context, id int, pinned bool) error
 	SetQAIssueHidden(ctx context.Context, id int, hidden bool) error
 	IncrementQAIssueMessageCount(ctx context.Context, id int) error
