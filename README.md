@@ -238,5 +238,6 @@ internal/
 - [docs/architecture.md](docs/architecture.md) — 架构与 API 概览
 - [docs/migration-from-main.md](docs/migration-from-main.md) — 从 main 分支升级的完整指南
 - [docs/quiz-prep-step-by-step.md](docs/quiz-prep-step-by-step.md) — 题库准备流程
+- [docs/optimization-agent-roadmap.md](docs/optimization-agent-roadmap.md) — 《最优化方法》智能体可交互数学可视化 Roadmap
 - [docs/adr/0001-tech-stack.md](docs/adr/0001-tech-stack.md) — 技术栈决策
 - [teacher-guide.md](internal/app/web/static/docs/teacher-guide.md) — 教师端图文使用说明，对应页面 `/teacher/docs`
