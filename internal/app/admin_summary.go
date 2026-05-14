@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"course-assistant/internal/ai"
 	"course-assistant/internal/domain"
@@ -86,8 +88,8 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz, cou
 				}
 			case domain.QuestionShortAnswer:
 				text := domain.ShortAnswerText(ans)
-				if strings.TrimSpace(text) != "" {
-					shortTexts[question.ID] = append(shortTexts[question.ID], strings.TrimSpace(text))
+				if sample := normalizeSummaryTextSample(text); sample != "" {
+					shortTexts[question.ID] = append(shortTexts[question.ID], sample)
 				}
 			default:
 				questionAnswered[question.ID]++
@@ -202,6 +204,35 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz, cou
 		QuestionStats: questionStats,
 		FeedbackItems: feedbackItems,
 	}, nil
+}
+
+const summaryTextSampleMaxRunes = 320
+
+func normalizeSummaryTextSample(text string) string {
+	text = strings.ToValidUTF8(text, "")
+	text = strings.NewReplacer(
+		"`", "'",
+		`"`, "'",
+		`\`, "/",
+	).Replace(text)
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		if r == utf8.RuneError {
+			return true
+		}
+		if unicode.IsSpace(r) {
+			return true
+		}
+		return unicode.IsControl(r)
+	})
+	text = strings.TrimSpace(strings.Join(fields, " "))
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) > summaryTextSampleMaxRunes {
+		return string(runes[:summaryTextSampleMaxRunes]) + "...[已截断]"
+	}
+	return text
 }
 
 // currentCourse / matchedPDFPath were removed alongside the legacy global

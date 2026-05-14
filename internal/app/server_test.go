@@ -913,6 +913,41 @@ func TestBuildAdminSummaryInputAvgTotalExcludesSurveyAndShortAnswer(t *testing.T
 	}
 }
 
+func TestBuildAdminSummaryInputNormalizesLabShortAnswerSamples(t *testing.T) {
+	quiz := &domain.Quiz{
+		QuizID: "lab-1",
+		Title:  "实验课",
+		Questions: []domain.Question{
+			{ID: "q1", Type: domain.QuestionShortAnswer, Stem: "请粘贴实验代码"},
+		},
+	}
+	rawCode := "```go\nfunc main() {\n\tfmt.Println(\"实验完成\", `特殊符号`)\n}\n```\x00"
+	st := &memStore{
+		attempts: []domain.Attempt{
+			{ID: "a1", QuizID: quiz.QuizID, Name: "张三", StudentNo: "s1", Status: domain.StatusSubmitted, AttemptNo: 1},
+		},
+		answers: map[string]map[string]string{
+			"a1": {"q1": rawCode},
+		},
+	}
+	s := &Server{store: st}
+
+	in, err := s.buildAdminSummaryInput(context.Background(), quiz, 0)
+	if err != nil {
+		t.Fatalf("buildAdminSummaryInput failed: %v", err)
+	}
+	if len(in.FeedbackItems) != 1 || len(in.FeedbackItems[0].TextSamples) != 1 {
+		t.Fatalf("unexpected feedback items: %+v", in.FeedbackItems)
+	}
+	sample := in.FeedbackItems[0].TextSamples[0]
+	if strings.ContainsAny(sample, "\n\r\t`\"\\") || strings.Contains(sample, "\x00") {
+		t.Fatalf("sample was not normalized: %q", sample)
+	}
+	if !strings.Contains(sample, "func main") || !strings.Contains(sample, "特殊符号") {
+		t.Fatalf("sample lost useful content: %q", sample)
+	}
+}
+
 func TestAPITeacherCoursesNormalizesEnglishName(t *testing.T) {
 	st := &memStore{}
 	s := New(Config{}, st)

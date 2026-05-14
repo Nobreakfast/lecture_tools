@@ -55,7 +55,7 @@ func (c *Client) Summarize(ctx context.Context, in SummarizeInput) (domain.Resul
 	}
 
 	var summary domain.ResultSummary
-	if err := json.Unmarshal([]byte(content), &summary); err != nil {
+	if err := unmarshalAIJSONObject(content, &summary); err != nil {
 		c.setLastError("解析 AI JSON 失败: " + err.Error())
 		return ruleBased(in), err
 	}

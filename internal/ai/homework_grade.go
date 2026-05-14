@@ -64,9 +64,8 @@ func (c *Client) PregradeHomework(ctx context.Context, in HomeworkGradeFeedbackI
 }
 
 func ParseHomeworkPregradeResult(content string) (HomeworkPregradeResult, error) {
-	content = strings.TrimSpace(stripCodeFence(content))
 	var out HomeworkPregradeResult
-	if err := json.Unmarshal([]byte(content), &out); err != nil {
+	if err := unmarshalAIJSONObject(content, &out); err != nil {
 		return HomeworkPregradeResult{}, fmt.Errorf("解析 AI 预评 JSON 失败: %w", err)
 	}
 	out.Feedback = strings.TrimSpace(out.Feedback)
