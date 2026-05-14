@@ -69,6 +69,7 @@ func (s *Server) apiQAIssueCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "课程不存在", http.StatusBadRequest)
 		return
 	}
+	firstMessage = redactQAIssueStudentIdentity(firstMessage, submission)
 	now := time.Now()
 	// Title is truncated first message
 	title := firstMessage
@@ -527,7 +528,6 @@ func qaIssuePayload(iss domain.QAIssue) map[string]any {
 		"id":            iss.ID,
 		"course_id":     iss.CourseID,
 		"assignment_id": iss.AssignmentID,
-		"student_no":    iss.StudentNo,
 		"title":         iss.Title,
 		"status":        iss.Status,
 		"pinned":        iss.Pinned,
@@ -547,6 +547,48 @@ func qaMessagePayload(msg domain.QAMessage) map[string]any {
 		"images":     msg.Images,
 		"created_at": msg.CreatedAt,
 	}
+}
+
+func redactQAIssueStudentIdentity(text string, submission *domain.HomeworkSubmission) string {
+	text = strings.TrimSpace(text)
+	if submission == nil || text == "" {
+		return text
+	}
+	for _, value := range []string{submission.Name, submission.StudentNo, submission.ClassName} {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, value, "")
+	}
+	replacers := []struct {
+		old string
+		new string
+	}{
+		{"同学询问", ""},
+		{"同学问", ""},
+		{"同学的问题是", "问题是"},
+		{"同学的问题：", "问题："},
+		{"我是，", ""},
+		{"我是,", ""},
+		{"我是", ""},
+		{"我叫，", ""},
+		{"我叫,", ""},
+		{"我叫", ""},
+		{"（，）", ""},
+		{"(,)", ""},
+		{"（）", ""},
+		{"()", ""},
+	}
+	for _, r := range replacers {
+		text = strings.ReplaceAll(text, r.old, r.new)
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	text = strings.Trim(text, " ，,。:：-—")
+	if text == "" {
+		return "学生提问"
+	}
+	return text
 }
 
 func (s *Server) canReadQAIssue(r *http.Request, issue *domain.QAIssue) bool {

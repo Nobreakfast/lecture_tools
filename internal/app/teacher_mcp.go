@@ -111,15 +111,14 @@ func (s *Server) teacherMCPQAIssues(ctx context.Context, sess *authSession, cour
 		b.WriteString(fmt.Sprintf("建议优先处理：#%d %s（%s，%d 条消息，更新时间 %s）。\n\n",
 			first.ID, strings.TrimSpace(first.Title), teacherMCPQAIssueFlags(first), first.MessageCount, formatMCPTime(first.UpdatedAt)))
 	}
-	b.WriteString("| ID | 状态 | 置顶 | 作业 | 学号 | 标题 | 消息数 | 更新时间 |\n")
-	b.WriteString("|----|------|------|------|------|------|--------|----------|\n")
+	b.WriteString("| ID | 状态 | 置顶 | 作业 | 标题 | 消息数 | 更新时间 |\n")
+	b.WriteString("|----|------|------|------|------|--------|----------|\n")
 	for _, issue := range shown {
-		b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s | %s | %d | %s |\n",
+		b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | %s | %d | %s |\n",
 			issue.ID,
 			escapeMCPTableCell(issue.Status),
 			teacherMCPBool(issue.Pinned),
 			escapeMCPTableCell(issue.AssignmentID),
-			escapeMCPTableCell(issue.StudentNo),
 			escapeMCPTableCell(issue.Title),
 			issue.MessageCount,
 			formatMCPTime(issue.UpdatedAt),

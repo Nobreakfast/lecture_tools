@@ -36,6 +36,9 @@ func TestTeacherMCPQAIssuesPrioritizesOpenPinnedIssues(t *testing.T) {
 	if strings.Contains(text, "已解决问题") {
 		t.Fatalf("default open filter should omit resolved issues, got:\n%s", text)
 	}
+	if strings.Contains(text, "学号") || strings.Contains(text, "S1") || strings.Contains(text, "S2") {
+		t.Fatalf("Q&A MCP output should not include student identity, got:\n%s", text)
+	}
 }
 
 func TestTeacherMCPReplyQAIssueSavesTeacherReplyAndResolves(t *testing.T) {

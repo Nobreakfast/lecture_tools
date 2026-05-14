@@ -482,6 +482,43 @@ func TestQAIssueQuestionUpdate(t *testing.T) {
 	}
 }
 
+func TestQAIssueInitPreservesStudentNo(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-qa-issue-clear-student?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	issueID, err := st.CreateQAIssue(ctx, &domain.QAIssue{
+		CourseID:     10,
+		Course:       "course-a",
+		AssignmentID: "task-1",
+		StudentNo:    "2026001",
+		Title:        "历史问题",
+		Status:       "open",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("CreateQAIssue failed: %v", err)
+	}
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("second init failed: %v", err)
+	}
+	issue, err := st.GetQAIssueByID(ctx, int(issueID))
+	if err != nil {
+		t.Fatalf("GetQAIssueByID failed: %v", err)
+	}
+	if issue.StudentNo != "2026001" {
+		t.Fatalf("Q&A student_no should be preserved internally, got %+v", issue)
+	}
+}
+
 func TestHomeworkSubmissionSchemaCutoverDropsLegacyColumns(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-homework-schema-cutover?mode=memory&cache=shared")

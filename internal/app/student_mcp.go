@@ -164,9 +164,6 @@ func (s *Server) studentMCPSearchVisibleQAIssues(ctx context.Context, submission
 	}
 	hits := make([]hit, 0)
 	for _, issue := range issues {
-		if strings.TrimSpace(issue.StudentNo) != "" && strings.TrimSpace(issue.StudentNo) != strings.TrimSpace(submission.StudentNo) {
-			continue
-		}
 		messages, _ := s.store.ListQAMessages(ctx, issue.ID)
 		text := issue.Title
 		for _, msg := range messages {
@@ -296,6 +293,7 @@ func (s *Server) studentMCPCreateQAIssue(ctx context.Context, submission *domain
 	if len([]rune(summary)) > 3000 {
 		summary = string([]rune(summary)[:3000])
 	}
+	summary = redactQAIssueStudentIdentity(summary, submission)
 	course, err := s.store.GetCourse(ctx, submission.CourseID)
 	if err != nil || course == nil {
 		return "", fmt.Errorf("课程不存在")
@@ -303,6 +301,7 @@ func (s *Server) studentMCPCreateQAIssue(ctx context.Context, submission *domain
 	if title = strings.TrimSpace(title); title == "" {
 		title = summary
 	}
+	title = redactQAIssueStudentIdentity(title, submission)
 	if len([]rune(title)) > 80 {
 		title = string([]rune(title)[:80]) + "..."
 	}

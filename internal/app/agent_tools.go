@@ -361,7 +361,7 @@ func (s *Server) agentQAIssueCandidates(ctx context.Context, course *domain.Cour
 	}
 	var out []agentMentionCandidate
 	for _, issue := range issues {
-		out = append(out, agentMentionCandidate{Type: "qa_issue", ID: strconv.Itoa(issue.ID), Label: "#" + strconv.Itoa(issue.ID) + " " + issue.Title, CourseID: course.ID, Meta: map[string]any{"assignment_id": issue.AssignmentID, "student_no": issue.StudentNo, "status": issue.Status}})
+		out = append(out, agentMentionCandidate{Type: "qa_issue", ID: strconv.Itoa(issue.ID), Label: "#" + strconv.Itoa(issue.ID) + " " + issue.Title, CourseID: course.ID, Meta: map[string]any{"assignment_id": issue.AssignmentID, "status": issue.Status}})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -507,7 +507,6 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 		return "", err
 	}
 	homework, _ := s.store.ListHomeworkSubmissions(ctx, course.ID, course.Slug, "")
-	issues, _ := s.store.ListQAIssuesByCourse(ctx, course.ID, false)
 	var matchedAttempts []domain.Attempt
 	for _, a := range attempts {
 		if agentStudentMatches(a.StudentNo, a.Name, a.ClassName, studentNo, name, className) {
@@ -520,13 +519,7 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 			matchedHomework = append(matchedHomework, h)
 		}
 	}
-	var matchedIssues []domain.QAIssue
-	for _, issue := range issues {
-		if studentNo != "" && strings.TrimSpace(issue.StudentNo) == studentNo {
-			matchedIssues = append(matchedIssues, issue)
-		}
-	}
-	if len(matchedAttempts) == 0 && len(matchedHomework) == 0 && len(matchedIssues) == 0 {
+	if len(matchedAttempts) == 0 && len(matchedHomework) == 0 {
 		return "", fmt.Errorf("未找到该学生的数据")
 	}
 	var b strings.Builder
@@ -557,12 +550,6 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 				pregrade = "有"
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n", escapeMCPTableCell(h.AssignmentID), teacherAgentHomeworkFiles(h), score, pregrade, h.UpdatedAt.Format("2006-01-02 15:04")))
-		}
-	}
-	if len(matchedIssues) > 0 {
-		b.WriteString("\n## Q&A\n")
-		for _, issue := range matchedIssues {
-			b.WriteString(fmt.Sprintf("- #%d [%s] %s（作业：%s，消息：%d）\n", issue.ID, issue.Status, strings.TrimSpace(issue.Title), issue.AssignmentID, issue.MessageCount))
 		}
 	}
 	return b.String(), nil

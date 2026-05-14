@@ -709,15 +709,15 @@
                 var pinBadge = item.pinned ? ' <span class="badge badge-pinned">📌 置顶</span>' : '';
                 var hiddenBadge = item.hidden ? ' <span class="badge badge-hidden">🙈 隐藏</span>' : '';
                 var hiddenClass = item.hidden ? ' hidden-item' : '';
-                var studentInfo = '';
-                if (isTeacherMode && item.student_no) {
-                    studentInfo = '<div class="student-info">学生: ' + escapeHTML(item.student_no) + (item.assignment_id ? ' · 作业: ' + escapeHTML(item.assignment_id) : '') + '</div>';
+                var assignmentInfo = '';
+                if (isTeacherMode && item.assignment_id) {
+                    assignmentInfo = '<div class="student-info">作业: ' + escapeHTML(item.assignment_id) + '</div>';
                 }
                 return '<div class="issue-list-item' + (item.pinned ? ' pinned' : '') + hiddenClass + '" onclick="openIssue(' + item.id + ')">' +
                     '<div class="issue-icon">' + icon + '</div>' +
                     '<div class="issue-body">' +
                     '<div class="issue-title"><span class="issue-id">#' + item.id + '</span>' + escapeHTML(item.title) + '</div>' +
-                    studentInfo +
+                    assignmentInfo +
                     '<div class="issue-meta">' + badge + pinBadge + hiddenBadge +
                     '<span class="msg-count">💬 ' + item.message_count + '</span>' +
                     '<span>' + formatTime(item.updated_at) + '</span>' +
@@ -786,11 +786,11 @@
             // Header
             var statusClass = iss.status;
             var statusText = iss.status === 'open' ? '🟢 进行中' : '🟣 已解决';
-            var studentInfo = '';
-            if (isTeacherMode && iss.student_no) {
-                studentInfo = '<div style="font-size:13px;color:var(--text-muted,#6b7280);margin-bottom:4px;">学生: ' + escapeHTML(iss.student_no) + (iss.assignment_id ? ' · 作业: ' + escapeHTML(iss.assignment_id) : '') + '</div>';
+            var assignmentInfo = '';
+            if (isTeacherMode && iss.assignment_id) {
+                assignmentInfo = '<div style="font-size:13px;color:var(--text-muted,#6b7280);margin-bottom:4px;">作业: ' + escapeHTML(iss.assignment_id) + '</div>';
             }
-            var header = studentInfo + '<div class="detail-header">' +
+            var header = assignmentInfo + '<div class="detail-header">' +
                 '<div class="detail-title">#' + iss.id + ' ' + escapeHTML(iss.title) + '</div>' +
                 '<span class="detail-status ' + statusClass + '">' + statusText + '</span>' +
                 '</div>';

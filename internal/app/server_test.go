@@ -1140,6 +1140,50 @@ func TestStudentAgentPromptUsesVisibleQAMaterialsAndAssignmentContext(t *testing
 	}
 }
 
+func TestQAIssuePayloadOmitsStudentIdentity(t *testing.T) {
+	payload := qaIssuePayload(domain.QAIssue{
+		ID:           1,
+		CourseID:     7,
+		AssignmentID: "hw1",
+		StudentNo:    "S001",
+		Title:        "问题",
+		Status:       "open",
+	})
+	if _, ok := payload["student_no"]; ok {
+		t.Fatalf("Q&A payload should not expose student_no: %+v", payload)
+	}
+}
+
+func TestStudentMCPCreateQAIssuePersistsStudentIdentityButRedactsQuestion(t *testing.T) {
+	st := &memStore{
+		courses: []domain.Course{{ID: 1, TeacherID: "T01", Name: "机器人", Slug: "robot", DisplayName: "机器人"}},
+	}
+	s := New(Config{}, st)
+	submission := &domain.HomeworkSubmission{
+		CourseID:     1,
+		Course:       "robot",
+		AssignmentID: "hw1",
+		Name:         "学生一",
+		StudentNo:    "S01",
+		ClassName:    "一班",
+	}
+	if _, err := s.studentMCPCreateQAIssue(context.Background(), submission, "学生一同学询问提交格式", "学生一同学询问：S01 报告提交格式是什么？"); err != nil {
+		t.Fatalf("studentMCPCreateQAIssue failed: %v", err)
+	}
+	if len(st.qaIssues) != 1 {
+		t.Fatalf("expected one Q&A issue, got %+v", st.qaIssues)
+	}
+	if st.qaIssues[0].StudentNo != "S01" {
+		t.Fatalf("Q&A issue should store student_no internally, got %+v", st.qaIssues[0])
+	}
+	if strings.Contains(st.qaIssues[0].Title, "学生一") || strings.Contains(st.qaIssues[0].Title, "S01") {
+		t.Fatalf("Q&A title should redact student identity, got %+v", st.qaIssues[0])
+	}
+	if len(st.qaMessages) != 1 || strings.Contains(st.qaMessages[0].Content, "学生一") || strings.Contains(st.qaMessages[0].Content, "S01") {
+		t.Fatalf("Q&A message should redact student identity, got %+v", st.qaMessages)
+	}
+}
+
 func TestStudentAgentHiddenMaterialsStayOutOfPrompt(t *testing.T) {
 	st := &memStore{
 		courses: []domain.Course{{ID: 1, TeacherID: "T01", Name: "机器人", Slug: "robot", DisplayName: "机器人"}},
