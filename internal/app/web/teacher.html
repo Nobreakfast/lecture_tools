@@ -2638,8 +2638,12 @@
       fd.append('course_id', selectedCourseId);
       for (const f of files) fd.append('files', f);
       try {
-        const r = await fetch('/api/teacher/courses/quiz-bank/upload?course_id=' + selectedCourseId, {
-          method: 'POST', credentials: 'include', body: fd
+        const r = await App.uploadForm('/api/teacher/courses/quiz-bank/upload?course_id=' + selectedCourseId, {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: resultBox,
+          progressLabel: '正在上传题库 YAML',
         });
         const data = await r.json();
         const results = data.results || [];
@@ -2675,8 +2679,12 @@
       fd.append('quiz_id', quizId);
       for (const f of files) fd.append('files', f);
       try {
-        const r = await fetch('/api/teacher/courses/quiz-bank/upload?course_id=' + selectedCourseId, {
-          method: 'POST', credentials: 'include', body: fd
+        const r = await App.uploadForm('/api/teacher/courses/quiz-bank/upload?course_id=' + selectedCourseId, {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: resultBox,
+          progressLabel: '正在上传题库包',
         });
         const data = await r.json();
         const results = data.results || [];
@@ -2780,7 +2788,12 @@
       const ratio = total > 0 ? correct / total : 0;
       const pct = total > 0 ? Math.round(ratio * 100) : 0;
       const barColor = scoreBarColor(ratio);
-      return `<div class="score-bar-wrap"><div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="score-text">${correct}/${total}</span></div>`;
+      const pending = Number(item.grading_pending || 0);
+      const errors = Number(item.grading_errors || 0);
+      const note = pending > 0
+        ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">简答评分中 ${pending}</div>`
+        : (errors > 0 ? `<div style="font-size:11px;color:var(--danger);margin-top:2px;">简答评分失败 ${errors}</div>` : '');
+      return `<div class="score-bar-wrap"><div class="score-bar"><div class="score-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="score-text">${formatScore(correct)}/${total}</span></div>${note}`;
     }
 
     function exportCsv() {
@@ -3027,24 +3040,36 @@
       if (!selectedCourseId) { alert('请先选择课程'); return; }
       const files = Array.from(document.getElementById('materialFile').files || []);
       if (!files.length) { alert('请选择文件'); return; }
+      const resultBox = document.getElementById('materialUploadResults');
+      const btn = document.getElementById('uploadMaterialBtn');
+      btn.disabled = true;
       const fd = new FormData();
       fd.append('course_id', selectedCourseId);
       for (const f of files) fd.append('files', f);
-      const r = await fetch('/api/teacher/courses/materials/upload?course_id=' + selectedCourseId, {
-        method: 'POST', credentials: 'include', body: fd
-      });
-      const text = await r.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch (_) { }
-      const resultBox = document.getElementById('materialUploadResults');
-      if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
-      const lines = [];
-      if (data.uploaded && data.uploaded.length) lines.push('成功 ' + data.uploaded.length + ' 个');
-      if (data.failed && data.failed.length) lines.push('失败 ' + data.failed.length + ' 个');
-      resultBox.textContent = lines.join(' | ') || '完成';
-      document.getElementById('materialFile').value = '';
-      resetFileLabel('materialFile');
-      loadMaterials();
+      try {
+        const r = await App.uploadForm('/api/teacher/courses/materials/upload?course_id=' + selectedCourseId, {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: resultBox,
+          progressLabel: '正在上传课程材料',
+        });
+        const text = await r.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (_) { }
+        if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
+        const lines = [];
+        if (data.uploaded && data.uploaded.length) lines.push('成功 ' + data.uploaded.length + ' 个');
+        if (data.failed && data.failed.length) lines.push('失败 ' + data.failed.length + ' 个');
+        resultBox.textContent = lines.join(' | ') || '完成';
+        document.getElementById('materialFile').value = '';
+        resetFileLabel('materialFile');
+        loadMaterials();
+      } catch (e) {
+        resultBox.textContent = '上传失败: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function deleteMaterial(file) {
@@ -3330,26 +3355,38 @@
       if (!assignmentID) { alert('请输入作业编号'); return; }
       const files = Array.from(document.getElementById('homeworkAssignmentFiles').files || []);
       if (!files.length) { alert('请选择文件'); return; }
+      const resultBox = document.getElementById('homeworkUploadResults');
+      const btn = document.getElementById('uploadHomeworkBtn');
+      btn.disabled = true;
       const fd = new FormData();
       fd.append('course_id', selectedCourseId);
       fd.append('assignment_id', assignmentID);
       for (const f of files) fd.append('files', f);
-      const r = await fetch('/api/teacher/courses/homework/assignments/upload?course_id=' + selectedCourseId, {
-        method: 'POST', credentials: 'include', body: fd
-      });
-      const text = await r.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch (_) { }
-      const resultBox = document.getElementById('homeworkUploadResults');
-      if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
-      const lines = [];
-      if (data.uploaded && data.uploaded.length) lines.push('成功');
-      if (data.failed && data.failed.length) lines.push('失败 ' + data.failed.length + ' 个');
-      resultBox.textContent = lines.join(' | ') || '完成';
-      document.getElementById('homeworkAssignmentFiles').value = '';
-      resetFileLabel('homeworkAssignmentFiles');
-      loadHomeworkAssignments();
-      loadHomeworkSubmissions();
+      try {
+        const r = await App.uploadForm('/api/teacher/courses/homework/assignments/upload?course_id=' + selectedCourseId, {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: resultBox,
+          progressLabel: '正在上传作业附件',
+        });
+        const text = await r.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (_) { }
+        if (!data) { resultBox.textContent = r.ok ? '上传完成' : text; return; }
+        const lines = [];
+        if (data.uploaded && data.uploaded.length) lines.push('成功');
+        if (data.failed && data.failed.length) lines.push('失败 ' + data.failed.length + ' 个');
+        resultBox.textContent = lines.join(' | ') || '完成';
+        document.getElementById('homeworkAssignmentFiles').value = '';
+        resetFileLabel('homeworkAssignmentFiles');
+        loadHomeworkAssignments();
+        loadHomeworkSubmissions();
+      } catch (e) {
+        resultBox.textContent = '上传失败: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function toggleHwVis(assignmentID, hidden) {
@@ -3474,7 +3511,14 @@
       fd.append('answer', answer);
       const input = document.getElementById('qa-images-' + id);
       Array.from(input.files || []).forEach(file => fd.append('images', file));
-      const r = await fetch('/api/teacher/courses/homework/qa/answer?course_id=' + selectedCourseId, { method: 'POST', credentials: 'include', body: fd });
+      const hasFiles = input.files && input.files.length;
+      const uploadOpts = { method: 'POST', credentials: 'include', body: fd };
+      const r = hasFiles
+        ? await App.uploadForm('/api/teacher/courses/homework/qa/answer?course_id=' + selectedCourseId, {
+          ...uploadOpts,
+          progressLabel: '正在上传回答图片',
+        })
+        : await fetch('/api/teacher/courses/homework/qa/answer?course_id=' + selectedCourseId, uploadOpts);
       if (!r.ok) { alert(await r.text()); return; }
       await loadHomeworkQA();
     }
@@ -3557,7 +3601,10 @@
         const stu = data.student || {};
         const sc = data.score || {};
         title.textContent = (stu.name || '未知') + '（' + (stu.student_no || '') + '）';
-        let html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">班级：' + escapeHTML(stu.class_name || '—') + '　得分：' + (sc.correct || 0) + ' / ' + (sc.total || 0) + '</div>';
+        let scoreNote = '';
+        if (Number(sc.grading_pending || 0) > 0) scoreNote += '　简答评分中：' + Number(sc.grading_pending);
+        if (Number(sc.grading_errors || 0) > 0) scoreNote += '　简答评分失败：' + Number(sc.grading_errors);
+        let html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">班级：' + escapeHTML(stu.class_name || '—') + '　得分：' + formatScore(sc.correct || 0) + ' / ' + (sc.total || 0) + escapeHTML(scoreNote) + '</div>';
         const qs = data.questions || [];
         qs.forEach((q, idx) => {
           const isSurvey = q.is_survey;
@@ -3598,6 +3645,16 @@
               });
             }
             if (q.reference) html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">参考答案：' + escapeHTML(q.reference) + '</div>';
+            if (q.score_with_agent) {
+              const g = q.short_answer_grade || {};
+              if (g.status === 'graded') {
+                html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">AI 评分：<strong>' + formatScore(g.score) + '/1</strong>' + (g.feedback ? '，' + escapeHTML(g.feedback) : '') + '</div>';
+              } else if (g.status === 'error') {
+                html += '<div style="font-size:12px;color:var(--danger);margin-top:4px;">AI 评分失败：' + escapeHTML(g.error || '请稍后重试') + '</div>';
+              } else {
+                html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">AI 正在评分。</div>';
+              }
+            }
           }
           if (q.explanation) html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">解析：' + escapeHTML(q.explanation) + '</div>';
           html += '</div>';

@@ -1664,8 +1664,15 @@
       fd.append('assignment_id', aid);
       fd.append('question', text);
       files.forEach(function (file) { fd.append('images', file); });
+      setMessage('qaMessage', 'info', files.length ? '正在上传图片...' : '正在提交问题...');
       try {
-        var r = await fetch('/api/homework/qa', { method: 'POST', credentials: 'include', body: fd });
+        var uploadOpts = { method: 'POST', credentials: 'include', body: fd };
+        var r = files.length
+          ? await App.uploadForm('/api/homework/qa', Object.assign({}, uploadOpts, {
+            progressTarget: 'qaMessage',
+            progressLabel: '正在上传提问图片',
+          }))
+          : await fetch('/api/homework/qa', uploadOpts);
         if (!r.ok) { setMessage('qaMessage', 'error', await r.text()); return; }
         document.getElementById('qaQuestionInput').value = '';
         document.getElementById('qaImageInput').value = '';
@@ -1806,7 +1813,13 @@
       fd.append('file', file);
       setMessage('submissionMessage', 'info', '正在上传 PDF...');
       try {
-        var r = await fetch('/api/homework/upload', { method: 'POST', credentials: 'include', body: fd });
+        var r = await App.uploadForm('/api/homework/upload', {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: 'submissionMessage',
+          progressLabel: '正在上传报告 PDF',
+        });
         input.value = '';
         if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
         var data = await r.json();
@@ -1848,7 +1861,13 @@
       fd.append('file', file);
       setMessage('submissionMessage', 'info', '正在上传 ' + file.name + '...');
       try {
-        var r = await fetch('/api/homework/others/upload', { method: 'POST', credentials: 'include', body: fd });
+        var r = await App.uploadForm('/api/homework/others/upload', {
+          method: 'POST',
+          credentials: 'include',
+          body: fd,
+          progressTarget: 'submissionMessage',
+          progressLabel: '正在上传 ' + file.name,
+        });
         input.value = '';
         if (!r.ok) { setMessage('submissionMessage', 'error', await r.text()); return; }
         await refreshOthersList();

@@ -61,12 +61,13 @@ type Server struct {
 	// Domain-scoped locks replace the former global mu. Each lock protects
 	// only the fields listed beside it, reducing false contention between
 	// unrelated subsystems.
-	quizMu     sync.RWMutex // protects courseQuizzes, courseQuizAssetDirs, currentQuiz
-	authMu     sync.RWMutex // protects authTokens
-	serverMu   sync.RWMutex // protects shutdownFn, maintenanceMode
-	snapshotMu sync.Mutex
-	settingMu  sync.Mutex // serializes store-level read-modify-write for settings (visibility etc.)
-	pregradeMu sync.RWMutex
+	quizMu             sync.RWMutex // protects courseQuizzes, courseQuizAssetDirs, currentQuiz
+	authMu             sync.RWMutex // protects authTokens
+	serverMu           sync.RWMutex // protects shutdownFn, maintenanceMode
+	snapshotMu         sync.Mutex
+	settingMu          sync.Mutex // serializes store-level read-modify-write for settings (visibility etc.)
+	pregradeMu         sync.RWMutex
+	shortAnswerGradeMu sync.Mutex
 
 	courseQuizzes        map[int]*domain.Quiz // course_id -> loaded quiz
 	courseQuizAssetDirs  map[int]string       // course_id -> metadata quiz dir (for asset serving)
@@ -74,6 +75,8 @@ type Server struct {
 	shutdownFn           func()
 	maintenanceMode      bool
 	homeworkPregradeJobs map[string]*homeworkPregradeJob
+	shortAnswerGradeJobs map[string]struct{}
+	shortAnswerGradeSem  chan struct{}
 
 	// currentQuiz holds the legacy global quiz loaded via the admin panel's
 	// "load-quiz" endpoint. New code should resolve quizzes through
@@ -95,6 +98,8 @@ func New(cfg Config, st store.Store) *Server {
 		courseQuizAssetDirs:  map[int]string{},
 		authTokens:           map[string]authSession{},
 		homeworkPregradeJobs: map[string]*homeworkPregradeJob{},
+		shortAnswerGradeJobs: map[string]struct{}{},
+		shortAnswerGradeSem:  make(chan struct{}, 3),
 	}
 }
 
@@ -618,7 +623,7 @@ func (s *Server) apiTeacherCourseAttendance(w http.ResponseWriter, r *http.Reque
 					if item.Total <= 0 {
 						score = 100.0
 					} else {
-						score = (float64(item.Correct) / float64(item.Total)) * 100.0
+						score = (item.Correct / float64(item.Total)) * 100.0
 						if score < 0 {
 							score = 0
 						}
@@ -1458,6 +1463,9 @@ func (s *Server) apiSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if attempt.Status == domain.StatusSubmitted {
+		if current := s.resolveQuizForAttempt(attempt); current != nil && attempt.QuizID == current.QuizID {
+			s.maybeStartShortAnswerGrading(r.Context(), attempt, current)
+		}
 		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
@@ -1471,6 +1479,8 @@ func (s *Server) apiSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "提交失败", http.StatusInternalServerError)
 		return
 	}
+	attempt.Status = domain.StatusSubmitted
+	s.maybeStartShortAnswerGrading(r.Context(), attempt, current)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -1490,6 +1500,7 @@ func (s *Server) apiResult(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": false, "error": "session_expired", "reason": "该答题会话已过期（题库已变更），请重新进入"})
 		return
 	}
+	s.maybeStartShortAnswerGrading(r.Context(), attempt, current)
 	res, err := s.buildResult(r.Context(), attempt)
 	if err != nil {
 		http.Error(w, "读取结果失败", http.StatusInternalServerError)
@@ -2227,7 +2238,7 @@ func (s *Server) apiAdminAttempts(w http.ResponseWriter, r *http.Request) {
 	}
 	result := make([]map[string]any, 0, len(items))
 	for _, a := range items {
-		correct := 0
+		correct := 0.0
 		total := 0
 		if current != nil {
 			correct, total = s.calcScore(r.Context(), current, a.ID)
@@ -2302,7 +2313,7 @@ func (s *Server) apiAdminExportCSV(w http.ResponseWriter, r *http.Request) {
 		if a.AttemptNo > 0 {
 			attemptNo = fmt.Sprintf("%d", a.AttemptNo)
 		}
-		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, fmt.Sprintf("%d", correct), fmt.Sprintf("%d", total)}
+		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, formatScoreValue(correct), fmt.Sprintf("%d", total)}
 		answers, err := s.store.GetAnswers(r.Context(), a.ID)
 		if err != nil {
 			http.Error(w, "读取答案失败", http.StatusInternalServerError)
@@ -2899,6 +2910,7 @@ func (s *Server) apiTeacherCourseAttempts(w http.ResponseWriter, r *http.Request
 			"id": a.ID, "name": a.Name, "student_no": a.StudentNo,
 			"class_name": a.ClassName, "attempt_no": a.AttemptNo,
 			"status": a.Status, "correct": item.Correct, "total": item.Total,
+			"grading_pending": item.Pending, "grading_errors": item.Errors,
 			"quiz_id": a.QuizID, "quiz_loaded": item.QuizLoaded, "updated_at": a.UpdatedAt,
 			"attempts": attemptGroups[key],
 		})
@@ -3129,7 +3141,7 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 		if a.AttemptNo > 0 {
 			attemptNo = fmt.Sprintf("%d", a.AttemptNo)
 		}
-		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, fmt.Sprintf("%d", item.Correct), fmt.Sprintf("%d", item.Total)}
+		row := []string{safeCSV(a.Name), safeCSV(a.StudentNo), safeCSV(a.ClassName), string(a.Status), attemptNo, formatScoreValue(item.Correct), fmt.Sprintf("%d", item.Total)}
 		answers, aErr := s.store.GetAnswers(r.Context(), a.ID)
 		if aErr != nil {
 			continue
@@ -3148,8 +3160,10 @@ func (s *Server) apiTeacherCourseExportCSV(w http.ResponseWriter, r *http.Reques
 
 type teacherCourseBestAttempt struct {
 	Attempt    domain.Attempt
-	Correct    int
+	Correct    float64
 	Total      int
+	Pending    int
+	Errors     int
 	QuizLoaded bool
 }
 
@@ -3163,11 +3177,14 @@ func (s *Server) teacherCourseAttemptGroups(ctx context.Context, course *domain.
 	quizMap := s.teacherCourseQuizMap(course, loadedQuiz, attempts)
 	groups := map[teacherCourseAttemptGroupKey][]map[string]any{}
 	for _, attempt := range attempts {
-		correct, total := 0, 0
+		correct, total := 0.0, 0
+		pending, errors := 0, 0
 		quizLoaded := false
 		if attempt.Status == domain.StatusSubmitted {
 			if q, ok := quizMap[attempt.QuizID]; ok {
-				correct, total = s.calcScore(ctx, q, attempt.ID)
+				score := s.calcScoreDetail(ctx, q, attempt.ID)
+				correct, total = score.Correct, score.Total
+				pending, errors = score.Pending, score.Errors
 				quizLoaded = true
 			}
 		}
@@ -3179,6 +3196,7 @@ func (s *Server) teacherCourseAttemptGroups(ctx context.Context, course *domain.
 		groups[key] = append(groups[key], map[string]any{
 			"id": attempt.ID, "attempt_no": attempt.AttemptNo,
 			"status": attempt.Status, "correct": correct, "total": total,
+			"grading_pending": pending, "grading_errors": errors,
 			"quiz_loaded": quizLoaded, "updated_at": attempt.UpdatedAt.Format("2006-01-02 15:04"),
 			"submitted_at": submittedAt,
 		})
@@ -3207,7 +3225,9 @@ func (s *Server) teacherCourseBestAttempts(ctx context.Context, course *domain.C
 		item := teacherCourseBestAttempt{Attempt: attempt}
 		if attempt.Status == domain.StatusSubmitted {
 			if q, ok := quizMap[attempt.QuizID]; ok {
-				item.Correct, item.Total = s.calcScore(ctx, q, attempt.ID)
+				score := s.calcScoreDetail(ctx, q, attempt.ID)
+				item.Correct, item.Total = score.Correct, score.Total
+				item.Pending, item.Errors = score.Pending, score.Errors
 				item.QuizLoaded = true
 			}
 		}
@@ -4055,9 +4075,9 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 	if err != nil {
 		return nil, err
 	}
+	grades, _ := s.store.GetShortAnswerGrades(ctx, attempt.ID)
 	questions := shuffledQuestions(current, attempt.ID)
-	correct := 0
-	total := 0
+	scoreDetail := s.calcScoreDetail(ctx, current, attempt.ID)
 	perQuestion := make([]map[string]any, 0, len(questions))
 	knowledgeGood := map[string]int{}
 	knowledgeBad := map[string]int{}
@@ -4084,16 +4104,25 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 				imgs = []string{}
 			}
 			item["answer_images"] = imgs
+			if shortAnswerUsesAgentScoring(q) {
+				item["score_with_agent"] = true
+				if grade, ok := grades[q.ID]; ok {
+					item["short_answer_grade"] = shortAnswerGradePayload(grade)
+					if grade.Status == domain.ShortAnswerGradeGraded && grade.Score != nil {
+						item["is_correct"] = *grade.Score >= 0.6
+					}
+				} else {
+					item["short_answer_grade"] = map[string]any{"status": string(domain.ShortAnswerGradePending)}
+				}
+			}
 		}
 		if q.AllowMultiple {
 			item["allow_multiple"] = true
 		}
 		if q.Type != domain.QuestionSurvey && q.Type != domain.QuestionShortAnswer {
-			total++
 			ok := isCorrectAnswer(q, ans)
 			item["is_correct"] = ok
 			if ok {
-				correct++
 				if q.KnowledgeTag != "" {
 					knowledgeGood[q.KnowledgeTag]++
 				}
@@ -4123,32 +4152,19 @@ func (s *Server) buildResult(ctx context.Context, attempt *domain.Attempt) (map[
 			"attempt_no": attempt.AttemptNo,
 		},
 		"score": map[string]any{
-			"correct": correct,
-			"total":   total,
+			"correct":         scoreDetail.Correct,
+			"total":           scoreDetail.Total,
+			"grading_pending": scoreDetail.Pending,
+			"grading_errors":  scoreDetail.Errors,
 		},
 		"questions": perQuestion,
 		"summary":   summary,
 	}, nil
 }
 
-func (s *Server) calcScore(ctx context.Context, q *domain.Quiz, attemptID string) (int, int) {
-	answers, err := s.store.GetAnswers(ctx, attemptID)
-	if err != nil {
-		return 0, 0
-	}
-	questions := shuffledQuestions(q, attemptID)
-	correct := 0
-	total := 0
-	for _, item := range questions {
-		if item.Type == domain.QuestionSurvey || item.Type == domain.QuestionShortAnswer {
-			continue
-		}
-		total++
-		if isCorrectAnswer(item, answers[item.ID]) {
-			correct++
-		}
-	}
-	return correct, total
+func (s *Server) calcScore(ctx context.Context, q *domain.Quiz, attemptID string) (float64, int) {
+	detail := s.calcScoreDetail(ctx, q, attemptID)
+	return detail.Correct, detail.Total
 }
 
 func (s *Server) collectQuizAssetDirs() []string {

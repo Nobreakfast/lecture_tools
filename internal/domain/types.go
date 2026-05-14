@@ -85,6 +85,8 @@ type Question struct {
 	Options         []Option     `json:"options" yaml:"options"`
 	AllowMultiple   bool         `json:"allow_multiple,omitempty" yaml:"allow_multiple,omitempty"`
 	ShortAnswerMode string       `json:"short_answer_mode,omitempty" yaml:"short_answer_mode,omitempty"`
+	ScoreWithAgent  bool         `json:"score_with_agent,omitempty" yaml:"score_with_agent,omitempty"`
+	ScoringRubric   string       `json:"scoring_rubric,omitempty" yaml:"scoring_rubric,omitempty"`
 	CorrectAnswer   string       `json:"correct_answer,omitempty" yaml:"correct_answer,omitempty"`
 	ReferenceAnswer string       `json:"reference_answer,omitempty" yaml:"reference_answer,omitempty"`
 	Explanation     string       `json:"explanation,omitempty" yaml:"explanation,omitempty"`
@@ -131,6 +133,26 @@ type Answer struct {
 	QuestionID string
 	Value      string
 	UpdatedAt  time.Time
+}
+
+type ShortAnswerGradeStatus string
+
+const (
+	ShortAnswerGradePending ShortAnswerGradeStatus = "pending"
+	ShortAnswerGradeGraded  ShortAnswerGradeStatus = "graded"
+	ShortAnswerGradeError   ShortAnswerGradeStatus = "error"
+)
+
+type ShortAnswerGrade struct {
+	AttemptID   string
+	QuestionID  string
+	Status      ShortAnswerGradeStatus
+	Score       *float64
+	Feedback    string
+	RawResponse string
+	Error       string
+	GradedAt    *time.Time
+	UpdatedAt   time.Time
 }
 
 type ShortAnswerValue struct {

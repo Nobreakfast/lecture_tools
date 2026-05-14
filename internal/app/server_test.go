@@ -21,6 +21,7 @@ import (
 type memStore struct {
 	attempts            []domain.Attempt
 	answers             map[string]map[string]string
+	shortAnswerGrades   map[string]map[string]domain.ShortAnswerGrade
 	settings            map[string]string
 	homeworkSubmissions []domain.HomeworkSubmission
 	homeworkQA          []domain.HomeworkQA
@@ -271,6 +272,25 @@ func (m *memStore) GetAnswers(ctx context.Context, attemptID string) (map[string
 		return got, nil
 	}
 	return map[string]string{}, nil
+}
+func (m *memStore) UpsertShortAnswerGrade(_ context.Context, grade domain.ShortAnswerGrade) error {
+	if m.shortAnswerGrades == nil {
+		m.shortAnswerGrades = map[string]map[string]domain.ShortAnswerGrade{}
+	}
+	if m.shortAnswerGrades[grade.AttemptID] == nil {
+		m.shortAnswerGrades[grade.AttemptID] = map[string]domain.ShortAnswerGrade{}
+	}
+	m.shortAnswerGrades[grade.AttemptID][grade.QuestionID] = grade
+	return nil
+}
+func (m *memStore) GetShortAnswerGrades(_ context.Context, attemptID string) (map[string]domain.ShortAnswerGrade, error) {
+	if m.shortAnswerGrades == nil {
+		return map[string]domain.ShortAnswerGrade{}, nil
+	}
+	if got, ok := m.shortAnswerGrades[attemptID]; ok {
+		return got, nil
+	}
+	return map[string]domain.ShortAnswerGrade{}, nil
 }
 func (m *memStore) UpsertSummary(context.Context, string, string) error {
 	return errors.New("not implemented")
@@ -945,6 +965,57 @@ func TestBuildAdminSummaryInputNormalizesLabShortAnswerSamples(t *testing.T) {
 	}
 	if !strings.Contains(sample, "func main") || !strings.Contains(sample, "特殊符号") {
 		t.Fatalf("sample lost useful content: %q", sample)
+	}
+}
+
+func TestBuildResultIncludesAgentScoredShortAnswer(t *testing.T) {
+	score := 0.8
+	gradedAt := time.Now()
+	quiz := &domain.Quiz{
+		QuizID: "quiz-agent-short",
+		Title:  "Agent 简答评分",
+		Questions: []domain.Question{
+			{ID: "q1", Type: domain.QuestionSingleChoice, Stem: "1+1", CorrectAnswer: "A", Options: []domain.Option{{Key: "A", Text: "2"}, {Key: "B", Text: "3"}}},
+			{ID: "q2", Type: domain.QuestionShortAnswer, Stem: "解释凸函数定义", ReferenceAnswer: "满足 Jensen 不等式", ScoreWithAgent: true},
+		},
+	}
+	st := &memStore{
+		attempts: []domain.Attempt{{ID: "a1", QuizID: quiz.QuizID, Name: "张三", StudentNo: "s1", Status: domain.StatusSubmitted, AttemptNo: 1}},
+		answers: map[string]map[string]string{
+			"a1": {"q1": "A", "q2": "凸函数满足 Jensen 不等式"},
+		},
+		shortAnswerGrades: map[string]map[string]domain.ShortAnswerGrade{
+			"a1": {
+				"q2": {
+					AttemptID:  "a1",
+					QuestionID: "q2",
+					Status:     domain.ShortAnswerGradeGraded,
+					Score:      &score,
+					Feedback:   "核心概念正确。",
+					GradedAt:   &gradedAt,
+					UpdatedAt:  gradedAt,
+				},
+			},
+		},
+	}
+	s := &Server{store: st, currentQuiz: quiz}
+
+	res, err := s.buildResult(context.Background(), &st.attempts[0])
+	if err != nil {
+		t.Fatalf("buildResult failed: %v", err)
+	}
+	scorePayload, _ := res["score"].(map[string]any)
+	if scorePayload["correct"] != 1.8 || scorePayload["total"] != 2 {
+		t.Fatalf("unexpected score payload: %+v", scorePayload)
+	}
+	questions, _ := res["questions"].([]map[string]any)
+	shortQ := questions[1]
+	if shortQ["score_with_agent"] != true {
+		t.Fatalf("short answer should expose score_with_agent: %+v", shortQ)
+	}
+	grade, _ := shortQ["short_answer_grade"].(map[string]any)
+	if grade["status"] != string(domain.ShortAnswerGradeGraded) || grade["score"] != score {
+		t.Fatalf("unexpected short answer grade payload: %+v", grade)
 	}
 }
 

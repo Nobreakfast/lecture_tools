@@ -173,7 +173,7 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 			a := item.Attempt
 			score := "-"
 			if item.QuizLoaded {
-				score = fmt.Sprintf("%d/%d", item.Correct, item.Total)
+				score = fmt.Sprintf("%s/%d", formatScoreValue(item.Correct), item.Total)
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s | %s | %s |\n",
 				escapeTableCell(a.Name),

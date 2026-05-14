@@ -222,6 +222,85 @@ input:focus, select:focus, textarea:focus {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Upload progress ───────────────────────────────────────────── */
+#upload-progress-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.upload-progress-toast {
+  pointer-events: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.96);
+  box-shadow: 0 14px 32px rgba(15,23,42,0.16);
+  backdrop-filter: blur(12px);
+  animation: toastin 0.18s ease-out;
+}
+.upload-progress-host {
+  color: var(--text);
+}
+.upload-progress {
+  width: 100%;
+  min-width: 220px;
+}
+.upload-progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.upload-progress-label {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.upload-progress-value {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.upload-progress-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+.upload-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary) 0%, var(--success) 100%);
+  transition: width 0.16s ease;
+}
+.upload-progress.is-indeterminate .upload-progress-fill {
+  width: 42%;
+  animation: upload-progress-slide 1.1s ease-in-out infinite;
+}
+.upload-progress.is-complete .upload-progress-fill {
+  background: var(--success);
+}
+.upload-progress.is-error .upload-progress-fill {
+  width: 100%;
+  background: var(--danger);
+}
+@keyframes upload-progress-slide {
+  from { transform: translateX(-110%); }
+  to   { transform: translateX(250%); }
+}
+
 /* ── Modal ─────────────────────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;

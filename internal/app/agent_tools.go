@@ -471,7 +471,7 @@ func (s *Server) agentToolGetQuizAttempts(ctx context.Context, tc agentToolConte
 		a := item.Attempt
 		score := "-"
 		if item.QuizLoaded {
-			score = fmt.Sprintf("%d/%d", item.Correct, item.Total)
+			score = fmt.Sprintf("%s/%d", formatScoreValue(item.Correct), item.Total)
 		}
 		b.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s | %s | %s |\n", escapeMCPTableCell(a.Name), escapeMCPTableCell(a.StudentNo), escapeMCPTableCell(a.ClassName), a.AttemptNo, a.Status, score, escapeMCPTableCell(a.QuizID)))
 	}
@@ -532,7 +532,7 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 			score := "-"
 			if q := qmap[a.QuizID]; q != nil && a.Status == domain.StatusSubmitted {
 				c, t := s.calcScore(ctx, q, a.ID)
-				score = fmt.Sprintf("%d/%d", c, t)
+				score = fmt.Sprintf("%s/%d", formatScoreValue(c), t)
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s |\n", escapeMCPTableCell(a.QuizID), a.Status, a.AttemptNo, score, a.UpdatedAt.Format("2006-01-02 15:04")))
 		}

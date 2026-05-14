@@ -64,7 +64,7 @@ func (s *Server) studentMCPQuizHistory(ctx context.Context, submission *domain.H
 		score := "未计算（题库未加载或无法匹配）"
 		if q := s.loadCourseQuizFromBank(submission.CourseID, course.TeacherID, course.Slug, attempt.QuizID); q != nil && attempt.Status == domain.StatusSubmitted {
 			correct, total := s.calcScore(ctx, q, attempt.ID)
-			score = fmt.Sprintf("%d/%d", correct, total)
+			score = fmt.Sprintf("%s/%d", formatScoreValue(correct), total)
 			answers, _ := s.store.GetAnswers(ctx, attempt.ID)
 			for _, question := range shuffledQuestions(q, attempt.ID) {
 				if question.Type == domain.QuestionSurvey || question.Type == domain.QuestionShortAnswer || strings.TrimSpace(question.KnowledgeTag) == "" {

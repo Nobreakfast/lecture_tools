@@ -1071,6 +1071,8 @@ function buildQuestionCard(q, idx) {
     <div><label style="font-size:12px;color:var(--text-muted);">题池标签</label><input type="text" value="${App.escapeHTML(q.pool_tag)}" oninput="questions[${idx}].pool_tag=this.value;"/></div>`;
   if (q.type === 'short_answer') {
     html += `<div class="adv-full"><label style="font-size:12px;color:var(--text-muted);">参考答案</label><textarea rows="2" oninput="questions[${idx}].reference_answer=this.value;">${App.escapeHTML(q.reference_answer)}</textarea></div>`;
+    html += `<div class="adv-full"><label style="font-size:12px;color:var(--text-muted);"><input type="checkbox" ${q.score_with_agent ? 'checked' : ''} onchange="questions[${idx}].score_with_agent=this.checked;"/> 用 Agent 自动评分</label></div>`;
+    html += `<div class="adv-full"><label style="font-size:12px;color:var(--text-muted);">评分说明（可选）</label><textarea rows="2" placeholder="例如：答出核心概念给 0.6，说明原因再给 0.4" oninput="questions[${idx}].scoring_rubric=this.value;">${App.escapeHTML(q.scoring_rubric || '')}</textarea></div>`;
   }
   html += `</div></details>`;
 
@@ -1129,6 +1131,10 @@ function changeType(idx, newType) {
     if (q.shuffle_options === null) q.shuffle_options = true;
   }
   if (newType === 'survey') q.correct_answer = '';
+  if (newType !== 'short_answer') {
+    q.score_with_agent = false;
+    q.scoring_rubric = '';
+  }
   renderQuestions();
   updateStats();
 }
@@ -1445,8 +1451,10 @@ async function uploadImage(file) {
   fd.append('quiz_id', quizId);
   fd.append('file', compressed);
   try {
-    const data = await App.fetchJSON('/api/teacher/courses/quiz-bank/upload-image', {
-      method: 'POST', body: fd,
+    const data = await App.uploadJSON('/api/teacher/courses/quiz-bank/upload-image', {
+      method: 'POST',
+      body: fd,
+      progressLabel: '正在上传题目图片',
     });
     if (data.ok) return data.filename;
     App.toast('上传失败', 'error');
@@ -1507,6 +1515,10 @@ function validateQuiz() {
     ids.add(q.id);
     if (!q.stem) errors.push(`第 ${n} 题缺少题干`);
     if (q.type !== 'short_answer' && q.options.length < 2) errors.push(`第 ${n} 题至少需要 2 个选项`);
+    if (q.type === 'short_answer' && q.score_with_agent) {
+      if (!q.reference_answer) errors.push(`第 ${n} 题开启 Agent 评分时必须填写参考答案`);
+      if (q.short_answer_mode === 'image') errors.push(`第 ${n} 题仅上传图片时暂不支持 Agent 评分`);
+    }
     if ((q.type === 'single_choice' || q.type === 'yes_no') && !q.correct_answer)
       errors.push(`第 ${n} 题未设置正确答案`);
     if (q.type === 'multi_choice' && !q.correct_answer)

@@ -46,7 +46,7 @@ func (s *Server) buildAdminSummaryInput(ctx context.Context, q *domain.Quiz, cou
 		}
 	}
 
-	latest := bestScoringAttempts(allAttempts, func(attemptID string) (int, int) {
+	latest := bestScoringAttempts(allAttempts, func(attemptID string) (float64, int) {
 		return s.calcScore(ctx, q, attemptID)
 	})
 	if len(latest) == 0 {
@@ -366,7 +366,7 @@ func (s *Server) apiTeacherCourseHistorySummary(w http.ResponseWriter, r *http.R
 		quizObj := loadQuizFromBank(qid)
 		var latest []domain.Attempt
 		if quizObj != nil {
-			latest = bestScoringAttempts(attempts, func(attemptID string) (int, int) {
+			latest = bestScoringAttempts(attempts, func(attemptID string) (float64, int) {
 				return s.calcScore(r.Context(), quizObj, attemptID)
 			})
 		} else {
@@ -577,7 +577,7 @@ func (s *Server) buildQuizRawStats(ctx context.Context, q *domain.Quiz, courseID
 			return map[string]any{"error": err.Error()}
 		}
 	}
-	latest := bestScoringAttempts(allAttempts, func(attemptID string) (int, int) {
+	latest := bestScoringAttempts(allAttempts, func(attemptID string) (float64, int) {
 		return s.calcScore(ctx, q, attemptID)
 	})
 	rows := make([]map[string]any, 0, len(latest))
@@ -642,10 +642,10 @@ func latestAttempts(all []domain.Attempt) []domain.Attempt {
 
 // bestScoringAttempts picks the highest-scoring attempt per student (grouped by name).
 // scoreFn returns (correct, total) for a given attempt ID.
-func bestScoringAttempts(all []domain.Attempt, scoreFn func(attemptID string) (int, int)) []domain.Attempt {
+func bestScoringAttempts(all []domain.Attempt, scoreFn func(attemptID string) (float64, int)) []domain.Attempt {
 	type scored struct {
 		attempt *domain.Attempt
-		correct int
+		correct float64
 	}
 	best := map[string]*scored{}
 	for i := range all {

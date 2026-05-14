@@ -398,7 +398,7 @@ func (s *Server) teacherAgentCourseContext(ctx context.Context, course *domain.C
 			a := item.Attempt
 			score := "未计分"
 			if item.QuizLoaded {
-				score = fmt.Sprintf("%d/%d", item.Correct, item.Total)
+				score = fmt.Sprintf("%s/%d", formatScoreValue(item.Correct), item.Total)
 			}
 			b.WriteString(fmt.Sprintf("- 学生：%s，学号：%s，班级：%s，小测：%s，状态：%s，次数：%d，得分：%s，更新时间：%s\n",
 				a.Name, a.StudentNo, a.ClassName, a.QuizID, a.Status, a.AttemptNo, score, a.UpdatedAt.Format("2006-01-02 15:04")))

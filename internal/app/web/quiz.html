@@ -432,10 +432,11 @@
       const fd = new FormData();
       fd.append('question_id', qid);
       fd.append('image', compressed);
-      const r = await fetch('/api/answer-image', {
+      const r = await App.uploadForm('/api/answer-image', {
         method: 'POST',
         credentials: 'include',
-        body: fd
+        body: fd,
+        progressLabel: '正在上传答题图片',
       });
       if (!r.ok) {
         alert('上传失败：' + await r.text());

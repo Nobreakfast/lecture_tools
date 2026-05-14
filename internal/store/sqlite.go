@@ -101,6 +101,18 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (attempt_id, question_id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS short_answer_grades (
+			attempt_id TEXT NOT NULL,
+			question_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			score REAL,
+			feedback TEXT NOT NULL DEFAULT '',
+			raw_response TEXT NOT NULL DEFAULT '',
+			error TEXT NOT NULL DEFAULT '',
+			graded_at TEXT,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (attempt_id, question_id)
+		);`,
 		`CREATE TABLE IF NOT EXISTS summaries (
 			attempt_id TEXT PRIMARY KEY,
 			summary_json TEXT NOT NULL
@@ -196,6 +208,7 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_attempts_quiz_status ON attempts(quiz_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON attempts(quiz_id, student_no, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_answers_attempt ON answers(attempt_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_short_answer_grades_attempt ON short_answer_grades(attempt_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_attempts_course ON attempts(course_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_homework_submissions_lookup ON homework_submissions(course_id, assignment_id, student_no);`,
 		`CREATE INDEX IF NOT EXISTS idx_homework_submissions_legacy ON homework_submissions(course, assignment_id, student_no);`,
@@ -413,6 +426,69 @@ func (s *SQLiteStore) GetAnswers(ctx context.Context, attemptID string) (map[str
 	return result, nil
 }
 
+func (s *SQLiteStore) UpsertShortAnswerGrade(ctx context.Context, grade domain.ShortAnswerGrade) error {
+	now := grade.UpdatedAt
+	if now.IsZero() {
+		now = time.Now()
+	}
+	status := string(grade.Status)
+	if strings.TrimSpace(status) == "" {
+		status = string(domain.ShortAnswerGradePending)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO short_answer_grades(
+		attempt_id, question_id, status, score, feedback, raw_response, error, graded_at, updated_at
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+		status=excluded.status,
+		score=excluded.score,
+		feedback=excluded.feedback,
+		raw_response=excluded.raw_response,
+		error=excluded.error,
+		graded_at=excluded.graded_at,
+		updated_at=excluded.updated_at`,
+		grade.AttemptID,
+		grade.QuestionID,
+		status,
+		floatPtrValue(grade.Score),
+		grade.Feedback,
+		grade.RawResponse,
+		grade.Error,
+		formatTimePtr(grade.GradedAt),
+		now.Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (s *SQLiteStore) GetShortAnswerGrades(ctx context.Context, attemptID string) (map[string]domain.ShortAnswerGrade, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT attempt_id, question_id, status, score, feedback, raw_response, error, graded_at, updated_at FROM short_answer_grades WHERE attempt_id = ?`, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]domain.ShortAnswerGrade{}
+	for rows.Next() {
+		var item domain.ShortAnswerGrade
+		var score sql.NullFloat64
+		var gradedAt sql.NullString
+		var updatedAt string
+		var status string
+		if err := rows.Scan(&item.AttemptID, &item.QuestionID, &status, &score, &item.Feedback, &item.RawResponse, &item.Error, &gradedAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		item.Status = domain.ShortAnswerGradeStatus(status)
+		if score.Valid {
+			v := score.Float64
+			item.Score = &v
+		}
+		item.GradedAt = parseTimePtr(gradedAt)
+		if t, err := time.Parse(time.RFC3339Nano, updatedAt); err == nil {
+			item.UpdatedAt = t
+		}
+		result[item.QuestionID] = item
+	}
+	return result, rows.Err()
+}
+
 func (s *SQLiteStore) UpsertSummary(ctx context.Context, attemptID string, summaryJSON string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO summaries(attempt_id, summary_json) VALUES(?, ?) ON CONFLICT(attempt_id) DO UPDATE SET summary_json=excluded.summary_json`, attemptID, summaryJSON)
 	return err
@@ -492,6 +568,10 @@ func (s *SQLiteStore) ClearAttempts(ctx context.Context, quizID string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM short_answer_grades WHERE attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ?)`, quizID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM summaries WHERE attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ?)`, quizID); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -516,6 +596,10 @@ func (s *SQLiteStore) ClearAttemptsByCourse(ctx context.Context, courseID int, q
 	}
 	scope := `attempt_id IN (SELECT id FROM attempts WHERE quiz_id = ? AND course_id = ?)`
 	if _, err := tx.ExecContext(ctx, `DELETE FROM answers WHERE `+scope, quizID, courseID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM short_answer_grades WHERE `+scope, quizID, courseID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -799,6 +883,10 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 	}
 	attemptScope := `attempt_id IN (SELECT id FROM attempts WHERE course_id = ?)`
 	if _, err := tx.ExecContext(ctx, `DELETE FROM answers WHERE `+attemptScope, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM short_answer_grades WHERE `+attemptScope, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

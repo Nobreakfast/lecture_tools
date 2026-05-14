@@ -54,6 +54,8 @@ type AttemptStore interface {
 	SubmitAttempt(ctx context.Context, attemptID string) (int, error)
 	SaveAnswer(ctx context.Context, answer domain.Answer) error
 	GetAnswers(ctx context.Context, attemptID string) (map[string]string, error)
+	UpsertShortAnswerGrade(ctx context.Context, grade domain.ShortAnswerGrade) error
+	GetShortAnswerGrades(ctx context.Context, attemptID string) (map[string]domain.ShortAnswerGrade, error)
 	UpsertSummary(ctx context.Context, attemptID string, summaryJSON string) error
 	GetSummary(ctx context.Context, attemptID string) (string, error)
 	GetLiveStats(ctx context.Context) (int, int, error)

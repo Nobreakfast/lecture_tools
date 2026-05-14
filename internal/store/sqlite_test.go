@@ -77,6 +77,48 @@ func TestSubmitAttemptAssignsAttemptNoBySubmitted(t *testing.T) {
 	}
 }
 
+func TestShortAnswerGradesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-short-answer-grades?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	score := 0.8
+	if err := st.UpsertShortAnswerGrade(ctx, domain.ShortAnswerGrade{
+		AttemptID:   "a1",
+		QuestionID:  "q_short",
+		Status:      domain.ShortAnswerGradeGraded,
+		Score:       &score,
+		Feedback:    "基本正确",
+		RawResponse: `{"score":0.8,"feedback":"基本正确"}`,
+		GradedAt:    &now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("UpsertShortAnswerGrade failed: %v", err)
+	}
+
+	got, err := st.GetShortAnswerGrades(ctx, "a1")
+	if err != nil {
+		t.Fatalf("GetShortAnswerGrades failed: %v", err)
+	}
+	grade, ok := got["q_short"]
+	if !ok {
+		t.Fatalf("missing stored grade: %+v", got)
+	}
+	if grade.Status != domain.ShortAnswerGradeGraded || grade.Score == nil || *grade.Score != score {
+		t.Fatalf("unexpected grade: %+v", grade)
+	}
+	if grade.Feedback != "基本正确" || grade.RawResponse == "" || grade.GradedAt == nil {
+		t.Fatalf("grade metadata not restored: %+v", grade)
+	}
+}
+
 func TestClearAttemptsOnlyClearsTargetQuiz(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-clear-attempts-by-quiz?mode=memory&cache=shared")

@@ -61,9 +61,17 @@ func Validate(q *domain.Quiz) error {
 			}
 			mode := strings.TrimSpace(item.ShortAnswerMode)
 			switch mode {
-		case "", "text", "image", "code", "text_image":
-		default:
-			return fmt.Errorf("题目 %s short_answer_mode 无效: %s（仅支持 text/image/code/text_image）", item.ID, mode)
+			case "", "text", "image", "code", "text_image":
+			default:
+				return fmt.Errorf("题目 %s short_answer_mode 无效: %s（仅支持 text/image/code/text_image）", item.ID, mode)
+			}
+			if item.ScoreWithAgent {
+				if strings.TrimSpace(item.ReferenceAnswer) == "" {
+					return fmt.Errorf("题目 %s 开启 score_with_agent 时必须配置 reference_answer", item.ID)
+				}
+				if mode == "image" {
+					return fmt.Errorf("题目 %s 仅上传图片的简答题暂不支持 agent 评分", item.ID)
+				}
 			}
 			if tag := strings.TrimSpace(item.PoolTag); tag != "" {
 				return fmt.Errorf("题目 %s 简答题不能配置 pool_tag", item.ID)
@@ -72,6 +80,12 @@ func Validate(q *domain.Quiz) error {
 		}
 		if strings.TrimSpace(item.ShortAnswerMode) != "" {
 			return fmt.Errorf("题目 %s 仅 short_answer 题型支持 short_answer_mode", item.ID)
+		}
+		if item.ScoreWithAgent {
+			return fmt.Errorf("题目 %s 仅 short_answer 题型支持 score_with_agent", item.ID)
+		}
+		if strings.TrimSpace(item.ScoringRubric) != "" {
+			return fmt.Errorf("题目 %s 仅 short_answer 题型支持 scoring_rubric", item.ID)
 		}
 		if len(item.Options) < 2 {
 			return fmt.Errorf("题目 %s options 至少 2 个", item.ID)

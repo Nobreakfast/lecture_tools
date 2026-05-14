@@ -368,6 +368,7 @@
   </div>
   <script>
     let resultData = null;
+    let resultRefreshTimer = null;
     function escapeHTML(s) {
       return String(s || '')
         .replaceAll('&', '&amp;')
@@ -375,6 +376,18 @@
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+    function formatScoreValue(v) {
+      const n = Number(v || 0);
+      if (!Number.isFinite(n)) return '0';
+      return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    }
+    function scoreTitleText(score) {
+      const s = score || {};
+      let text = `${formatScoreValue(s.correct)}/${Number(s.total || 0)}`;
+      if (Number(s.grading_pending || 0) > 0) text += `，简答评分中 ${Number(s.grading_pending)}`;
+      if (Number(s.grading_errors || 0) > 0) text += `，简答评分失败 ${Number(s.grading_errors)}`;
+      return text;
     }
     function optionText(q, key) {
       if (!key) return '未作答';
@@ -452,7 +465,11 @@
         return;
       }
       resultData = data;
-      document.getElementById('title').textContent = `${data.quiz_title}（${data.score.correct}/${data.score.total}）`;
+      if (resultRefreshTimer) {
+        clearTimeout(resultRefreshTimer);
+        resultRefreshTimer = null;
+      }
+      document.getElementById('title').textContent = `${data.quiz_title}（${scoreTitleText(data.score)}）`;
       // Summary will be loaded on-demand via AI button
       const root = document.getElementById('list');
       root.innerHTML = '';
@@ -499,7 +516,18 @@
           const imgThumbs = renderImageThumbs(q.answer_images);
           const refContent = q.reference ? `<p><strong>参考答案：</strong>${renderAnswerContent(q.reference, true)}</p>` : '';
           html += `<p style="margin-top:6px;"><strong>你的回答：</strong>${answerContent}</p>${imgThumbs}${refContent}`;
-          html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">该题为开放题，不判对错。</p>`;
+          if (q.score_with_agent) {
+            const g = q.short_answer_grade || {};
+            if (g.status === 'graded') {
+              html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">AI 评分：<strong>${formatScoreValue(g.score)}/1</strong>${g.feedback ? '，' + escapeHTML(g.feedback) : ''}</p>`;
+            } else if (g.status === 'error') {
+              html += `<p style="font-size:13px;color:var(--danger);margin-top:4px;">AI 评分失败：${escapeHTML(g.error || '请稍后重试')}</p>`;
+            } else {
+              html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">AI 正在评分，稍后刷新可查看结果。</p>`;
+            }
+          } else {
+            html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">该题为开放题，不判对错。</p>`;
+          }
         }
         if (isSurvey && q.type !== 'short_answer') {
           html += `<p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">该题为沟通题，不判对错。</p>`;
@@ -513,12 +541,18 @@
       if (window.hljs) {
         document.querySelectorAll('pre.code-block code').forEach(el => hljs.highlightElement(el));
       }
-      root.addEventListener('click', (e) => {
-        const item = e.target.closest('.thumb-item');
-        if (!item) return;
-        const img = item.querySelector('img');
-        if (img) openLightbox(img.src);
-      });
+      if (Number((data.score || {}).grading_pending || 0) > 0) {
+        resultRefreshTimer = setTimeout(load, 3000);
+      }
+      if (!root.dataset.lightboxBound) {
+        root.dataset.lightboxBound = '1';
+        root.addEventListener('click', (e) => {
+          const item = e.target.closest('.thumb-item');
+          if (!item) return;
+          const img = item.querySelector('img');
+          if (img) openLightbox(img.src);
+        });
+      }
     }
     function downloadBlob(blob, fileName) {
       const a = document.createElement('a');

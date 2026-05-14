@@ -184,6 +184,7 @@
           <input id="snapshotUploadInput" type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" class="hidden" />
         </div>
         <div class="snapshot-note" id="snapshotMetaNote">系统每天凌晨 3 点自动生成轻量快照，默认仅保留最近 14 天；完整快照会先保存在服务器上，再提供 scp 拷贝指令。</div>
+        <div id="snapshotUploadProgress" class="mt-8"></div>
         <div id="snapshotCopyResult" class="snapshot-copy-box hidden">
           <div class="status-title">完整快照已生成</div>
           <div class="small muted" id="snapshotCopyMeta"></div>
@@ -684,9 +685,11 @@
       const form = new FormData();
       form.append('file', file);
       try {
-        await App.fetchJSON('/api/system/snapshots/upload-restore', {
+        await App.uploadJSON('/api/system/snapshots/upload-restore', {
           method: 'POST',
           body: form,
+          progressTarget: 'snapshotUploadProgress',
+          progressLabel: '正在上传系统快照',
         });
         App.toast('恢复任务已提交，服务正在重启', 'success');
         pollForRecovery();

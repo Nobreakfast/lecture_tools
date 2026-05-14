@@ -548,6 +548,7 @@
                     <button class="btn btn-secondary btn-sm" onclick="toggleNewForm()">取消</button>
                     <button class="btn btn-primary btn-sm" onclick="submitNewIssue()">提交</button>
                 </div>
+                <div id="newIssueUploadProgress" class="mt-8"></div>
             </div>
             <div id="issueList"></div>
         </div>
@@ -581,6 +582,7 @@
                     <div style="flex:1;"></div>
                     <button class="btn btn-primary btn-sm" onclick="submitReply()">回复</button>
                 </div>
+                <div id="replyUploadProgress" class="mt-8"></div>
             </div>
         </div>
     </div>
@@ -745,11 +747,18 @@
             var files = document.getElementById('newIssueImages').files;
             for (var i = 0; i < files.length && i < 5; i++) fd.append('images', files[i]);
             try {
-                var r = await fetch('/api/qa/issue/create', { method: 'POST', credentials: 'include', body: fd });
+                var uploadOpts = { method: 'POST', credentials: 'include', body: fd };
+                var r = files.length
+                    ? await App.uploadForm('/api/qa/issue/create', Object.assign({}, uploadOpts, {
+                        progressTarget: 'newIssueUploadProgress',
+                        progressLabel: '正在上传提问图片',
+                    }))
+                    : await fetch('/api/qa/issue/create', uploadOpts);
                 if (!r.ok) { showToast(await r.text()); return; }
                 var data = await r.json();
                 document.getElementById('newIssueMsg').value = '';
                 document.getElementById('newIssueImages').value = '';
+                document.getElementById('newIssueUploadProgress').innerHTML = '';
                 document.getElementById('newIssueForm').classList.remove('show');
                 showToast('提问已提交，教师审核后会公开显示');
                 loadIssues();
@@ -993,10 +1002,17 @@
             var files = document.getElementById('replyImages').files;
             for (var i = 0; i < files.length && i < 5; i++) fd.append('images', files[i]);
             try {
-                var r = await fetch('/api/qa/issue/message', { method: 'POST', credentials: 'include', body: fd });
+                var uploadOpts = { method: 'POST', credentials: 'include', body: fd };
+                var r = files.length
+                    ? await App.uploadForm('/api/qa/issue/message', Object.assign({}, uploadOpts, {
+                        progressTarget: 'replyUploadProgress',
+                        progressLabel: '正在上传回复图片',
+                    }))
+                    : await fetch('/api/qa/issue/message', uploadOpts);
                 if (!r.ok) { showToast(await r.text()); return; }
                 document.getElementById('replyMsg').value = '';
                 document.getElementById('replyImages').value = '';
+                document.getElementById('replyUploadProgress').innerHTML = '';
                 showToast('回复已发送');
                 await openIssue(currentIssue.id);
             } catch (e) { showToast('发送失败'); }

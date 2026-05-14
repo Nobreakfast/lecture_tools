@@ -56,6 +56,56 @@ questions:
 	}
 }
 
+func TestParseShortAnswerAgentScoringValidation(t *testing.T) {
+	valid := []byte(`
+quiz_id: "q_short_agent"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    stem: "解释凸函数定义"
+    short_answer_mode: "text"
+    reference_answer: "满足 Jensen 不等式"
+    score_with_agent: true
+    scoring_rubric: "答出 Jensen 不等式即可"
+`)
+	q, err := Parse(valid)
+	if err != nil {
+		t.Fatalf("parse valid short answer failed: %v", err)
+	}
+	if !q.Questions[0].ScoreWithAgent {
+		t.Fatalf("score_with_agent was not parsed")
+	}
+
+	missingRef := []byte(`
+quiz_id: "q_short_agent_bad"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    stem: "解释凸函数定义"
+    score_with_agent: true
+`)
+	if _, err := Parse(missingRef); err == nil {
+		t.Fatalf("missing reference_answer should fail")
+	}
+
+	imageOnly := []byte(`
+quiz_id: "q_short_agent_image"
+title: "t"
+questions:
+  - id: "s1"
+    type: "short_answer"
+    stem: "上传推导过程"
+    short_answer_mode: "image"
+    reference_answer: "推导正确"
+    score_with_agent: true
+`)
+	if _, err := Parse(imageOnly); err == nil {
+		t.Fatalf("image-only agent scoring should fail")
+	}
+}
+
 func TestParseWeek2L2Quiz(t *testing.T) {
 	_, currentFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
