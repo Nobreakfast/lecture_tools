@@ -104,6 +104,7 @@ snapshots/
 | `AI_ENDPOINT`            | -              | AI 服务地址                                |
 | `AI_API_KEY`             | -              | AI 鉴权密钥                                |
 | `AI_MODEL`               | -              | 模型名                                     |
+| `AI_REQUEST_TIMEOUT`     | `5m`           | AI 请求最长等待时间，支持 `300`/`300s`/`5m` |
 | `CERT_PATH`              | -              | HTTPS 证书目录（`*.pem` + `*.key`）        |
 | `AUTOCERT_ENABLE`        | -              | 启用 `autocert` 自动证书                   |
 | `AUTOCERT_HOSTS`         | -              | 域名白名单                                 |

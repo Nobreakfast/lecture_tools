@@ -24,12 +24,21 @@ type Client struct {
 	lastErr  string
 }
 
+const DefaultRequestTimeout = 5 * time.Minute
+
 func NewClient(endpoint, apiKey, model string) *Client {
+	return NewClientWithTimeout(endpoint, apiKey, model, DefaultRequestTimeout)
+}
+
+func NewClientWithTimeout(endpoint, apiKey, model string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = DefaultRequestTimeout
+	}
 	return &Client{
 		endpoint: strings.TrimSpace(endpoint),
 		apiKey:   strings.TrimSpace(apiKey),
 		model:    strings.TrimSpace(model),
-		httpCli:  &http.Client{Timeout: 60 * time.Second},
+		httpCli:  &http.Client{Timeout: timeout},
 	}
 }
 
@@ -55,6 +64,10 @@ func (c *Client) Health() map[string]any {
 	ok := c.lastOK
 	le := c.lastErr
 	c.mu.RUnlock()
+	timeout := ""
+	if c.httpCli != nil {
+		timeout = c.httpCli.Timeout.String()
+	}
 	las := ""
 	if !ok.IsZero() {
 		las = ok.Format(time.RFC3339)
@@ -63,6 +76,7 @@ func (c *Client) Health() map[string]any {
 		"endpoint":        ep,
 		"model":           m,
 		"key_loaded":      strings.TrimSpace(k) != "",
+		"request_timeout": timeout,
 		"last_success_at": las,
 		"last_error":      le,
 	}

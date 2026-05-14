@@ -58,14 +58,15 @@ func main() {
 	}
 	redirectAddr := env("APP_HTTP_REDIRECT_ADDR", "")
 	cfg := app.Config{
-		Addr:          addr,
-		BaseURL:       baseURL,
-		DataDir:       env("DATA_DIR", "./data"),
-		MetadataDir:   env("METADATA_DIR", "./metadata"),
-		SnapshotDir:   env("SNAPSHOT_DIR", "./snapshots"),
-		AIEndpoint:    env("AI_ENDPOINT", ""),
-		AIKey:         env("AI_API_KEY", ""),
-		AIModel:       env("AI_MODEL", ""),
+		Addr:        addr,
+		BaseURL:     baseURL,
+		DataDir:     env("DATA_DIR", "./data"),
+		MetadataDir: env("METADATA_DIR", "./metadata"),
+		SnapshotDir: env("SNAPSHOT_DIR", "./snapshots"),
+		AIEndpoint:  env("AI_ENDPOINT", ""),
+		AIKey:       env("AI_API_KEY", ""),
+		AIModel:     env("AI_MODEL", ""),
+		AITimeout:   parseDurationEnv("AI_REQUEST_TIMEOUT", 5*time.Minute),
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		log.Fatal(err)
@@ -168,7 +169,7 @@ func main() {
 	} else {
 		fmt.Println(".env 未加载: 使用系统环境变量")
 	}
-	fmt.Printf("AI配置: endpoint=%s model=%s key_loaded=%v\n", mask(cfg.AIEndpoint), cfg.AIModel, cfg.AIKey != "")
+	fmt.Printf("AI配置: endpoint=%s model=%s key_loaded=%v timeout=%s\n", mask(cfg.AIEndpoint), cfg.AIModel, cfg.AIKey != "", cfg.AITimeout)
 	if httpsEnabled {
 		if autocertEnabled {
 			fmt.Printf("HTTPS已启用: autocert hosts=%s\n", strings.Join(autocertHosts, ","))
@@ -218,6 +219,26 @@ func env(k, v string) string {
 		return v
 	}
 	return got
+}
+
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		fmt.Printf("%s 配置无效: %q，使用默认 %s\n", key, raw, fallback)
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err == nil && d > 0 {
+		return d
+	}
+	fmt.Printf("%s 配置无效: %q，使用默认 %s\n", key, raw, fallback)
+	return fallback
 }
 
 func guessBaseURL(addr string, https bool) string {

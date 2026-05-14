@@ -1663,8 +1663,21 @@ function openAIPanel(mode = 'generate') {
       <button class="btn" style="font-size:13px;padding:7px 16px;" onclick="applyAIResult()">应用到编辑器</button>
     </div>
   </div>`;
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeAIPanel(); });
   document.body.appendChild(backdrop);
+  let backdropPointerDown = null;
+  backdrop.addEventListener('pointerdown', (e) => {
+    backdropPointerDown = e.target === backdrop ? { x: e.clientX, y: e.clientY } : null;
+  });
+  backdrop.addEventListener('pointerup', (e) => {
+    if (e.target !== backdrop) backdropPointerDown = null;
+  });
+  backdrop.addEventListener('click', (e) => {
+    if (e.target !== backdrop || !backdropPointerDown) return;
+    const dx = Math.abs(e.clientX - backdropPointerDown.x);
+    const dy = Math.abs(e.clientY - backdropPointerDown.y);
+    backdropPointerDown = null;
+    if (dx <= 4 && dy <= 4) closeAIPanel();
+  });
   switchAIPanelMode(mode);
   loadAIInitMaterials();
 }

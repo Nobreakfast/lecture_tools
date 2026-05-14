@@ -44,6 +44,7 @@ type Config struct {
 	AIEndpoint  string
 	AIKey       string
 	AIModel     string
+	AITimeout   time.Duration
 }
 
 type authSession struct {
@@ -89,7 +90,7 @@ func New(cfg Config, st store.Store) *Server {
 	return &Server{
 		cfg:                  cfg,
 		store:                st,
-		aiClient:             ai.NewClient(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel),
+		aiClient:             ai.NewClientWithTimeout(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel, cfg.AITimeout),
 		courseQuizzes:        map[int]*domain.Quiz{},
 		courseQuizAssetDirs:  map[int]string{},
 		authTokens:           map[string]authSession{},
