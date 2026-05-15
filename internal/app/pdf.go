@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"course-assistant/internal/domain"
 )
@@ -545,7 +545,7 @@ func (s *Server) apiAdminPDFUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
-	if err := r.ParseMultipartForm(500 << 20); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -596,20 +596,17 @@ func (s *Server) saveUploadedMaterial(ctx context.Context, dir, folder string, h
 	if err != nil {
 		return nil, &materialUploadFailure{File: filepath.Base(header.Filename), Error: err.Error()}
 	}
-	file, err := header.Open()
+	fp := filepath.Join(dir, name)
+	tmpPath := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", name, time.Now().UnixNano()))
+	defer os.Remove(tmpPath)
+	size, err := copyMultipartFile(header, tmpPath, 500<<20)
 	if err != nil {
-		return nil, &materialUploadFailure{File: name, Error: "读取文件失败"}
+		return nil, &materialUploadFailure{File: name, Error: homeworkUploadCopyError(err, "文件过大")}
 	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, &materialUploadFailure{File: name, Error: "读取文件失败"}
-	}
-	if ext == ".pdf" && !looksLikePDF(data) {
+	if ext == ".pdf" && !looksLikePDFFile(tmpPath) {
 		return nil, &materialUploadFailure{File: name, Error: "PDF 文件内容无效"}
 	}
-	fp := filepath.Join(dir, name)
-	if err := os.WriteFile(fp, data, 0o644); err != nil {
+	if err := os.Rename(tmpPath, fp); err != nil {
 		return nil, &materialUploadFailure{File: name, Error: "写入文件失败"}
 	}
 	if err := s.setMaterialVisibility(ctx, folder, name, false); err != nil {
@@ -622,7 +619,7 @@ func (s *Server) saveUploadedMaterial(ctx context.Context, dir, folder string, h
 		Extension:   ext,
 		URL:         s.materialPrimaryURL(folder, name),
 		DownloadURL: s.materialDownloadURL(folder, name),
-		Size:        int64(len(data)),
+		Size:        size,
 	}
 	if ext == ".pdf" {
 		success.PreviewURL = s.materialPreviewURL(folder, name)

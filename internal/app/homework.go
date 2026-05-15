@@ -17,10 +17,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-
-	"strconv"
 
 	"course-assistant/internal/ai"
 	"course-assistant/internal/domain"
@@ -507,7 +506,7 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, homeworkAssignmentPDFMaxSize)
-	if err := r.ParseMultipartForm(homeworkAssignmentPDFMaxSize); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -522,17 +521,8 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "读取文件失败", http.StatusInternalServerError)
-		return
-	}
 	if slot == domain.HomeworkSlotCode && !strings.EqualFold(filepath.Ext(strings.TrimSpace(header.Filename)), ".ipynb") {
 		http.Error(w, "Notebook 文件必须使用 .ipynb 扩展名", http.StatusBadRequest)
-		return
-	}
-	if err := validateHomeworkFile(slot, data); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	dir := s.homeworkSubmissionDir(submission)
@@ -542,11 +532,15 @@ func (s *Server) apiHomeworkUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpPath := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", homeworkDiskFilename(slot), time.Now().UnixNano()))
 	finalPath := filepath.Join(dir, homeworkDiskFilename(slot))
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		http.Error(w, "写入文件失败", http.StatusInternalServerError)
+	defer os.Remove(tmpPath)
+	if _, err := copyMultipartStream(file, tmpPath, homeworkAssignmentPDFMaxSize); err != nil {
+		http.Error(w, homeworkUploadCopyError(err, "文件过大"), homeworkUploadCopyStatus(err))
 		return
 	}
-	defer os.Remove(tmpPath)
+	if err := validateHomeworkFilePath(slot, tmpPath); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := s.store.SaveHomeworkFileMetadata(r.Context(), submission.ID, slot, sanitizeHomeworkMetadataFilename(header.Filename, homeworkDiskFilename(slot))); err != nil {
 		http.Error(w, "保存文件状态失败", http.StatusInternalServerError)
 		return
@@ -667,7 +661,7 @@ func (s *Server) apiHomeworkOthersUpload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, homeworkOthersMaxSize)
-	if err := r.ParseMultipartForm(homeworkOthersMaxSize); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大（限 50 MB）或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -682,15 +676,6 @@ func (s *Server) apiHomeworkOthersUpload(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "读取文件失败", http.StatusInternalServerError)
-		return
-	}
-	if len(data) == 0 {
-		http.Error(w, "文件不能为空", http.StatusBadRequest)
-		return
-	}
 	dir := s.homeworkOthersDir(submission)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		http.Error(w, "创建目录失败", http.StatusInternalServerError)
@@ -698,11 +683,11 @@ func (s *Server) apiHomeworkOthersUpload(w http.ResponseWriter, r *http.Request)
 	}
 	finalPath := filepath.Join(dir, name)
 	tmpPath := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", name, time.Now().UnixNano()))
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		http.Error(w, "写入文件失败", http.StatusInternalServerError)
+	defer os.Remove(tmpPath)
+	if _, err := copyMultipartStream(file, tmpPath, homeworkOthersMaxSize); err != nil {
+		http.Error(w, homeworkUploadCopyError(err, "文件过大（限 50 MB）"), homeworkUploadCopyStatus(err))
 		return
 	}
-	defer os.Remove(tmpPath)
 	if err := os.Rename(tmpPath, finalPath); err != nil {
 		http.Error(w, "写入文件失败", http.StatusInternalServerError)
 		return
@@ -913,7 +898,7 @@ func (s *Server) apiAdminHomeworkAssignmentUpload(w http.ResponseWriter, r *http
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, homeworkAssignmentPDFMaxSize)
-	if err := r.ParseMultipartForm(homeworkAssignmentPDFMaxSize); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -1687,12 +1672,8 @@ func (s *Server) apiAdminHomeworkArchive(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	archiveData, err := s.buildHomeworkArchive(submission)
-	if err != nil {
-		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
-		return
-	}
-	if len(archiveData) == 0 {
+	entries := s.homeworkArchiveEntries(submission)
+	if len(entries) == 0 {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -1700,7 +1681,9 @@ func (s *Server) apiAdminHomeworkArchive(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(archiveData)
+	if _, err := writeHomeworkZip(w, entries); err != nil {
+		return
+	}
 }
 
 func (s *Server) apiAdminHomeworkArchiveAll(w http.ResponseWriter, r *http.Request) {
@@ -1723,12 +1706,8 @@ func (s *Server) apiAdminHomeworkArchiveAll(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "读取作业列表失败", http.StatusInternalServerError)
 		return
 	}
-	archiveData, err := s.buildHomeworkBulkArchive(submissions)
-	if err != nil {
-		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
-		return
-	}
-	if len(archiveData) == 0 {
+	entries := s.homeworkBulkArchiveEntries(submissions)
+	if len(entries) == 0 {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -1736,7 +1715,9 @@ func (s *Server) apiAdminHomeworkArchiveAll(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(archiveData)
+	if _, err := writeHomeworkZip(w, entries); err != nil {
+		return
+	}
 }
 
 func (s *Server) adminHomeworkSubmission(r *http.Request) (*domain.HomeworkSubmission, error) {
@@ -2127,19 +2108,16 @@ func (s *Server) saveUploadedHomeworkAssignment(ctx context.Context, course stri
 	if err != nil {
 		return nil, map[string]any{"file": filepath.Base(header.Filename), "error": "文件名无效"}
 	}
-	file, err := header.Open()
-	if err != nil {
-		return nil, map[string]any{"file": name, "error": "读取文件失败"}
+	dst := filepath.Join(dir, name)
+	tmpPath := filepath.Join(dir, fmt.Sprintf(".%s.%d.tmp", name, time.Now().UnixNano()))
+	defer os.Remove(tmpPath)
+	if _, err := copyMultipartFile(header, tmpPath, homeworkAssignmentPDFMaxSize); err != nil {
+		return nil, map[string]any{"file": name, "error": homeworkUploadCopyError(err, "文件过大")}
 	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, map[string]any{"file": name, "error": "读取文件失败"}
-	}
-	if strings.EqualFold(filepath.Ext(name), ".pdf") && !looksLikePDF(data) {
+	if strings.EqualFold(filepath.Ext(name), ".pdf") && !looksLikePDFFile(tmpPath) {
 		return nil, map[string]any{"file": name, "error": "PDF 文件内容无效"}
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+	if err := os.Rename(tmpPath, dst); err != nil {
 		return nil, map[string]any{"file": name, "error": "写入文件失败"}
 	}
 	return s.homeworkAssignmentPayload(ctx, course, courseID, assignmentID, true), nil
@@ -2552,17 +2530,34 @@ func parseHomeworkSlot(raw string) (domain.HomeworkFileSlot, error) {
 	}
 }
 
-func validateHomeworkFile(slot domain.HomeworkFileSlot, data []byte) error {
-	if len(data) == 0 {
-		return fmt.Errorf("文件不能为空")
+func homeworkUploadCopyStatus(err error) int {
+	if errors.Is(err, errUploadedFileTooLarge) {
+		return http.StatusRequestEntityTooLarge
 	}
+	if errors.Is(err, errUploadedFileEmpty) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+func homeworkUploadCopyError(err error, tooLargeMessage string) string {
+	if errors.Is(err, errUploadedFileTooLarge) {
+		return tooLargeMessage
+	}
+	if errors.Is(err, errUploadedFileEmpty) {
+		return "文件不能为空"
+	}
+	return "写入文件失败"
+}
+
+func validateHomeworkFilePath(slot domain.HomeworkFileSlot, path string) error {
 	switch slot {
 	case domain.HomeworkSlotReport:
-		if !looksLikePDF(data) {
+		if !looksLikePDFFile(path) {
 			return fmt.Errorf("PDF 文件内容无效")
 		}
 	case domain.HomeworkSlotCode:
-		if !looksLikeNotebook(data) {
+		if !looksLikeNotebookFile(path) {
 			return fmt.Errorf("ipynb 文件内容无效")
 		}
 	case domain.HomeworkSlotExtra:
@@ -2622,18 +2617,92 @@ func homeworkBulkArchiveFilename(course *domain.Course, assignmentID string) str
 	return fmt.Sprintf("%s_%s_all.zip", safePathPart(courseName), safePathPart(assignmentID))
 }
 
-func looksLikeNotebook(data []byte) bool {
-	if len(bytes.TrimSpace(data)) == 0 || !stdjson.Valid(data) {
+func looksLikeNotebookFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
 		return false
 	}
-	var payload map[string]any
-	if err := stdjson.Unmarshal(data, &payload); err != nil {
+	defer f.Close()
+	dec := stdjson.NewDecoder(f)
+	tok, err := dec.Token()
+	if err != nil {
 		return false
 	}
-	_, hasCells := payload["cells"]
-	_, hasMetadata := payload["metadata"]
-	_, hasNbformat := payload["nbformat"]
+	delim, ok := tok.(stdjson.Delim)
+	if !ok || delim != '{' {
+		return false
+	}
+	hasCells := false
+	hasMetadata := false
+	hasNbformat := false
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return false
+		}
+		switch key {
+		case "cells":
+			hasCells = true
+		case "metadata":
+			hasMetadata = true
+		case "nbformat":
+			hasNbformat = true
+		}
+		if err := skipJSONValue(dec); err != nil {
+			return false
+		}
+	}
+	tok, err = dec.Token()
+	if err != nil {
+		return false
+	}
+	delim, ok = tok.(stdjson.Delim)
+	if !ok || delim != '}' {
+		return false
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return false
+	}
 	return hasCells && hasMetadata && hasNbformat
+}
+
+func skipJSONValue(dec *stdjson.Decoder) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := tok.(stdjson.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		for dec.More() {
+			if _, err := dec.Token(); err != nil {
+				return err
+			}
+			if err := skipJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		_, err = dec.Token()
+		return err
+	case '[':
+		for dec.More() {
+			if err := skipJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		_, err = dec.Token()
+		return err
+	default:
+		return nil
+	}
 }
 
 func (s *Server) homeworkStoredFilePath(submission *domain.HomeworkSubmission, slot domain.HomeworkFileSlot) string {
@@ -2651,26 +2720,43 @@ func (s *Server) homeworkStoredFilePath(submission *domain.HomeworkSubmission, s
 	return primary
 }
 
+type homeworkArchiveEntry struct {
+	Name string
+	Path string
+}
+
 func (s *Server) buildHomeworkArchive(submission *domain.HomeworkSubmission) ([]byte, error) {
-	type archiveFile struct {
-		Name string
-		Path string
+	entries := s.homeworkArchiveEntries(submission)
+	if len(entries) == 0 {
+		return nil, nil
 	}
-	entries := []archiveFile{}
+	buf := &bytes.Buffer{}
+	filesWritten, err := writeHomeworkZip(buf, entries)
+	if err != nil {
+		return nil, err
+	}
+	if filesWritten == 0 {
+		return nil, nil
+	}
+	return buf.Bytes(), nil
+}
+
+func (s *Server) homeworkArchiveEntries(submission *domain.HomeworkSubmission) []homeworkArchiveEntry {
+	entries := []homeworkArchiveEntry{}
 	if submission.ReportOriginalName != "" {
-		entries = append(entries, archiveFile{
+		entries = append(entries, homeworkArchiveEntry{
 			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotReport),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "report.pdf"),
 		})
 	}
 	if submission.CodeOriginalName != "" {
-		entries = append(entries, archiveFile{
+		entries = append(entries, homeworkArchiveEntry{
 			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotCode),
 			Path: s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode),
 		})
 	}
 	if submission.ExtraOriginalName != "" {
-		entries = append(entries, archiveFile{
+		entries = append(entries, homeworkArchiveEntry{
 			Name: homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotExtra),
 			Path: filepath.Join(s.homeworkSubmissionDir(submission), "extra.zip"),
 		})
@@ -2681,79 +2767,57 @@ func (s *Server) buildHomeworkArchive(submission *domain.HomeworkSubmission) ([]
 			if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
 				continue
 			}
-			entries = append(entries, archiveFile{
+			entries = append(entries, homeworkArchiveEntry{
 				Name: homeworkOthersFolder + "/" + de.Name(),
 				Path: filepath.Join(othersDir, de.Name()),
 			})
 		}
 	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	return filterExistingHomeworkArchiveEntries(entries)
+}
+
+func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmission) ([]byte, error) {
+	entries := s.homeworkBulkArchiveEntries(submissions)
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	buf := &bytes.Buffer{}
-	zw := zip.NewWriter(buf)
-	for _, entry := range entries {
-		data, err := os.ReadFile(entry.Path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			_ = zw.Close()
-			return nil, err
-		}
-		w, err := zw.Create(entry.Name)
-		if err != nil {
-			_ = zw.Close()
-			return nil, err
-		}
-		if _, err := w.Write(data); err != nil {
-			_ = zw.Close()
-			return nil, err
-		}
-	}
-	if err := zw.Close(); err != nil {
+	filesWritten, err := writeHomeworkZip(buf, entries)
+	if err != nil {
 		return nil, err
 	}
-	if buf.Len() == 22 {
+	if filesWritten == 0 {
 		return nil, nil
 	}
 	return buf.Bytes(), nil
 }
 
-func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmission) ([]byte, error) {
-	type archiveEntry struct {
-		Name string
-		Path string
-		Slot domain.HomeworkFileSlot
-	}
+func (s *Server) homeworkBulkArchiveEntries(submissions []domain.HomeworkSubmission) []homeworkArchiveEntry {
 	type submissionBundle struct {
 		folder  string
-		entries []archiveEntry
+		entries []homeworkArchiveEntry
 	}
 	bundles := make([]submissionBundle, 0, len(submissions))
 	usedFolders := map[string]int{}
 	for _, submission := range submissions {
-		entries := []archiveEntry{}
+		entries := []homeworkArchiveEntry{}
 		if submission.ReportOriginalName != "" {
-			entries = append(entries, archiveEntry{
+			entries = append(entries, homeworkArchiveEntry{
 				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotReport),
 				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "report.pdf"),
-				Slot: domain.HomeworkSlotReport,
 			})
 		}
 		if submission.CodeOriginalName != "" {
-			entries = append(entries, archiveEntry{
+			entries = append(entries, homeworkArchiveEntry{
 				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotCode),
 				Path: s.homeworkStoredFilePath(&submission, domain.HomeworkSlotCode),
-				Slot: domain.HomeworkSlotCode,
 			})
 		}
 		if submission.ExtraOriginalName != "" {
-			entries = append(entries, archiveEntry{
+			entries = append(entries, homeworkArchiveEntry{
 				Name: homeworkSubmissionDownloadFilename(&submission, domain.HomeworkSlotExtra),
 				Path: filepath.Join(s.homeworkSubmissionDir(&submission), "extra.zip"),
-				Slot: domain.HomeworkSlotExtra,
 			})
 		}
 		othersDir := s.homeworkOthersDir(&submission)
@@ -2762,10 +2826,9 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 				if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
 					continue
 				}
-				entries = append(entries, archiveEntry{
+				entries = append(entries, homeworkArchiveEntry{
 					Name: homeworkOthersFolder + "/" + de.Name(),
 					Path: filepath.Join(othersDir, de.Name()),
-					Slot: domain.HomeworkSlotOthers,
 				})
 			}
 		}
@@ -2782,41 +2845,81 @@ func (s *Server) buildHomeworkBulkArchive(submissions []domain.HomeworkSubmissio
 		bundles = append(bundles, submissionBundle{folder: folder, entries: entries})
 	}
 	if len(bundles) == 0 {
-		return nil, nil
+		return nil
 	}
 	sort.Slice(bundles, func(i, j int) bool { return bundles[i].folder < bundles[j].folder })
-	buf := &bytes.Buffer{}
-	zw := zip.NewWriter(buf)
-	filesWritten := 0
+	allEntries := make([]homeworkArchiveEntry, 0)
 	for _, bundle := range bundles {
 		for _, entry := range bundle.entries {
-			data, err := os.ReadFile(entry.Path)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				_ = zw.Close()
-				return nil, err
-			}
-			w, err := zw.Create(bundle.folder + "/" + entry.Name)
-			if err != nil {
-				_ = zw.Close()
-				return nil, err
-			}
-			if _, err := w.Write(data); err != nil {
-				_ = zw.Close()
-				return nil, err
-			}
-			filesWritten++
+			allEntries = append(allEntries, homeworkArchiveEntry{
+				Name: bundle.folder + "/" + entry.Name,
+				Path: entry.Path,
+			})
 		}
 	}
+	return filterExistingHomeworkArchiveEntries(allEntries)
+}
+
+func filterExistingHomeworkArchiveEntries(entries []homeworkArchiveEntry) []homeworkArchiveEntry {
+	filtered := entries[:0]
+	for _, entry := range entries {
+		info, err := os.Stat(entry.Path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func writeHomeworkZip(dst io.Writer, entries []homeworkArchiveEntry) (int, error) {
+	zw := zip.NewWriter(dst)
+	filesWritten := 0
+	buf := make([]byte, 256<<10)
+	for _, entry := range entries {
+		file, err := os.Open(entry.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			_ = file.Close()
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		header.Name = entry.Name
+		header.Method = zip.Deflate
+		w, err := zw.CreateHeader(header)
+		if err != nil {
+			_ = file.Close()
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		if _, err := io.CopyBuffer(w, file, buf); err != nil {
+			_ = file.Close()
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		if err := file.Close(); err != nil {
+			_ = zw.Close()
+			return filesWritten, err
+		}
+		filesWritten++
+	}
 	if err := zw.Close(); err != nil {
-		return nil, err
+		return filesWritten, err
 	}
-	if filesWritten == 0 {
-		return nil, nil
-	}
-	return buf.Bytes(), nil
+	return filesWritten, nil
 }
 
 func homeworkAuthStatus(err error) int {

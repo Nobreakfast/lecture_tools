@@ -3343,7 +3343,7 @@ func (s *Server) apiTeacherCourseMaterialUpload(w http.ResponseWriter, r *http.R
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
-	if err := r.ParseMultipartForm(500 << 20); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -3577,7 +3577,7 @@ func (s *Server) apiTeacherCourseHomeworkAssignmentUpload(w http.ResponseWriter,
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
-	if err := r.ParseMultipartForm(500 << 20); err != nil {
+	if err := r.ParseMultipartForm(multipartDiskMemoryLimit); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
 	}
@@ -3842,12 +3842,8 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionArchive(w http.ResponseWriter
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
-	archiveData, err := s.buildHomeworkArchive(submission)
-	if err != nil {
-		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
-		return
-	}
-	if len(archiveData) == 0 {
+	entries := s.homeworkArchiveEntries(submission)
+	if len(entries) == 0 {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -3855,7 +3851,9 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionArchive(w http.ResponseWriter
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(archiveData)
+	if _, err := writeHomeworkZip(w, entries); err != nil {
+		return
+	}
 }
 
 func (s *Server) apiTeacherCourseHomeworkSubmissionDelete(w http.ResponseWriter, r *http.Request) {
@@ -3915,12 +3913,8 @@ func (s *Server) apiTeacherCourseHomeworkArchiveAll(w http.ResponseWriter, r *ht
 		http.Error(w, "读取作业列表失败", http.StatusInternalServerError)
 		return
 	}
-	archiveData, err := s.buildHomeworkBulkArchive(submissions)
-	if err != nil {
-		http.Error(w, "生成压缩包失败", http.StatusInternalServerError)
-		return
-	}
-	if len(archiveData) == 0 {
+	entries := s.homeworkBulkArchiveEntries(submissions)
+	if len(entries) == 0 {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -3928,7 +3922,9 @@ func (s *Server) apiTeacherCourseHomeworkArchiveAll(w http.ResponseWriter, r *ht
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(archiveData)
+	if _, err := writeHomeworkZip(w, entries); err != nil {
+		return
+	}
 }
 
 // ── Helper: resolve course from request ──
