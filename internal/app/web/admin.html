@@ -25,10 +25,14 @@
     .status-panel.caution { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
     .status-panel.busy { border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.08); }
     .status-title { font-weight: 700; margin-bottom: 4px; }
+    .online-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .online-panel { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: rgba(255,255,255,0.5); }
+    .online-panel h4 { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
     /* ── Responsive ── */
     @media (max-width: 720px) {
       .login-wrap .app-shell { padding: 16px 12px; }
       .stats { grid-template-columns: repeat(2, 1fr); }
+      .online-grid { grid-template-columns: 1fr; }
       .tab-bar { font-size: 13px; }
       .tab-btn { padding: 8px 10px; font-size: 13px; }
       #view-main { padding: 16px 12px 80px; }
@@ -95,6 +99,50 @@
           <div class="stat"><div class="num" id="numAttempts">-</div><div class="lbl">答题记录</div></div>
           <div class="stat"><div class="num" id="numOnline">-</div><div class="lbl" id="numOnlineLabel">在线人数</div></div>
         </div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">
+          <span id="onlineDetailTitle">近 15 分钟在线明细</span>
+          <span class="small muted">用于判断是否适合系统更新</span>
+        </h3>
+        <div class="online-grid">
+          <div class="online-panel">
+            <h4>学生</h4>
+            <table class="table">
+              <thead>
+                <tr><th>姓名</th><th>学号</th><th>班级</th><th>来源</th><th>最近登录</th></tr>
+              </thead>
+              <tbody id="onlineStudentTbody">
+                <tr><td colspan="5" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="online-panel">
+            <h4>教师 / 管理员</h4>
+            <table class="table">
+              <thead>
+                <tr><th>姓名</th><th>工号</th><th>角色</th><th>来源</th><th>最近登录</th></tr>
+              </thead>
+              <tbody id="onlineTeacherTbody">
+                <tr><td colspan="5" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">
+          最近登录记录
+          <span class="small muted">最近 20 条</span>
+        </h3>
+        <table class="table">
+          <thead>
+            <tr><th>类型</th><th>姓名</th><th>账号/学号</th><th>班级/角色</th><th>来源</th><th>登录时间</th></tr>
+          </thead>
+          <tbody id="recentLoginTbody">
+            <tr><td colspan="6" class="empty">加载中…</td></tr>
+          </tbody>
+        </table>
       </div>
       <div class="card">
         <h3 class="section-title">教师与课程</h3>
@@ -350,14 +398,85 @@
         const minutes = r.online_window_minutes ?? 15;
         $('#numOnlineLabel').textContent = '在线人数（近 ' + minutes + ' 分钟）';
         $('#numOnline').title = '学生 ' + (r.online_student_count ?? 0) + '，教师 ' + (r.online_teacher_count ?? 0);
+        $('#onlineDetailTitle').textContent = '近 ' + minutes + ' 分钟在线明细';
         window.__overviewStats = r || {};
         window.__overviewCourses = r.courses || [];
         renderMaintenanceAdvice(r || {});
+        renderOnlineDetails(r || {});
+        renderRecentLogins(r.recent_logins || []);
         renderOverviewTeachers(r.teachers || []);
       } catch (e) {
         setStatusPanel('#updateSafetyHint', 'busy', '升级窗口判断', '系统概览读取失败，暂时无法判断升级窗口，建议先刷新概览。');
         App.toast('加载概览失败', 'error');
       }
+    }
+
+    function loginSourceLabel(source) {
+      if (source === 'quiz') return '答题';
+      if (source === 'homework') return '作业';
+      if (source === 'admin') return '管理员入口';
+      if (source === 'teacher') return '教师入口';
+      return source || '-';
+    }
+
+    function personTypeLabel(type) {
+      if (type === 'student') return '学生';
+      if (type === 'teacher') return '教师';
+      return type || '-';
+    }
+
+    function renderOnlineDetails(overview) {
+      renderOnlineStudentRows(overview.online_students || []);
+      renderOnlineTeacherRows(overview.online_teachers || []);
+    }
+
+    function renderOnlineStudentRows(list) {
+      const tbody = $('#onlineStudentTbody');
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无学生在线</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(item => '<tr>'
+        + '<td>' + App.escapeHTML(item.name || '-') + '</td>'
+        + '<td>' + App.escapeHTML(item.person_id || '-') + '</td>'
+        + '<td>' + App.escapeHTML(item.class_name || '-') + '</td>'
+        + '<td><span class="pill muted">' + App.escapeHTML(loginSourceLabel(item.source)) + '</span></td>'
+        + '<td class="small muted">' + App.escapeHTML(formatDateTime(item.logged_at)) + '</td>'
+        + '</tr>').join('');
+    }
+
+    function renderOnlineTeacherRows(list) {
+      const tbody = $('#onlineTeacherTbody');
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无教师在线</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(item => '<tr>'
+        + '<td>' + App.escapeHTML(item.name || '-') + '</td>'
+        + '<td>' + App.escapeHTML(item.person_id || '-') + '</td>'
+        + '<td><span class="pill' + (item.role === 'admin' ? '' : ' muted') + '">' + App.escapeHTML(item.role || 'teacher') + '</span></td>'
+        + '<td><span class="pill muted">' + App.escapeHTML(loginSourceLabel(item.source)) + '</span></td>'
+        + '<td class="small muted">' + App.escapeHTML(formatDateTime(item.logged_at)) + '</td>'
+        + '</tr>').join('');
+    }
+
+    function renderRecentLogins(list) {
+      const tbody = $('#recentLoginTbody');
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">暂无登录记录</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(item => {
+        const roleOrClass = item.person_type === 'student' ? (item.class_name || '-') : (item.role || '-');
+        return '<tr>'
+          + '<td>' + App.escapeHTML(personTypeLabel(item.person_type)) + '</td>'
+          + '<td>' + App.escapeHTML(item.name || '-') + '</td>'
+          + '<td>' + App.escapeHTML(item.person_id || '-') + '</td>'
+          + '<td>' + App.escapeHTML(roleOrClass) + '</td>'
+          + '<td><span class="pill muted">' + App.escapeHTML(loginSourceLabel(item.source)) + '</span></td>'
+          + '<td class="small muted">' + App.escapeHTML(formatDateTime(item.logged_at)) + '</td>'
+          + '</tr>';
+      }).join('');
     }
 
     function renderOverviewTeachers(list) {

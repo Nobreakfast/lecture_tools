@@ -2,11 +2,57 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"course-assistant/internal/domain"
 )
+
+func TestLoginEventsRoundTripAndOrdering(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-login-events?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	for i := 0; i < 25; i++ {
+		if err := st.CreateLoginEvent(ctx, &domain.LoginEvent{
+			PersonType: "student",
+			PersonID:   fmt.Sprintf("S%03d", i),
+			Name:       fmt.Sprintf("学生%02d", i),
+			ClassName:  "一班",
+			Source:     "quiz",
+			LoggedAt:   now.Add(-time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("create login event failed: %v", err)
+		}
+	}
+
+	recent, err := st.ListRecentLoginEvents(ctx, 20)
+	if err != nil {
+		t.Fatalf("list recent login events failed: %v", err)
+	}
+	if len(recent) != 20 {
+		t.Fatalf("recent length = %d, want 20", len(recent))
+	}
+	if recent[0].PersonID != "S000" || recent[19].PersonID != "S019" {
+		t.Fatalf("unexpected recent ordering: first=%s last=%s", recent[0].PersonID, recent[19].PersonID)
+	}
+
+	online, err := st.ListLoginEventsSince(ctx, now.Add(-15*time.Minute))
+	if err != nil {
+		t.Fatalf("list online login events failed: %v", err)
+	}
+	if len(online) != 16 {
+		t.Fatalf("online length = %d, want 16", len(online))
+	}
+}
 
 func TestSubmitAttemptAssignsAttemptNoBySubmitted(t *testing.T) {
 	ctx := context.Background()

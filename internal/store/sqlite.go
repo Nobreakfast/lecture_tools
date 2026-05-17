@@ -54,6 +54,17 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS login_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			person_type TEXT NOT NULL,
+			person_id TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			class_name TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT '',
+			course_id INTEGER NOT NULL DEFAULT 0,
+			source TEXT NOT NULL DEFAULT '',
+			logged_at TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS courses (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			teacher_id TEXT NOT NULL REFERENCES teachers(id),
@@ -206,6 +217,8 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_attempts_quiz_status ON attempts(quiz_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_login_events_logged_at ON login_events(logged_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_login_events_person ON login_events(person_type, person_id, logged_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON attempts(quiz_id, student_no, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_answers_attempt ON answers(attempt_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_short_answer_grades_attempt ON short_answer_grades(attempt_id);`,
@@ -281,6 +294,56 @@ func (s *SQLiteStore) GetSetting(ctx context.Context, key string) (string, error
 func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
 	return err
+}
+
+func (s *SQLiteStore) CreateLoginEvent(ctx context.Context, event *domain.LoginEvent) error {
+	if event == nil {
+		return nil
+	}
+	loggedAt := event.LoggedAt
+	if loggedAt.IsZero() {
+		loggedAt = time.Now()
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO login_events(
+		person_type, person_id, name, class_name, role, course_id, source, logged_at
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.PersonType,
+		event.PersonID,
+		event.Name,
+		event.ClassName,
+		string(event.Role),
+		event.CourseID,
+		event.Source,
+		loggedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return err
+	}
+	id, _ := res.LastInsertId()
+	event.ID = id
+	event.LoggedAt = loggedAt
+	return nil
+}
+
+func (s *SQLiteStore) ListRecentLoginEvents(ctx context.Context, limit int) ([]domain.LoginEvent, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, person_type, person_id, name, class_name, role, course_id, source, logged_at FROM login_events ORDER BY logged_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanLoginEventList(rows)
+}
+
+func (s *SQLiteStore) ListLoginEventsSince(ctx context.Context, cutoff time.Time) ([]domain.LoginEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, person_type, person_id, name, class_name, role, course_id, source, logged_at FROM login_events WHERE logged_at >= ? ORDER BY logged_at DESC, id DESC`, cutoff.Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanLoginEventList(rows)
 }
 
 func (s *SQLiteStore) CreateAttempt(ctx context.Context, a *domain.Attempt) error {
@@ -1403,6 +1466,40 @@ func WrapErr(action string, err error) error {
 
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+func scanLoginEventList(rows *sql.Rows) ([]domain.LoginEvent, error) {
+	items := make([]domain.LoginEvent, 0)
+	for rows.Next() {
+		item, err := scanLoginEventRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *item)
+	}
+	return items, rows.Err()
+}
+
+func scanLoginEventRows(sc rowScanner) (*domain.LoginEvent, error) {
+	var item domain.LoginEvent
+	var role string
+	var loggedAt string
+	if err := sc.Scan(
+		&item.ID,
+		&item.PersonType,
+		&item.PersonID,
+		&item.Name,
+		&item.ClassName,
+		&role,
+		&item.CourseID,
+		&item.Source,
+		&loggedAt,
+	); err != nil {
+		return nil, err
+	}
+	item.Role = domain.UserRole(role)
+	item.LoggedAt = parseTime(time.RFC3339Nano, loggedAt)
+	return &item, nil
 }
 
 func scanAttemptRows(sc rowScanner) (*domain.Attempt, error) {

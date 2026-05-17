@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"course-assistant/internal/domain"
 )
@@ -23,6 +24,13 @@ type TeacherStore interface {
 	UpdateTeacherPassword(ctx context.Context, id, passwordHash string) error
 	UpdateTeacherRole(ctx context.Context, id string, role domain.UserRole) error
 	DeleteTeacher(ctx context.Context, id string) error
+}
+
+// LoginEventStore records successful teacher/admin/student entries.
+type LoginEventStore interface {
+	CreateLoginEvent(ctx context.Context, event *domain.LoginEvent) error
+	ListRecentLoginEvents(ctx context.Context, limit int) ([]domain.LoginEvent, error)
+	ListLoginEventsSince(ctx context.Context, cutoff time.Time) ([]domain.LoginEvent, error)
 }
 
 // CourseStore provides course CRUD and state operations.
@@ -124,6 +132,7 @@ type QAIssueStore interface {
 type Store interface {
 	SettingStore
 	TeacherStore
+	LoginEventStore
 	CourseStore
 	AttemptStore
 	HomeworkStore

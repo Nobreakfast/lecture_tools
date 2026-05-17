@@ -17,6 +17,9 @@ export class AdminPage {
   readonly numCourses: Locator;
   readonly numStudents: Locator;
   readonly numAttempts: Locator;
+  readonly onlineStudentTbody: Locator;
+  readonly onlineTeacherTbody: Locator;
+  readonly recentLoginTbody: Locator;
 
   // Teachers tab
   readonly newTeacherId: Locator;
@@ -47,6 +50,9 @@ export class AdminPage {
     this.numCourses = page.locator("#numCourses");
     this.numStudents = page.locator("#numStudents");
     this.numAttempts = page.locator("#numAttempts");
+    this.onlineStudentTbody = page.locator("#onlineStudentTbody");
+    this.onlineTeacherTbody = page.locator("#onlineTeacherTbody");
+    this.recentLoginTbody = page.locator("#recentLoginTbody");
 
     this.newTeacherId = page.locator("#newTeacherId");
     this.newTeacherName = page.locator("#newTeacherName");

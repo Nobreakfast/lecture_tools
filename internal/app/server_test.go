@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ type memStore struct {
 	answers             map[string]map[string]string
 	shortAnswerGrades   map[string]map[string]domain.ShortAnswerGrade
 	settings            map[string]string
+	loginEvents         []domain.LoginEvent
 	homeworkSubmissions []domain.HomeworkSubmission
 	homeworkQA          []domain.HomeworkQA
 	qaIssues            []domain.QAIssue
@@ -31,6 +34,7 @@ type memStore struct {
 	nextQAMessageID     int
 	teachers            []domain.Teacher
 	courses             []domain.Course
+	courseStates        map[int]domain.CourseState
 	courseTeachers      []domain.CourseTeacher
 	nextCourseID        int
 }
@@ -53,6 +57,50 @@ func (m *memStore) GetTeacher(_ context.Context, id string) (*domain.Teacher, er
 	return nil, errors.New("not found")
 }
 func (m *memStore) ListTeachers(context.Context) ([]domain.Teacher, error) { return m.teachers, nil }
+func (m *memStore) CreateLoginEvent(_ context.Context, event *domain.LoginEvent) error {
+	if event == nil {
+		return nil
+	}
+	item := *event
+	if item.LoggedAt.IsZero() {
+		item.LoggedAt = time.Now()
+	}
+	if item.ID == 0 {
+		item.ID = int64(len(m.loginEvents) + 1)
+	}
+	m.loginEvents = append(m.loginEvents, item)
+	event.ID = item.ID
+	event.LoggedAt = item.LoggedAt
+	return nil
+}
+func (m *memStore) ListRecentLoginEvents(_ context.Context, limit int) ([]domain.LoginEvent, error) {
+	items := append([]domain.LoginEvent(nil), m.loginEvents...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].LoggedAt.Equal(items[j].LoggedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].LoggedAt.After(items[j].LoggedAt)
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+func (m *memStore) ListLoginEventsSince(_ context.Context, cutoff time.Time) ([]domain.LoginEvent, error) {
+	items := make([]domain.LoginEvent, 0)
+	for _, item := range m.loginEvents {
+		if !item.LoggedAt.Before(cutoff) {
+			items = append(items, item)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].LoggedAt.Equal(items[j].LoggedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].LoggedAt.After(items[j].LoggedAt)
+	})
+	return items, nil
+}
 func (m *memStore) UpdateTeacherPassword(_ context.Context, id, passwordHash string) error {
 	for i := range m.teachers {
 		if m.teachers[i].ID == id {
@@ -201,7 +249,12 @@ func (m *memStore) DeleteCourse(_ context.Context, id int) error {
 }
 
 // Course state stubs
-func (m *memStore) GetCourseState(context.Context, int) (*domain.CourseState, error) {
+func (m *memStore) GetCourseState(_ context.Context, courseID int) (*domain.CourseState, error) {
+	if m.courseStates != nil {
+		if item, ok := m.courseStates[courseID]; ok {
+			return &item, nil
+		}
+	}
 	return nil, errors.New("not found")
 }
 func (m *memStore) SetCourseState(context.Context, *domain.CourseState) error { return nil }
@@ -236,8 +289,12 @@ func (m *memStore) SetSetting(_ context.Context, key, value string) error {
 	m.settings[key] = value
 	return nil
 }
-func (m *memStore) CreateAttempt(context.Context, *domain.Attempt) error {
-	return errors.New("not implemented")
+func (m *memStore) CreateAttempt(_ context.Context, a *domain.Attempt) error {
+	if a == nil {
+		return nil
+	}
+	m.attempts = append(m.attempts, *a)
+	return nil
 }
 func (m *memStore) ListAttempts(context.Context) ([]domain.Attempt, error) { return m.attempts, nil }
 func (m *memStore) GetAttemptByID(context.Context, string) (*domain.Attempt, error) {
@@ -301,10 +358,28 @@ func (m *memStore) GetSummary(context.Context, string) (string, error) {
 func (m *memStore) GetLiveStats(context.Context) (int, int, error) {
 	return 0, 0, errors.New("not implemented")
 }
-func (m *memStore) GetInProgressAttempt(context.Context, string, string, int) (*domain.Attempt, error) {
+func (m *memStore) GetInProgressAttempt(_ context.Context, quizID, studentNo string, courseID int) (*domain.Attempt, error) {
+	for i := range m.attempts {
+		item := m.attempts[i]
+		if item.QuizID == quizID && item.StudentNo == studentNo && item.CourseID == courseID && item.Status == domain.StatusInProgress {
+			return &item, nil
+		}
+	}
 	return nil, errors.New("not implemented")
 }
-func (m *memStore) UpdateAttemptSession(context.Context, string, string, string, string, int) error {
+func (m *memStore) UpdateAttemptSession(_ context.Context, attemptID, token, name, className string, courseID int) error {
+	for i := range m.attempts {
+		if m.attempts[i].ID == attemptID {
+			m.attempts[i].SessionToken = token
+			m.attempts[i].Name = name
+			m.attempts[i].ClassName = className
+			if courseID > 0 {
+				m.attempts[i].CourseID = courseID
+			}
+			m.attempts[i].UpdatedAt = time.Now()
+			return nil
+		}
+	}
 	return errors.New("not implemented")
 }
 func (m *memStore) UpsertAdminSummary(context.Context, int, string, string) error {
@@ -1686,6 +1761,15 @@ func TestAPIAdminOverviewIncludesOnlineCount(t *testing.T) {
 			{ID: "h2", StudentNo: "S002", UpdatedAt: now.Add(-2 * time.Minute)},
 			{ID: "h3", StudentNo: "S004", UpdatedAt: now.Add(-16 * time.Minute)},
 		},
+		loginEvents: []domain.LoginEvent{
+			{ID: 1, PersonType: "student", PersonID: "S001", Name: "学生一", ClassName: "一班", Source: "quiz", LoggedAt: now.Add(-5 * time.Minute)},
+			{ID: 2, PersonType: "student", PersonID: "S001", Name: "学生一", ClassName: "一班", Source: "quiz", LoggedAt: now.Add(-3 * time.Minute)},
+			{ID: 3, PersonType: "student", PersonID: "S002", Name: "学生二", ClassName: "二班", Source: "quiz", LoggedAt: now.Add(-20 * time.Minute)},
+			{ID: 4, PersonType: "student", PersonID: "S003", Name: "学生三", ClassName: "三班", Source: "homework", LoggedAt: now.Add(-4 * time.Minute)},
+			{ID: 5, PersonType: "teacher", PersonID: "admin", Name: "管理员", Role: domain.RoleAdmin, Source: "admin", LoggedAt: now.Add(-2 * time.Minute)},
+			{ID: 6, PersonType: "teacher", PersonID: "t1", Name: "教师一", Role: domain.RoleTeacher, Source: "teacher", LoggedAt: now.Add(-6 * time.Minute)},
+			{ID: 7, PersonType: "teacher", PersonID: "old", Name: "旧教师", Role: domain.RoleTeacher, Source: "teacher", LoggedAt: now.Add(-30 * time.Minute)},
+		},
 	}
 	s := New(Config{}, st)
 	s.authTokens["admin-token"] = authSession{
@@ -1717,17 +1801,175 @@ func TestAPIAdminOverviewIncludesOnlineCount(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal response failed: %v", err)
 	}
-	if got := int(resp["online_student_count"].(float64)); got != 3 {
+	if got := int(resp["online_student_count"].(float64)); got != 2 {
 		t.Fatalf("unexpected online_student_count: %d", got)
 	}
 	if got := int(resp["online_teacher_count"].(float64)); got != 2 {
 		t.Fatalf("unexpected online_teacher_count: %d", got)
 	}
-	if got := int(resp["online_count"].(float64)); got != 5 {
+	if got := int(resp["online_count"].(float64)); got != 4 {
 		t.Fatalf("unexpected online_count: %d", got)
 	}
 	if got := int(resp["online_window_minutes"].(float64)); got != 15 {
 		t.Fatalf("unexpected online_window_minutes: %d", got)
+	}
+	if got := len(resp["online_students"].([]any)); got != 2 {
+		t.Fatalf("unexpected online_students length: %d", got)
+	}
+	if got := len(resp["online_teachers"].([]any)); got != 2 {
+		t.Fatalf("unexpected online_teachers length: %d", got)
+	}
+	if got := len(resp["recent_logins"].([]any)); got != 7 {
+		t.Fatalf("unexpected recent_logins length: %d", got)
+	}
+}
+
+func TestAPIAdminOverviewRequiresAdmin(t *testing.T) {
+	s := New(Config{}, &memStore{})
+	req := httptest.NewRequest(http.MethodGet, "/api/system/overview", nil)
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAPIAdminOverviewLimitsRecentLoginsToTwenty(t *testing.T) {
+	now := time.Now()
+	events := make([]domain.LoginEvent, 0, 25)
+	for i := 0; i < 25; i++ {
+		events = append(events, domain.LoginEvent{
+			ID:         int64(i + 1),
+			PersonType: "student",
+			PersonID:   fmt.Sprintf("S%03d", i),
+			Name:       fmt.Sprintf("学生%02d", i),
+			Source:     "quiz",
+			LoggedAt:   now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	st := &memStore{
+		teachers:    []domain.Teacher{{ID: "admin", Name: "管理员", Role: domain.RoleAdmin}},
+		loginEvents: events,
+	}
+	s := New(Config{}, st)
+	s.authTokens["admin-token"] = authSession{TeacherID: "admin", Role: domain.RoleAdmin, Expiry: now.Add(time.Hour)}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/overview", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "admin-token"})
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	recent := resp["recent_logins"].([]any)
+	if len(recent) != 20 {
+		t.Fatalf("recent_logins length = %d, want 20", len(recent))
+	}
+	first := recent[0].(map[string]any)
+	if first["person_id"] != "S000" {
+		t.Fatalf("first recent person_id = %v, want S000", first["person_id"])
+	}
+}
+
+func TestAPIAuthLoginRecordsTeacherLogin(t *testing.T) {
+	hash, err := hashPassword("secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &memStore{
+		teachers: []domain.Teacher{{
+			ID:           "t1",
+			Name:         "教师一",
+			PasswordHash: hash,
+			Role:         domain.RoleTeacher,
+		}},
+	}
+	s := New(Config{}, st)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"id":"t1","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(st.loginEvents) != 1 {
+		t.Fatalf("login event count = %d, want 1", len(st.loginEvents))
+	}
+	event := st.loginEvents[0]
+	if event.PersonType != "teacher" || event.PersonID != "t1" || event.Name != "教师一" || event.Source != "teacher" {
+		t.Fatalf("unexpected login event: %+v", event)
+	}
+}
+
+func TestAPIJoinRecordsStudentLogin(t *testing.T) {
+	st := &memStore{
+		courseStates: map[int]domain.CourseState{
+			1: {CourseID: 1, EntryOpen: true},
+		},
+	}
+	s := New(Config{}, st)
+	s.courseQuizzes[1] = &domain.Quiz{QuizID: "quiz-a", Title: "课堂小测", Questions: []domain.Question{}}
+
+	body := `{"course_id":1,"name":"张三","student_no":"2024001","class_name":"一班"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/join", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(st.loginEvents) != 1 {
+		t.Fatalf("login event count = %d, want 1", len(st.loginEvents))
+	}
+	event := st.loginEvents[0]
+	if event.PersonType != "student" || event.PersonID != "2024001" || event.Name != "张三" || event.ClassName != "一班" || event.CourseID != 1 || event.Source != "quiz" {
+		t.Fatalf("unexpected login event: %+v", event)
+	}
+}
+
+func TestAPIHomeworkSessionRecordsStudentLogin(t *testing.T) {
+	tmp := t.TempDir()
+	st := &memStore{
+		courses: []domain.Course{{ID: 1, TeacherID: "T01", Slug: "robotics", Name: "机器人控制技术"}},
+	}
+	s := New(Config{MetadataDir: tmp}, st)
+	assignmentDir := s.metadataHomeworkAssignmentDir("T01", "robotics", "hw1")
+	if err := os.MkdirAll(assignmentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assignmentDir, "task.txt"), []byte("homework"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"course_id":1,"assignment_id":"hw1","name":"李四","student_no":"2024002","class_name":"二班","secret_key":"k12345"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/homework/session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(st.loginEvents) != 1 {
+		t.Fatalf("login event count = %d, want 1", len(st.loginEvents))
+	}
+	event := st.loginEvents[0]
+	if event.PersonType != "student" || event.PersonID != "2024002" || event.Name != "李四" || event.ClassName != "二班" || event.CourseID != 1 || event.Source != "homework" {
+		t.Fatalf("unexpected login event: %+v", event)
 	}
 }
 

@@ -361,6 +361,17 @@ func ensureCoreTables(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS login_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			person_type TEXT NOT NULL,
+			person_id TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			class_name TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT '',
+			course_id INTEGER NOT NULL DEFAULT 0,
+			source TEXT NOT NULL DEFAULT '',
+			logged_at TEXT NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS courses (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			teacher_id TEXT NOT NULL,
@@ -442,6 +453,8 @@ func ensureCoreTables(ctx context.Context, db *sql.DB) error {
 
 var migrationIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_attempts_quiz_status ON attempts(quiz_id, status)`,
+	`CREATE INDEX IF NOT EXISTS idx_login_events_logged_at ON login_events(logged_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_login_events_person ON login_events(person_type, person_id, logged_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON attempts(quiz_id, student_no, status)`,
 	`CREATE INDEX IF NOT EXISTS idx_answers_attempt ON answers(attempt_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_short_answer_grades_attempt ON short_answer_grades(attempt_id)`,

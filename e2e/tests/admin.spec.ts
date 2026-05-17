@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/test";
 import { AdminPage } from "../pages/admin.page";
 import { TeacherPage } from "../pages/teacher.page";
 import { ADMIN_ID, ADMIN_PASSWORD } from "../helpers/server";
+import { getSeedResult } from "../helpers/seed";
 
 test.describe("Admin panel", () => {
   let adminPage: AdminPage;
@@ -20,6 +21,9 @@ test.describe("Admin panel", () => {
     // At least the seeded admin + teacher should exist
     expect(parseInt(stats.teachers ?? "0")).toBeGreaterThanOrEqual(2);
     expect(parseInt(stats.courses ?? "0")).toBeGreaterThanOrEqual(1);
+    await expect(adminPage.onlineStudentTbody).toBeVisible();
+    await expect(adminPage.onlineTeacherTbody).toBeVisible();
+    await expect(adminPage.recentLoginTbody).toBeVisible();
   });
 
   test("create teacher and see in list", async () => {
@@ -42,6 +46,49 @@ test.describe("Admin panel", () => {
     await teacherPage.login(id, newPwd);
     await expect(teacherPage.viewMain).toBeVisible();
     await ctx.close();
+  });
+
+  test("teacher login appears in recent login list", async ({ browser }) => {
+    const id = `login_t_${Date.now()}`;
+    const pwd = "recentpwd123";
+    await adminPage.createTeacher(id, "最近登录教师", pwd);
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const teacherPage = new TeacherPage(page);
+    await teacherPage.login(id, pwd);
+    await ctx.close();
+
+    await adminPage.switchTab("overview");
+    await expect(adminPage.recentLoginTbody).toContainText(id);
+    await expect(adminPage.onlineTeacherTbody).toContainText(id);
+  });
+
+  test("student quiz login appears in online and recent login lists", async () => {
+    const seed = getSeedResult();
+    const openResp = await adminPage.page.request.post(
+      `/api/teacher/courses/entry?course_id=${seed.courseId}`,
+      {
+        headers: { Cookie: seed.teacherCookie },
+        data: { open: true },
+      }
+    );
+    expect(openResp.ok()).toBeTruthy();
+
+    const studentNo = `S${Date.now()}`;
+    const joinResp = await adminPage.page.request.post("/api/join", {
+      data: {
+        course_id: seed.courseId,
+        name: "在线学生",
+        student_no: studentNo,
+        class_name: "E2E班",
+      },
+    });
+    expect(joinResp.ok()).toBeTruthy();
+
+    await adminPage.switchTab("overview");
+    await expect(adminPage.onlineStudentTbody).toContainText(studentNo);
+    await expect(adminPage.recentLoginTbody).toContainText(studentNo);
   });
 
   test("delete teacher removes from list", async () => {

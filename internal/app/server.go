@@ -1010,6 +1010,15 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		existing.Name = strings.TrimSpace(req.Name)
 		existing.ClassName = strings.TrimSpace(req.ClassName)
 		_ = s.store.UpdateAttemptSession(r.Context(), existing.ID, token, existing.Name, existing.ClassName, courseID)
+		s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+			PersonType: "student",
+			PersonID:   studentNo,
+			Name:       existing.Name,
+			ClassName:  existing.ClassName,
+			CourseID:   courseID,
+			Source:     "quiz",
+			LoggedAt:   time.Now(),
+		})
 		http.SetCookie(w, &http.Cookie{
 			Name:     "student_token",
 			Value:    token,
@@ -1040,6 +1049,15 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "创建会话失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+		PersonType: "student",
+		PersonID:   studentNo,
+		Name:       a.Name,
+		ClassName:  a.ClassName,
+		CourseID:   courseID,
+		Source:     "quiz",
+		LoggedAt:   now,
+	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "student_token",
 		Value:    token,
@@ -1779,6 +1797,14 @@ func (s *Server) apiAdminLogin(w http.ResponseWriter, r *http.Request) {
 			s.authMu.Lock()
 			s.authTokens[token] = sess
 			s.authMu.Unlock()
+			s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+				PersonType: "teacher",
+				PersonID:   t.ID,
+				Name:       t.Name,
+				Role:       t.Role,
+				Source:     "admin",
+				LoggedAt:   time.Now(),
+			})
 			http.SetCookie(w, &http.Cookie{
 				Name: "auth_token", Value: token, Path: s.cookiePath(),
 				HttpOnly: true, SameSite: http.SameSiteLaxMode,
@@ -2385,7 +2411,8 @@ func (s *Server) apiAdminOverview(w http.ResponseWriter, r *http.Request) {
 			students[a.StudentNo] = struct{}{}
 		}
 	}
-	onlineCount, onlineStudents, onlineTeachers := s.systemOverviewOnlineCounts(r.Context(), allAttempts)
+	onlineStudents, onlineTeachers, recentLogins := s.systemOverviewLoginDetails(r.Context())
+	onlineCount := len(onlineStudents) + len(onlineTeachers)
 
 	writeJSON(w, map[string]any{
 		"teacher_count":         len(teachers),
@@ -2393,59 +2420,93 @@ func (s *Server) apiAdminOverview(w http.ResponseWriter, r *http.Request) {
 		"student_count":         len(students),
 		"attempt_count":         len(allAttempts),
 		"online_count":          onlineCount,
-		"online_student_count":  onlineStudents,
-		"online_teacher_count":  onlineTeachers,
+		"online_student_count":  len(onlineStudents),
+		"online_teacher_count":  len(onlineTeachers),
 		"online_window_minutes": int(systemOverviewOnlineWindow / time.Minute),
+		"online_students":       onlineStudents,
+		"online_teachers":       onlineTeachers,
+		"recent_logins":         recentLogins,
 		"teachers":              teacherItems,
 		"courses":               courseItems,
 	})
 }
 
-func (s *Server) systemOverviewOnlineCounts(ctx context.Context, attempts []domain.Attempt) (total, students, teachers int) {
-	now := time.Now()
-	cutoff := now.Add(-systemOverviewOnlineWindow)
-	studentKeys := map[string]struct{}{}
-
-	for _, a := range attempts {
-		if a.UpdatedAt.Before(cutoff) {
-			continue
-		}
-		key := strings.TrimSpace(a.StudentNo)
-		if key == "" {
-			key = "attempt:" + a.ID
-		}
-		studentKeys[key] = struct{}{}
+func (s *Server) recordLoginEvent(ctx context.Context, event *domain.LoginEvent) {
+	if event == nil {
+		return
 	}
+	event.PersonType = strings.TrimSpace(event.PersonType)
+	event.PersonID = strings.TrimSpace(event.PersonID)
+	event.Name = strings.TrimSpace(event.Name)
+	event.ClassName = strings.TrimSpace(event.ClassName)
+	event.Source = strings.TrimSpace(event.Source)
+	if event.LoggedAt.IsZero() {
+		event.LoggedAt = time.Now()
+	}
+	if err := s.store.CreateLoginEvent(ctx, event); err != nil {
+		log.Printf("login event: record failed: %v", err)
+	}
+}
 
-	homeworkSubs, err := s.store.ListHomeworkSubmissions(ctx, 0, "", "")
-	if err == nil {
-		for _, sub := range homeworkSubs {
-			if sub.UpdatedAt.Before(cutoff) {
+func (s *Server) systemOverviewLoginDetails(ctx context.Context) (students, teachers, recent []map[string]any) {
+	cutoff := time.Now().Add(-systemOverviewOnlineWindow)
+	onlineEvents, err := s.store.ListLoginEventsSince(ctx, cutoff)
+	if err != nil {
+		log.Printf("login event: list online failed: %v", err)
+		onlineEvents = nil
+	}
+	studentSeen := map[string]struct{}{}
+	teacherSeen := map[string]struct{}{}
+	for _, event := range onlineEvents {
+		key := loginEventPersonKey(event)
+		switch event.PersonType {
+		case "student":
+			if _, ok := studentSeen[key]; ok {
 				continue
 			}
-			key := strings.TrimSpace(sub.StudentNo)
-			if key == "" {
-				key = "homework:" + sub.ID
+			studentSeen[key] = struct{}{}
+			students = append(students, loginEventPayload(event))
+		case "teacher":
+			if _, ok := teacherSeen[key]; ok {
+				continue
 			}
-			studentKeys[key] = struct{}{}
+			teacherSeen[key] = struct{}{}
+			teachers = append(teachers, loginEventPayload(event))
 		}
 	}
 
-	teacherKeys := map[string]struct{}{}
-	s.quizMu.RLock()
-	for token, sess := range s.authTokens {
-		if now.After(sess.Expiry) {
-			continue
-		}
-		key := strings.TrimSpace(sess.TeacherID)
-		if key == "" {
-			key = "auth:" + token
-		}
-		teacherKeys[key] = struct{}{}
+	recentEvents, err := s.store.ListRecentLoginEvents(ctx, 20)
+	if err != nil {
+		log.Printf("login event: list recent failed: %v", err)
+		recentEvents = nil
 	}
-	s.quizMu.RUnlock()
+	recent = make([]map[string]any, 0, len(recentEvents))
+	for _, event := range recentEvents {
+		recent = append(recent, loginEventPayload(event))
+	}
+	return students, teachers, recent
+}
 
-	return len(studentKeys) + len(teacherKeys), len(studentKeys), len(teacherKeys)
+func loginEventPersonKey(event domain.LoginEvent) string {
+	id := strings.TrimSpace(event.PersonID)
+	if id == "" {
+		id = strings.TrimSpace(event.Name) + "|" + strings.TrimSpace(event.ClassName)
+	}
+	return event.PersonType + ":" + id
+}
+
+func loginEventPayload(event domain.LoginEvent) map[string]any {
+	return map[string]any{
+		"id":          event.ID,
+		"person_type": event.PersonType,
+		"person_id":   event.PersonID,
+		"name":        event.Name,
+		"class_name":  event.ClassName,
+		"role":        event.Role,
+		"course_id":   event.CourseID,
+		"source":      event.Source,
+		"logged_at":   event.LoggedAt,
+	}
 }
 
 // ── Admin teacher management ──

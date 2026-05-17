@@ -454,6 +454,15 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "恢复作业会话失败", http.StatusInternalServerError)
 			return
 		}
+		s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+			PersonType: "student",
+			PersonID:   req.StudentNo,
+			Name:       req.Name,
+			ClassName:  req.ClassName,
+			CourseID:   courseID,
+			Source:     "homework",
+			LoggedAt:   time.Now(),
+		})
 		s.setHomeworkCookie(w, token)
 		fresh, freshErr := s.store.GetHomeworkSubmissionByID(r.Context(), existing.ID)
 		if freshErr != nil {
@@ -485,6 +494,15 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "创建作业会话失败", http.StatusInternalServerError)
 		return
 	}
+	s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+		PersonType: "student",
+		PersonID:   req.StudentNo,
+		Name:       req.Name,
+		ClassName:  req.ClassName,
+		CourseID:   courseID,
+		Source:     "homework",
+		LoggedAt:   now,
+	})
 	s.setHomeworkCookie(w, token)
 	writeJSON(w, map[string]any{"ok": true, "submission": s.homeworkSubmissionPayload(submission, false, 0)})
 }

@@ -21,6 +21,18 @@ type Teacher struct {
 	UpdatedAt    time.Time
 }
 
+type LoginEvent struct {
+	ID         int64
+	PersonType string
+	PersonID   string
+	Name       string
+	ClassName  string
+	Role       UserRole
+	CourseID   int
+	Source     string
+	LoggedAt   time.Time
+}
+
 type Course struct {
 	ID           int
 	TeacherID    string

@@ -132,6 +132,14 @@ func (s *Server) apiAuthLogin(w http.ResponseWriter, r *http.Request) {
 	s.authMu.Lock()
 	s.authTokens[token] = sess
 	s.authMu.Unlock()
+	s.recordLoginEvent(r.Context(), &domain.LoginEvent{
+		PersonType: "teacher",
+		PersonID:   teacher.ID,
+		Name:       teacher.Name,
+		Role:       teacher.Role,
+		Source:     "teacher",
+		LoggedAt:   time.Now(),
+	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
 		Value:    token,
