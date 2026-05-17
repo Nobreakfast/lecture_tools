@@ -1246,6 +1246,19 @@
 
   </div>
 
+  <div id="pregradeTaskDock" style="position:fixed;right:22px;bottom:22px;width:min(380px,calc(100vw - 28px));z-index:900;display:none;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 18px 40px rgba(15,23,42,.18);overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);background:#f8fafc;">
+        <button id="pregradeTaskToggle" class="btn-secondary" style="margin:0;padding:4px 8px;font-size:12px;">AI预评任务</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span id="pregradeTaskSummary" style="font-size:12px;color:var(--text-secondary);"></span>
+          <button id="pregradeTaskHide" class="btn-secondary" style="margin:0;padding:4px 8px;font-size:12px;">隐藏</button>
+        </div>
+      </div>
+      <div id="pregradeTaskBody" style="max-height:360px;overflow:auto;padding:10px 12px;"></div>
+    </div>
+  </div>
+
   <!-- 修改密码弹窗 -->
   <div id="changePwdModal" class="modal">
     <div class="modal-box">
@@ -1289,6 +1302,23 @@
       <div style="display:flex;gap:12px;">
         <button id="aiPregradeCancelBtn" style="flex:1;background:#e2e8f0;color:#1e293b;">取消</button>
         <button id="aiPregradeStartBtn" style="flex:1;">开始预评</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="homeworkScheduleModal" class="modal">
+    <div class="modal-box" style="width:min(460px,100%);">
+      <button class="modal-close" onclick="closeHomeworkScheduleModal()">×</button>
+      <h3 style="margin-bottom:12px;">作业时间设置</h3>
+      <p id="homeworkScheduleTitle" style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;"></p>
+      <label style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:6px;">自动显示时间</label>
+      <input id="homeworkVisibleAtInput" type="datetime-local" />
+      <label style="font-size:13px;color:var(--text-secondary);display:block;margin:10px 0 6px;">提交 deadline</label>
+      <input id="homeworkDeadlineAtInput" type="datetime-local" />
+      <div id="homeworkScheduleHint" style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:8px;"></div>
+      <div style="display:flex;gap:12px;margin-top:16px;">
+        <button class="btn-secondary" style="flex:1;" onclick="closeHomeworkScheduleModal()">取消</button>
+        <button id="homeworkScheduleSaveBtn" style="flex:1;" onclick="saveHomeworkSchedule()">保存</button>
       </div>
     </div>
   </div>
@@ -1460,6 +1490,27 @@
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    function formatDateTimeLocal(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function formatLateInfo(info) {
+      if (!info || !info.late) return '-';
+      const seconds = Number(info.late_seconds || 0);
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const parts = [];
+      if (days) parts.push(days + '天');
+      if (hours) parts.push(hours + '小时');
+      if (!days && mins) parts.push(mins + '分钟');
+      const duration = parts.join('') || '不足1分钟';
+      const penalty = info.late_penalty_points ? `，扣 ${info.late_penalty_points} 分` : '';
+      return `迟交 ${duration}${penalty}`;
     }
     function scoreBarColor(ratio) {
       if (ratio >= 0.8) return 'var(--success)';
@@ -1842,6 +1893,10 @@
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       currentTeacher = null;
       selectedCourseId = '';
+      homeworkPregradeJobsCache = [];
+      if (homeworkPregradeJobsTimer) clearTimeout(homeworkPregradeJobsTimer);
+      homeworkPregradeJobsTimer = null;
+      renderHomeworkPregradeDock();
       document.getElementById('view-main').classList.add('hidden');
       document.getElementById('view-login').classList.remove('hidden');
       setAgentVisible(false);
@@ -1924,6 +1979,7 @@
         b.classList.toggle('active', b.dataset.courseId === courseId);
       });
       refreshActiveTab();
+      loadHomeworkPregradeJobs();
     }
 
     function buildJoinURL(inviteCode) {
@@ -2405,6 +2461,7 @@
       if (typeof loadHomeworkAssignments === 'function') {
         await loadHomeworkAssignments();
         await loadHomeworkSubmissions();
+        await loadHomeworkPregradeJobs();
       }
     }
 
@@ -3134,6 +3191,11 @@
     /* ── homework ── */
     let hwAssignmentsCache = [];
     let hwSubmissionsCache = [];
+    let homeworkPregradeJobsCache = [];
+    let homeworkPregradeJobsTimer = null;
+    let homeworkPregradeDockCollapsed = localStorage.getItem('homeworkPregradeDockCollapsed') === 'true';
+    let homeworkPregradeDockHidden = localStorage.getItem('homeworkPregradeDockHidden') === 'true';
+    const homeworkPregradeInlineHidden = new Set();
 
     async function loadHomeworkAssignments() {
       if (!selectedCourseId) return;
@@ -3154,13 +3216,19 @@
       root.innerHTML = hwAssignmentsCache.map(item => {
         const hiddenBadge = item.hidden ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:6px;">已隐藏</span>' : '';
         const lockedBadge = item.locked ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.14);color:#92400e;margin-left:6px;">已锁定</span>' : '';
+        const scheduleBits = [];
+        if (item.visible_at) scheduleBits.push('显示：' + new Date(item.visible_at).toLocaleString('zh-CN', { hour12: false }));
+        if (item.deadline_at) scheduleBits.push('deadline：' + new Date(item.deadline_at).toLocaleString('zh-CN', { hour12: false }));
+        if (item.lock_at) scheduleBits.push('锁定：' + new Date(item.lock_at).toLocaleString('zh-CN', { hour12: false }));
+        const scheduleLine = scheduleBits.length ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${escapeHTML(scheduleBits.join('　'))}</div>` : '';
         const files = (item.files || []).map(f =>
           `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;display:flex;align-items:center;gap:6px;">${escapeHTML(f.name)} (${formatSize(f.size || 0)}) <a href="${escapeHTML(f.download_url)}" style="color:var(--primary);">下载</a> <a href="javascript:void(0)" style="color:#b91c1c;cursor:pointer;" onclick="deleteHwFile(decodeURIComponent('${jsArg(item.assignment_id)}'),decodeURIComponent('${jsArg(f.name)}'))">删除</a></div>`
         ).join('');
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge}${lockedBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span></div>
+            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge}${lockedBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span>${scheduleLine}</div>
             <div class="row" style="gap:6px;flex-wrap:wrap;">
+              <button class="small btn-secondary" style="margin-top:0;font-size:11px;padding:3px 8px;" onclick="openHomeworkSchedule(decodeURIComponent('${jsArg(item.assignment_id)}'))">设置</button>
               <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.hidden ? 'var(--primary)' : '#6b7280'};" onclick="toggleHwVis(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.hidden ? 'false' : 'true'})">${item.hidden ? '显示' : '隐藏'}</button>
               <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.locked ? 'var(--primary)' : '#92400e'};" onclick="toggleHwLock(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.locked ? 'false' : 'true'})">${item.locked ? '解锁提交' : '锁定提交'}</button>
               <button class="small btn-danger" style="margin-top:0;font-size:11px;padding:3px 8px;" onclick="deleteHwAssignment(decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
@@ -3199,6 +3267,7 @@
       renderHomeworkSubmissions();
       updateHomeworkGradeVisibilityButton();
       updateHomeworkAIPregradeButton();
+      renderHomeworkPregradeInline();
     }
 
     function renderHomeworkSubmissions() {
@@ -3227,6 +3296,9 @@
           ? `<span class="badge badge-success">已评分</span><span style="font-size:12px;color:var(--text-secondary);margin-left:6px;">${escapeHTML(formatScore(item.score))}/100</span>`
           : '<span class="badge badge-warning">未评分</span>';
         const pregradeStatus = homeworkPregradeStatusCell(item);
+        const lateCell = item.late_info && item.late_info.late
+          ? `<span class="badge badge-warning">${escapeHTML(formatLateInfo(item.late_info))}</span>`
+          : '<span style="color:var(--text-secondary);font-size:12px;">-</span>';
         const keyCell = item.secret_key
           ? `<button type="button" class="homework-secret-toggle" data-secret="${escapeHTML(item.secret_key)}" data-visible="false" title="点击显示密钥" aria-label="显示密钥" onclick="toggleHomeworkSecret(this)">${escapeHTML(maskSecret(item.secret_key))}</button>`
           : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
@@ -3239,6 +3311,7 @@
           <td>${dlCell}</td>
           <td>${gradeStatus}</td>
           <td>${pregradeStatus}</td>
+          <td>${lateCell}</td>
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '-')}</td>
           <td>
             <button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="openHomeworkGrade('${escapeHTML(item.id)}')">评分</button>
@@ -3246,7 +3319,7 @@
           </td>
         </tr>`;
       }).join('');
-      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>AI预评</th><th>最后提交</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>AI预评</th><th>迟交</th><th>最后提交</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     function toggleHomeworkSecret(el) {
@@ -3310,6 +3383,140 @@
       btn.title = assignmentID ? '为当前作业批量生成 AI 预评' : '请先在左侧选择一个具体作业';
     }
 
+    function homeworkPregradeJobLabel(job) {
+      const status = job.status === 'running' ? '运行中' : (job.status === 'queued' ? '排队中' : '已完成');
+      const total = Number(job.total || 0);
+      const done = Number(job.done || 0);
+      const bits = [`${status}`, `进度 ${done}/${total}`, `成功 ${job.success || 0}`, `失败 ${job.failed || 0}`, `跳过 ${job.skipped || 0}`];
+      if (job.current) bits.push('当前：' + job.current);
+      if (job.last_error) bits.push('最近错误：' + job.last_error);
+      return bits.join('　');
+    }
+
+    function homeworkPregradeJobStatusClass(job) {
+      if (job.status === 'running') return 'badge-warning';
+      if (job.status === 'queued') return 'badge-muted';
+      return job.failed ? 'badge-danger' : 'badge-success';
+    }
+
+    async function loadHomeworkPregradeJobs() {
+      try {
+        const r = await fetch('/api/teacher/homework/pregrade/jobs', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        homeworkPregradeJobsCache = data.items || [];
+        renderHomeworkPregradeJobs();
+      } catch (_) { }
+    }
+
+    function renderHomeworkPregradeJobs() {
+      renderHomeworkPregradeInline();
+      renderHomeworkPregradeDock();
+      scheduleHomeworkPregradeJobsRefresh();
+    }
+
+    function renderHomeworkPregradeInline() {
+      const box = document.getElementById('homeworkPregradeProgress');
+      if (!box) return;
+      const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
+      if (!selectedCourseId || !assignmentID) {
+        box.style.display = 'none';
+        box.textContent = '';
+        return;
+      }
+      const jobs = homeworkPregradeJobsCache.filter(job => String(job.course_id) === String(selectedCourseId) && job.assignment_id === assignmentID && !homeworkPregradeInlineHidden.has(job.id));
+      const active = jobs.filter(job => job.status === 'running' || job.status === 'queued');
+      const chosen = active[0] || jobs[0];
+      if (!chosen) {
+        box.style.display = 'none';
+        box.textContent = '';
+        return;
+      }
+      box.style.display = '';
+      box.textContent = 'AI 预评：' + homeworkPregradeJobLabel(chosen);
+      if (chosen.status === 'done') {
+        setTimeout(() => {
+          homeworkPregradeInlineHidden.add(chosen.id);
+          renderHomeworkPregradeInline();
+        }, 8000);
+      }
+    }
+
+    function renderHomeworkPregradeDock() {
+      const dock = document.getElementById('pregradeTaskDock');
+      const body = document.getElementById('pregradeTaskBody');
+      const summary = document.getElementById('pregradeTaskSummary');
+      const toggle = document.getElementById('pregradeTaskToggle');
+      const hideBtn = document.getElementById('pregradeTaskHide');
+      if (!dock || !body || !summary || !toggle || !hideBtn) return;
+      const jobs = homeworkPregradeJobsCache;
+      if (!jobs.length) {
+        dock.style.display = 'none';
+        return;
+      }
+      dock.style.display = '';
+      const running = jobs.filter(job => job.status === 'running').length;
+      const queued = jobs.filter(job => job.status === 'queued').length;
+      summary.textContent = running || queued ? `运行 ${running} / 排队 ${queued}` : '暂无运行任务';
+      if (homeworkPregradeDockHidden) {
+        toggle.textContent = '显示 AI预评任务';
+        hideBtn.style.display = 'none';
+        body.style.display = 'none';
+        return;
+      }
+      hideBtn.style.display = '';
+      toggle.textContent = homeworkPregradeDockCollapsed ? '展开 AI预评任务' : '收起 AI预评任务';
+      body.style.display = homeworkPregradeDockCollapsed ? 'none' : '';
+      if (homeworkPregradeDockCollapsed) return;
+      body.innerHTML = jobs.map(job => {
+        const course = job.course_name || ('课程 ' + (job.course_id || ''));
+        const statusText = job.status === 'running' ? '运行中' : (job.status === 'queued' ? '排队中' : '已完成');
+        const pct = job.total ? Math.round((Number(job.done || 0) / Number(job.total || 1)) * 100) : 0;
+        const prompt = job.prompt ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHTML(job.prompt)}">${escapeHTML(job.prompt)}</div>` : '';
+        const error = job.last_error ? `<div style="font-size:11px;color:#b91c1c;margin-top:4px;">${escapeHTML(job.last_error)}</div>` : '';
+        return `<div style="padding:9px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+            <div style="min-width:0;">
+              <strong style="font-size:13px;color:var(--text);">${escapeHTML(course)} · ${escapeHTML(job.assignment_id || '')}</strong>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">${escapeHTML(homeworkPregradeJobLabel(job))}</div>
+            </div>
+            <span class="badge ${homeworkPregradeJobStatusClass(job)}" style="white-space:nowrap;">${escapeHTML(statusText)}</span>
+          </div>
+          <div style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-top:7px;">
+            <div style="height:100%;width:${pct}%;background:var(--primary);"></div>
+          </div>
+          ${prompt}${error}
+        </div>`;
+      }).join('');
+    }
+
+    function scheduleHomeworkPregradeJobsRefresh() {
+      if (homeworkPregradeJobsTimer) clearTimeout(homeworkPregradeJobsTimer);
+      const hasActive = homeworkPregradeJobsCache.some(job => job.status === 'running' || job.status === 'queued');
+      homeworkPregradeJobsTimer = setTimeout(loadHomeworkPregradeJobs, hasActive ? 1500 : 12000);
+      if (hasActive && getActiveTab() === 'tab-upload' && getActiveSubTab() === 'sub-homework') {
+        loadHomeworkSubmissions();
+      }
+    }
+
+    function setHomeworkPregradeDockCollapsed(collapsed) {
+      homeworkPregradeDockCollapsed = collapsed;
+      localStorage.setItem('homeworkPregradeDockCollapsed', collapsed ? 'true' : 'false');
+      renderHomeworkPregradeDock();
+    }
+
+    function showHomeworkPregradeDock() {
+      homeworkPregradeDockHidden = false;
+      localStorage.setItem('homeworkPregradeDockHidden', 'false');
+      renderHomeworkPregradeDock();
+    }
+
+    function hideHomeworkPregradeDock() {
+      homeworkPregradeDockHidden = true;
+      localStorage.setItem('homeworkPregradeDockHidden', 'true');
+      renderHomeworkPregradeDock();
+    }
+
     function openHomeworkAIPregradeModal() {
       if (!selectedCourseId) { alert('请先选择课程'); return; }
       const assignmentID = document.getElementById('homeworkAssignmentFilter').value;
@@ -3353,7 +3560,8 @@
         }
         const data = await r.json();
         closeHomeworkAIPregradeModal();
-        pollHomeworkAIPregrade(data.job_id);
+        showHomeworkPregradeDock();
+        await loadHomeworkPregradeJobs();
       } catch (err) {
         document.getElementById('aiPregradeStatus').textContent = err && err.message ? err.message : '启动失败';
         btn.disabled = false;
@@ -3446,6 +3654,50 @@
         body: JSON.stringify({ assignment_id: assignmentID, locked: next })
       });
       if (!r.ok) { alert(await r.text()); return; }
+      await loadHomeworkAssignments();
+      await loadHomeworkSubmissions();
+    }
+
+    let editingHomeworkScheduleID = '';
+
+    function openHomeworkSchedule(assignmentID) {
+      const item = hwAssignmentsCache.find(x => x.assignment_id === assignmentID) || {};
+      editingHomeworkScheduleID = assignmentID;
+      document.getElementById('homeworkScheduleTitle').textContent = assignmentID;
+      document.getElementById('homeworkVisibleAtInput').value = formatDateTimeLocal(item.visible_at);
+      document.getElementById('homeworkDeadlineAtInput').value = formatDateTimeLocal(item.deadline_at);
+      const hint = item.lock_at
+        ? '超过 deadline 后仍允许提交 10 天；系统将在 ' + new Date(item.lock_at).toLocaleString('zh-CN', { hour12: false }) + ' 自动锁定。'
+        : '超过 deadline 后仍允许提交 10 天；到期后自动锁定。';
+      document.getElementById('homeworkScheduleHint').textContent = hint;
+      document.getElementById('homeworkScheduleModal').classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeHomeworkScheduleModal() {
+      document.getElementById('homeworkScheduleModal').classList.remove('show');
+      document.body.style.overflow = '';
+      editingHomeworkScheduleID = '';
+    }
+
+    async function saveHomeworkSchedule() {
+      if (!editingHomeworkScheduleID) return;
+      const btn = document.getElementById('homeworkScheduleSaveBtn');
+      btn.disabled = true;
+      const payload = {
+        assignment_id: editingHomeworkScheduleID,
+        visible_at: document.getElementById('homeworkVisibleAtInput').value,
+        deadline_at: document.getElementById('homeworkDeadlineAtInput').value,
+      };
+      const r = await fetch('/api/teacher/courses/homework/assignments/schedule?course_id=' + selectedCourseId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      btn.disabled = false;
+      if (!r.ok) { alert(await r.text()); return; }
+      closeHomeworkScheduleModal();
       await loadHomeworkAssignments();
       await loadHomeworkSubmissions();
     }
@@ -3887,8 +4139,17 @@
     document.getElementById('aiPregradeCancelBtn').onclick = closeHomeworkAIPregradeModal;
     document.getElementById('aiPregradeStartBtn').onclick = startHomeworkAIPregrade;
     document.getElementById('aiPregradeModal').onclick = (evt) => { if (evt.target.id === 'aiPregradeModal') closeHomeworkAIPregradeModal(); };
+    document.getElementById('pregradeTaskToggle').onclick = () => {
+      if (homeworkPregradeDockHidden) {
+        showHomeworkPregradeDock();
+      } else {
+        setHomeworkPregradeDockCollapsed(!homeworkPregradeDockCollapsed);
+      }
+    };
+    document.getElementById('pregradeTaskHide').onclick = hideHomeworkPregradeDock;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
-    document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); };
+    document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); loadHomeworkPregradeJobs(); };
+    loadHomeworkPregradeJobs();
 
     document.getElementById('agentLauncher').onclick = openAgentPanel;
     document.getElementById('agentNewBtn').onclick = resetTeacherAgentConversation;

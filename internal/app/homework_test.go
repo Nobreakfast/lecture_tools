@@ -421,6 +421,148 @@ func TestLockedHomeworkKeepsStudentReadOnly(t *testing.T) {
 	}
 }
 
+func TestHomeworkScheduleControlsVisibilityLockAndLateInfo(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+	adminCookie := &http.Cookie{Name: "auth_token", Value: "test-admin"}
+
+	futureVisible := time.Now().Add(2 * time.Hour).Format("2006-01-02T15:04")
+	visibilityRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/schedule?course_id=1", []byte(`{"assignment_id":"task-1","visible_at":"`+futureVisible+`"}`), adminCookie)
+	if visibilityRR.Code != http.StatusOK {
+		t.Fatalf("expected schedule 200, got %d body=%s", visibilityRR.Code, visibilityRR.Body.String())
+	}
+	idsRR := doHomeworkJSON(t, h, http.MethodGet, "/api/homework/assignment-ids?course_id=1", nil)
+	if idsRR.Code != http.StatusOK {
+		t.Fatalf("expected assignment ids 200, got %d body=%s", idsRR.Code, idsRR.Body.String())
+	}
+	if bytes.Contains(idsRR.Body.Bytes(), []byte(`task-1`)) {
+		t.Fatalf("future visible assignment should be hidden from students: %s", idsRR.Body.String())
+	}
+	blockedSessionRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"abc","course_id":1,"assignment_id":"task-1"}`))
+	if blockedSessionRR.Code != http.StatusForbidden {
+		t.Fatalf("expected future assignment session 403, got %d body=%s", blockedSessionRR.Code, blockedSessionRR.Body.String())
+	}
+
+	lateDeadline := time.Now().Add(-25 * time.Hour).Format("2006-01-02T15:04")
+	lateScheduleRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/schedule?course_id=1", []byte(`{"assignment_id":"task-1","deadline_at":"`+lateDeadline+`"}`), adminCookie)
+	if lateScheduleRR.Code != http.StatusOK {
+		t.Fatalf("expected late schedule 200, got %d body=%s", lateScheduleRR.Code, lateScheduleRR.Body.String())
+	}
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"abc","course_id":1,"assignment_id":"task-1"}`))
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected session during late grace 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+	cookie := homeworkCookieFromResponse(t, createRR)
+	uploadRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "report.pdf", []byte("%PDF-1.4\nlate"), cookie)
+	if uploadRR.Code != http.StatusOK {
+		t.Fatalf("expected late grace upload 200, got %d body=%s", uploadRR.Code, uploadRR.Body.String())
+	}
+	submissionsRR := doHomeworkJSON(t, h, http.MethodGet, "/api/teacher/courses/homework/submissions?course_id=1&assignment_id=task-1", nil, adminCookie)
+	if submissionsRR.Code != http.StatusOK {
+		t.Fatalf("expected submissions 200, got %d body=%s", submissionsRR.Code, submissionsRR.Body.String())
+	}
+	var submissionsResp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(submissionsRR.Body.Bytes(), &submissionsResp); err != nil {
+		t.Fatalf("unmarshal submissions: %v", err)
+	}
+	if len(submissionsResp.Items) != 1 {
+		t.Fatalf("expected one submission, got %+v", submissionsResp.Items)
+	}
+	lateInfo, _ := submissionsResp.Items[0]["late_info"].(map[string]any)
+	if lateInfo["late"] != true || int(lateInfo["late_24h_blocks"].(float64)) < 2 {
+		t.Fatalf("expected late info with at least 2 blocks, got %+v", lateInfo)
+	}
+
+	oldDeadline := time.Now().Add(-11 * 24 * time.Hour).Format("2006-01-02T15:04")
+	lockScheduleRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/schedule?course_id=1", []byte(`{"assignment_id":"task-1","deadline_at":"`+oldDeadline+`"}`), adminCookie)
+	if lockScheduleRR.Code != http.StatusOK {
+		t.Fatalf("expected lock schedule 200, got %d body=%s", lockScheduleRR.Code, lockScheduleRR.Body.String())
+	}
+	replaceRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "new.pdf", []byte("%PDF-1.4\nnew"), cookie)
+	if replaceRR.Code != http.StatusConflict {
+		t.Fatalf("expected auto locked upload 409, got %d body=%s", replaceRR.Code, replaceRR.Body.String())
+	}
+}
+
+func TestHomeworkPregradeQueueSerializesSameCourse(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	s.homeworkPregradeRunning = map[int]bool{1: true}
+
+	first := &homeworkPregradeJob{ID: "job-running", CourseID: 1, AssignmentID: "task-1", Status: "running", QueuedAt: time.Now()}
+	second := &homeworkPregradeJob{ID: "job-queued", CourseID: 1, AssignmentID: "task-2", Status: "queued", QueuedAt: time.Now().Add(time.Second)}
+	s.saveHomeworkPregradeJob(first)
+	s.saveHomeworkPregradeJob(second)
+	s.enqueueHomeworkPregradeJob(1, second.ID)
+
+	got := s.getHomeworkPregradeJob(second.ID)
+	if got == nil || got.Status != "queued" {
+		t.Fatalf("expected second same-course job to stay queued, got %+v", got)
+	}
+
+	s.finishHomeworkPregradeJob(first.ID, "")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		got = s.getHomeworkPregradeJob(second.ID)
+		if got != nil && got.Status == "done" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected queued job to run after first finished, got %+v", s.getHomeworkPregradeJob(second.ID))
+}
+
+func TestHomeworkPregradeJobsEndpointFiltersAccessibleCourses(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	st := s.store.(*memStore)
+	st.courseTeachers = append(st.courseTeachers, domain.CourseTeacher{CourseID: 1, TeacherID: "assistant", Permission: domain.CoursePermissionView})
+	s.authTokens["assistant-token"] = authSession{TeacherID: "assistant", Role: domain.RoleTeacher, Expiry: time.Now().Add(time.Hour)}
+	h := s.Routes()
+
+	s.saveHomeworkPregradeJob(&homeworkPregradeJob{ID: "job-course-a", CourseID: 1, CourseName: "course-a", AssignmentID: "task-1", Status: "running", QueuedAt: time.Now()})
+	s.saveHomeworkPregradeJob(&homeworkPregradeJob{ID: "job-course-b", CourseID: 2, CourseName: "course-b", AssignmentID: "lab-1", Status: "running", QueuedAt: time.Now()})
+
+	rr := doHomeworkJSON(t, h, http.MethodGet, "/api/teacher/homework/pregrade/jobs", nil, &http.Cookie{Name: "auth_token", Value: "assistant-token"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected jobs 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Items []homeworkPregradeJob `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal jobs: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ID != "job-course-a" {
+		t.Fatalf("expected only accessible course job, got %+v", resp.Items)
+	}
+}
+
+func TestHomeworkPregradeQueueAllowsDifferentCourses(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	s.homeworkPregradeRunning = map[int]bool{1: true}
+
+	blocked := &homeworkPregradeJob{ID: "job-course-a", CourseID: 1, AssignmentID: "task-1", Status: "queued", QueuedAt: time.Now()}
+	parallel := &homeworkPregradeJob{ID: "job-course-b", CourseID: 2, AssignmentID: "lab-1", Status: "queued", QueuedAt: time.Now()}
+	s.saveHomeworkPregradeJob(blocked)
+	s.saveHomeworkPregradeJob(parallel)
+	s.enqueueHomeworkPregradeJob(1, blocked.ID)
+	s.enqueueHomeworkPregradeJob(2, parallel.ID)
+
+	if got := s.getHomeworkPregradeJob(blocked.ID); got == nil || got.Status != "queued" {
+		t.Fatalf("expected busy course job queued, got %+v", got)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		got := s.getHomeworkPregradeJob(parallel.ID)
+		if got != nil && got.Status == "done" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected different course job to run independently, got %+v", s.getHomeworkPregradeJob(parallel.ID))
+}
+
 // TestHomeworkAdminAssignmentAndSubmissionRoutes_DEPRECATED was removed as
 // part of the multi-tenant migration. The legacy /api/admin/homework/*
 // endpoints now return 410 Gone; all equivalent teacher functionality is

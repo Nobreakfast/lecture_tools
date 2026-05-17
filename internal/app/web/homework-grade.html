@@ -138,6 +138,20 @@
       if (!Number.isFinite(n)) return '';
       return Number.isInteger(n) ? String(n) : n.toFixed(1);
     }
+    function formatLateInfo(info) {
+      if (!info || !info.late) return '未迟交';
+      const seconds = Number(info.late_seconds || 0);
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const parts = [];
+      if (days) parts.push(days + '天');
+      if (hours) parts.push(hours + '小时');
+      if (!days && mins) parts.push(mins + '分钟');
+      const duration = parts.join('') || '不足1分钟';
+      const penalty = info.late_penalty_points ? '，建议扣 ' + info.late_penalty_points + ' 分' : '';
+      return '迟交 ' + duration + penalty;
+    }
     function masked(value) {
       return anonymousMode ? '已遮盖' : escapeHTML(value || '—');
     }
@@ -250,6 +264,8 @@
         '<div class="meta-item"><strong>姓名</strong>' + masked(submission.name) + '</div>' +
         '<div class="meta-item"><strong>学号</strong>' + masked(submission.student_no) + '</div>' +
         '<div class="meta-item"><strong>班级</strong>' + masked(submission.class_name) + '</div>' +
+        '<div class="meta-item"><strong>Deadline</strong>' + escapeHTML(formatTime(submission.deadline_at)) + '</div>' +
+        '<div class="meta-item"><strong>迟交</strong>' + escapeHTML(formatLateInfo(submission.late_info)) + '</div>' +
         '<div class="meta-item"><strong>最后提交</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
         '<div class="meta-item"><strong>评分</strong>' + (hasScore ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
     }

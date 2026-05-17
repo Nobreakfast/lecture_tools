@@ -49,10 +49,16 @@ const (
 	homeworkAssignmentVisibilityKey = "homework_assignment_visibility"
 	homeworkGradeVisibilityKey      = "homework_grade_visibility"
 	homeworkAssignmentLockKey       = "homework_assignment_lock"
+	homeworkAssignmentScheduleKey   = "homework_assignment_schedule"
 )
 
 var errHomeworkIdentityMismatch = errors.New("已存在同学号的作业记录，请使用原姓名和班级继续")
 var errHomeworkLocked = errors.New("该作业已锁定，不能再上传、删除或重命名文件")
+
+type homeworkAssignmentSchedule struct {
+	VisibleAt  *time.Time `json:"visible_at,omitempty"`
+	DeadlineAt *time.Time `json:"deadline_at,omitempty"`
+}
 
 func (s *Server) apiHomeworkCourses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -91,9 +97,10 @@ func (s *Server) apiHomeworkAssignmentIDs(w http.ResponseWriter, r *http.Request
 		seen[id] = struct{}{}
 	}
 	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
+	now := time.Now()
 	visible := make([]string, 0, len(seen))
 	for id := range seen {
-		if !homeworkAssignmentHidden(visibility, course, id) {
+		if !homeworkAssignmentHidden(visibility, course, id) && s.homeworkAssignmentVisibleAt(r.Context(), course, id, now) {
 			visible = append(visible, id)
 		}
 	}
@@ -121,7 +128,7 @@ func (s *Server) apiHomeworkAssignmentPreview(w http.ResponseWriter, r *http.Req
 		return
 	}
 	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
-	if homeworkAssignmentHidden(visibility, c.Slug, assignmentID) {
+	if homeworkAssignmentHidden(visibility, c.Slug, assignmentID) || !s.homeworkAssignmentVisibleAt(r.Context(), c.Slug, assignmentID, time.Now()) {
 		writeJSON(w, map[string]any{"items": []map[string]any{}})
 		return
 	}
@@ -161,7 +168,7 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	visibility := s.loadHomeworkAssignmentVisibility(r.Context())
-	if homeworkAssignmentHidden(visibility, course, assignmentID) && !s.canAccessHiddenHomeworkAssignment(r, course, assignmentID) {
+	if (homeworkAssignmentHidden(visibility, course, assignmentID) || !s.homeworkAssignmentVisibleAt(r.Context(), course, assignmentID, time.Now())) && !s.canAccessHiddenHomeworkAssignment(r, course, assignmentID) {
 		http.Error(w, "该作业不可访问", http.StatusForbidden)
 		return
 	}
@@ -423,6 +430,10 @@ func (s *Server) apiHomeworkSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.homeworkAssignmentExists(course, courseID, assignmentID) {
 		http.Error(w, "作业不存在", http.StatusNotFound)
+		return
+	}
+	if !s.homeworkAssignmentVisibleAt(r.Context(), course, assignmentID, time.Now()) {
+		http.Error(w, "作业尚未开放", http.StatusForbidden)
 		return
 	}
 	if s.homeworkAssignmentLocked(r.Context(), course, assignmentID) {
@@ -1219,8 +1230,12 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionGradeAI(w http.ResponseWriter
 
 type homeworkPregradeJob struct {
 	ID           string    `json:"id"`
+	TeacherID    string    `json:"teacher_id"`
 	CourseID     int       `json:"course_id"`
+	CourseName   string    `json:"course_name"`
 	AssignmentID string    `json:"assignment_id"`
+	Prompt       string    `json:"prompt"`
+	Overwrite    bool      `json:"overwrite"`
 	Status       string    `json:"status"`
 	Total        int       `json:"total"`
 	Done         int       `json:"done"`
@@ -1229,6 +1244,7 @@ type homeworkPregradeJob struct {
 	Skipped      int       `json:"skipped"`
 	Current      string    `json:"current"`
 	LastError    string    `json:"last_error"`
+	QueuedAt     time.Time `json:"queued_at"`
 	StartedAt    time.Time `json:"started_at"`
 	FinishedAt   time.Time `json:"finished_at,omitempty"`
 }
@@ -1282,15 +1298,46 @@ func (s *Server) apiTeacherCourseHomeworkPregradeStart(w http.ResponseWriter, r 
 	}
 	job := &homeworkPregradeJob{
 		ID:           newID(),
+		TeacherID:    course.TeacherID,
 		CourseID:     courseID,
+		CourseName:   course.DisplayName,
 		AssignmentID: assignmentID,
-		Status:       "running",
+		Prompt:       prompt,
+		Overwrite:    req.Overwrite,
+		Status:       "queued",
 		Total:        len(items),
-		StartedAt:    time.Now(),
+		QueuedAt:     time.Now(),
+	}
+	if strings.TrimSpace(job.CourseName) == "" {
+		job.CourseName = course.Name
 	}
 	s.saveHomeworkPregradeJob(job)
-	go s.runHomeworkPregradeJob(job.ID, course, items, prompt, req.Overwrite)
-	writeJSON(w, map[string]any{"job_id": job.ID, "job": job})
+	s.enqueueHomeworkPregradeJob(courseID, job.ID)
+	fresh := s.getHomeworkPregradeJob(job.ID)
+	if fresh == nil {
+		fresh = job
+	}
+	writeJSON(w, map[string]any{"job_id": job.ID, "job": fresh})
+}
+
+func (s *Server) apiTeacherHomeworkPregradeJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	allowed, err := s.accessibleHomeworkPregradeCourses(r.Context(), sess)
+	if err != nil {
+		http.Error(w, "读取课程失败", http.StatusInternalServerError)
+		return
+	}
+	s.cleanupHomeworkPregradeJobs(time.Now())
+	jobs := s.listHomeworkPregradeJobs(allowed)
+	writeJSON(w, map[string]any{"items": jobs})
 }
 
 func (s *Server) apiTeacherCourseHomeworkPregradeStatus(w http.ResponseWriter, r *http.Request) {
@@ -1317,8 +1364,25 @@ func (s *Server) apiTeacherCourseHomeworkPregradeStatus(w http.ResponseWriter, r
 	writeJSON(w, map[string]any{"job": job})
 }
 
-func (s *Server) runHomeworkPregradeJob(jobID string, course *domain.Course, items []domain.HomeworkSubmission, prompt string, overwrite bool) {
+func (s *Server) runHomeworkPregradeJob(jobID string) {
 	ctx := context.Background()
+	job := s.getHomeworkPregradeJob(jobID)
+	if job == nil {
+		return
+	}
+	course, err := s.store.GetCourse(ctx, job.CourseID)
+	if err != nil || course == nil {
+		s.finishHomeworkPregradeJob(jobID, "课程不存在")
+		return
+	}
+	items, err := s.store.ListHomeworkSubmissions(ctx, job.CourseID, course.Slug, job.AssignmentID)
+	if err != nil {
+		s.finishHomeworkPregradeJob(jobID, "读取提交失败")
+		return
+	}
+	s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
+		job.Total = len(items)
+	})
 	for _, item := range items {
 		label := strings.TrimSpace(item.Name)
 		if label == "" {
@@ -1327,16 +1391,16 @@ func (s *Server) runHomeworkPregradeJob(jobID string, course *domain.Course, ite
 		s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
 			job.Current = label
 		})
-		if !overwrite && (item.AIPregradeScore != nil || strings.TrimSpace(item.AIPregradeFeedback) != "") {
+		if !job.Overwrite && (item.AIPregradeScore != nil || strings.TrimSpace(item.AIPregradeFeedback) != "") {
 			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
 				job.Skipped++
 				job.Done++
 			})
 			continue
 		}
-		score, feedback, errMsg := s.pregradeHomeworkSubmission(ctx, course, &item, prompt)
+		score, feedback, errMsg := s.pregradeHomeworkSubmission(ctx, course, &item, job.Prompt)
 		if errMsg != "" {
-			_ = s.store.SaveHomeworkAIPregrade(ctx, item.ID, nil, "", prompt, errMsg)
+			_ = s.store.SaveHomeworkAIPregrade(ctx, item.ID, nil, "", job.Prompt, errMsg)
 			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
 				job.Failed++
 				job.Done++
@@ -1344,7 +1408,7 @@ func (s *Server) runHomeworkPregradeJob(jobID string, course *domain.Course, ite
 			})
 			continue
 		}
-		if err := s.store.SaveHomeworkAIPregrade(ctx, item.ID, &score, feedback, prompt, ""); err != nil {
+		if err := s.store.SaveHomeworkAIPregrade(ctx, item.ID, &score, feedback, job.Prompt, ""); err != nil {
 			errMsg = "保存 AI 预评失败"
 			s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
 				job.Failed++
@@ -1358,11 +1422,7 @@ func (s *Server) runHomeworkPregradeJob(jobID string, course *domain.Course, ite
 			job.Done++
 		})
 	}
-	s.updateHomeworkPregradeJob(jobID, func(job *homeworkPregradeJob) {
-		job.Status = "done"
-		job.Current = ""
-		job.FinishedAt = time.Now()
-	})
+	s.finishHomeworkPregradeJob(jobID, "")
 }
 
 func (s *Server) pregradeHomeworkSubmission(ctx context.Context, course *domain.Course, submission *domain.HomeworkSubmission, prompt string) (float64, string, string) {
@@ -1405,8 +1465,78 @@ func (s *Server) saveHomeworkPregradeJob(job *homeworkPregradeJob) {
 	if s.homeworkPregradeJobs == nil {
 		s.homeworkPregradeJobs = map[string]*homeworkPregradeJob{}
 	}
+	if s.homeworkPregradeQueue == nil {
+		s.homeworkPregradeQueue = map[int][]string{}
+	}
+	if s.homeworkPregradeRunning == nil {
+		s.homeworkPregradeRunning = map[int]bool{}
+	}
 	cp := *job
 	s.homeworkPregradeJobs[job.ID] = &cp
+}
+
+func (s *Server) enqueueHomeworkPregradeJob(courseID int, jobID string) {
+	var startID string
+	s.pregradeMu.Lock()
+	if s.homeworkPregradeQueue == nil {
+		s.homeworkPregradeQueue = map[int][]string{}
+	}
+	if s.homeworkPregradeRunning == nil {
+		s.homeworkPregradeRunning = map[int]bool{}
+	}
+	s.homeworkPregradeQueue[courseID] = append(s.homeworkPregradeQueue[courseID], jobID)
+	if !s.homeworkPregradeRunning[courseID] {
+		startID = s.popNextHomeworkPregradeJobLocked(courseID)
+	}
+	s.pregradeMu.Unlock()
+	if startID != "" {
+		go s.runHomeworkPregradeJob(startID)
+	}
+}
+
+func (s *Server) popNextHomeworkPregradeJobLocked(courseID int) string {
+	queue := s.homeworkPregradeQueue[courseID]
+	for len(queue) > 0 {
+		jobID := queue[0]
+		queue = queue[1:]
+		job := s.homeworkPregradeJobs[jobID]
+		if job == nil || job.Status == "done" {
+			continue
+		}
+		job.Status = "running"
+		job.StartedAt = time.Now()
+		s.homeworkPregradeQueue[courseID] = queue
+		s.homeworkPregradeRunning[courseID] = true
+		return jobID
+	}
+	s.homeworkPregradeQueue[courseID] = queue
+	s.homeworkPregradeRunning[courseID] = false
+	return ""
+}
+
+func (s *Server) finishHomeworkPregradeJob(jobID, errMsg string) {
+	var nextID string
+	s.pregradeMu.Lock()
+	job := s.homeworkPregradeJobs[jobID]
+	if job != nil {
+		if errMsg != "" {
+			job.LastError = errMsg
+			job.Failed = job.Total - job.Done
+			if job.Failed < 0 {
+				job.Failed = 0
+			}
+			job.Done = job.Total
+		}
+		job.Status = "done"
+		job.Current = ""
+		job.FinishedAt = time.Now()
+		s.homeworkPregradeRunning[job.CourseID] = false
+		nextID = s.popNextHomeworkPregradeJobLocked(job.CourseID)
+	}
+	s.pregradeMu.Unlock()
+	if nextID != "" {
+		go s.runHomeworkPregradeJob(nextID)
+	}
 }
 
 func (s *Server) getHomeworkPregradeJob(jobID string) *homeworkPregradeJob {
@@ -1428,6 +1558,67 @@ func (s *Server) updateHomeworkPregradeJob(jobID string, fn func(*homeworkPregra
 		return
 	}
 	fn(job)
+}
+
+func (s *Server) listHomeworkPregradeJobs(allowedCourseIDs map[int]bool) []homeworkPregradeJob {
+	s.pregradeMu.RLock()
+	defer s.pregradeMu.RUnlock()
+	items := make([]homeworkPregradeJob, 0, len(s.homeworkPregradeJobs))
+	for _, job := range s.homeworkPregradeJobs {
+		if job == nil || !allowedCourseIDs[job.CourseID] {
+			continue
+		}
+		items = append(items, *job)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		statusRank := func(status string) int {
+			switch status {
+			case "running":
+				return 0
+			case "queued":
+				return 1
+			default:
+				return 2
+			}
+		}
+		if statusRank(items[i].Status) != statusRank(items[j].Status) {
+			return statusRank(items[i].Status) < statusRank(items[j].Status)
+		}
+		return items[i].QueuedAt.After(items[j].QueuedAt)
+	})
+	return items
+}
+
+func (s *Server) cleanupHomeworkPregradeJobs(now time.Time) {
+	const keepFinished = 2 * time.Hour
+	s.pregradeMu.Lock()
+	defer s.pregradeMu.Unlock()
+	for id, job := range s.homeworkPregradeJobs {
+		if job == nil || job.Status != "done" || job.FinishedAt.IsZero() {
+			continue
+		}
+		if now.Sub(job.FinishedAt) > keepFinished {
+			delete(s.homeworkPregradeJobs, id)
+		}
+	}
+}
+
+func (s *Server) accessibleHomeworkPregradeCourses(ctx context.Context, sess *authSession) (map[int]bool, error) {
+	allowed := map[int]bool{}
+	var courses []domain.Course
+	var err error
+	if sess.Role == domain.RoleAdmin {
+		courses, err = s.store.ListAllCourses(ctx)
+	} else {
+		courses, err = s.store.ListCoursesByTeacher(ctx, sess.TeacherID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, course := range courses {
+		allowed[course.ID] = true
+	}
+	return allowed, nil
 }
 
 func (s *Server) apiTeacherCourseHomeworkGradeVisibility(w http.ResponseWriter, r *http.Request) {
@@ -1496,6 +1687,60 @@ func (s *Server) apiTeacherCourseHomeworkAssignmentLock(w http.ResponseWriter, r
 	}
 	s.setHomeworkAssignmentLock(r.Context(), course.Slug, assignmentID, req.Locked)
 	writeJSON(w, map[string]any{"ok": true, "locked": req.Locked})
+}
+
+func (s *Server) apiTeacherCourseHomeworkAssignmentSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	_, course, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		AssignmentID string `json:"assignment_id"`
+		VisibleAt    string `json:"visible_at"`
+		DeadlineAt   string `json:"deadline_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "请求格式错误", http.StatusBadRequest)
+		return
+	}
+	assignmentID, err := validateHomeworkAssignmentID(req.AssignmentID)
+	if err != nil {
+		http.Error(w, "作业编号无效", http.StatusBadRequest)
+		return
+	}
+	if !s.homeworkAssignmentExists(course.Slug, course.ID, assignmentID) {
+		http.Error(w, "作业不存在", http.StatusNotFound)
+		return
+	}
+	visibleAt, err := parseHomeworkScheduleTime(req.VisibleAt)
+	if err != nil {
+		http.Error(w, "显示时间格式无效", http.StatusBadRequest)
+		return
+	}
+	deadlineAt, err := parseHomeworkScheduleTime(req.DeadlineAt)
+	if err != nil {
+		http.Error(w, "deadline 格式无效", http.StatusBadRequest)
+		return
+	}
+	if visibleAt != nil && deadlineAt != nil && deadlineAt.Before(*visibleAt) {
+		http.Error(w, "deadline 不能早于自动显示时间", http.StatusBadRequest)
+		return
+	}
+	s.setHomeworkAssignmentSchedule(r.Context(), course.Slug, assignmentID, homeworkAssignmentSchedule{
+		VisibleAt:  visibleAt,
+		DeadlineAt: deadlineAt,
+	})
+	writeJSON(w, map[string]any{"ok": true, "schedule": s.homeworkAssignmentSchedulePayload(r.Context(), course.Slug, assignmentID)})
 }
 
 func (s *Server) apiAdminHomeworkReport(w http.ResponseWriter, r *http.Request) {
@@ -1830,7 +2075,11 @@ func (s *Server) loadHomeworkAssignmentLock(ctx context.Context) map[string]bool
 }
 
 func (s *Server) homeworkAssignmentLocked(ctx context.Context, course, assignmentID string) bool {
-	return s.loadHomeworkAssignmentLock(ctx)[course+"/"+assignmentID]
+	if s.loadHomeworkAssignmentLock(ctx)[course+"/"+assignmentID] {
+		return true
+	}
+	schedule := s.homeworkAssignmentSchedule(ctx, course, assignmentID)
+	return homeworkAssignmentAutoLocked(schedule, time.Now())
 }
 
 func (s *Server) setHomeworkAssignmentLock(ctx context.Context, course, assignmentID string, locked bool) {
@@ -1849,6 +2098,110 @@ func (s *Server) setHomeworkAssignmentLock(ctx context.Context, course, assignme
 	}
 	payload, _ := json.Marshal(locks)
 	_ = s.store.SetSetting(ctx, homeworkAssignmentLockKey, string(payload))
+}
+
+func (s *Server) loadHomeworkAssignmentSchedule(ctx context.Context) map[string]homeworkAssignmentSchedule {
+	raw, err := s.store.GetSetting(ctx, homeworkAssignmentScheduleKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return map[string]homeworkAssignmentSchedule{}
+	}
+	result := map[string]homeworkAssignmentSchedule{}
+	_ = json.Unmarshal([]byte(raw), &result)
+	return result
+}
+
+func (s *Server) homeworkAssignmentSchedule(ctx context.Context, course, assignmentID string) homeworkAssignmentSchedule {
+	return s.loadHomeworkAssignmentSchedule(ctx)[course+"/"+assignmentID]
+}
+
+func (s *Server) homeworkAssignmentVisibleAt(ctx context.Context, course, assignmentID string, now time.Time) bool {
+	schedule := s.homeworkAssignmentSchedule(ctx, course, assignmentID)
+	return schedule.VisibleAt == nil || !now.Before(*schedule.VisibleAt)
+}
+
+func homeworkAssignmentAutoLocked(schedule homeworkAssignmentSchedule, now time.Time) bool {
+	return schedule.DeadlineAt != nil && !now.Before(schedule.DeadlineAt.Add(10*24*time.Hour))
+}
+
+func (s *Server) setHomeworkAssignmentSchedule(ctx context.Context, course, assignmentID string, schedule homeworkAssignmentSchedule) {
+	s.settingMu.Lock()
+	defer s.settingMu.Unlock()
+	raw, _ := s.store.GetSetting(ctx, homeworkAssignmentScheduleKey)
+	items := map[string]homeworkAssignmentSchedule{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &items)
+	}
+	key := course + "/" + assignmentID
+	if schedule.VisibleAt == nil && schedule.DeadlineAt == nil {
+		delete(items, key)
+	} else {
+		items[key] = schedule
+	}
+	payload, _ := json.Marshal(items)
+	_ = s.store.SetSetting(ctx, homeworkAssignmentScheduleKey, string(payload))
+}
+
+func parseHomeworkScheduleTime(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04",
+		"2006-01-02 15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	var lastErr error
+	for _, layout := range layouts {
+		var t time.Time
+		var err error
+		if layout == time.RFC3339 {
+			t, err = time.Parse(layout, raw)
+		} else {
+			t, err = time.ParseInLocation(layout, raw, time.Local)
+		}
+		if err == nil {
+			return &t, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (s *Server) homeworkAssignmentSchedulePayload(ctx context.Context, course, assignmentID string) map[string]any {
+	schedule := s.homeworkAssignmentSchedule(ctx, course, assignmentID)
+	payload := map[string]any{}
+	if schedule.VisibleAt != nil {
+		payload["visible_at"] = schedule.VisibleAt
+	}
+	if schedule.DeadlineAt != nil {
+		payload["deadline_at"] = schedule.DeadlineAt
+		lockAt := schedule.DeadlineAt.Add(10 * 24 * time.Hour)
+		payload["lock_at"] = lockAt
+		payload["late_grace_days"] = 10
+	}
+	payload["auto_locked"] = homeworkAssignmentAutoLocked(schedule, time.Now())
+	return payload
+}
+
+func homeworkLateSubmissionPayload(submittedAt time.Time, schedule homeworkAssignmentSchedule) map[string]any {
+	payload := map[string]any{"late": false}
+	if schedule.DeadlineAt == nil || submittedAt.IsZero() || !submittedAt.After(*schedule.DeadlineAt) {
+		return payload
+	}
+	lateBy := submittedAt.Sub(*schedule.DeadlineAt)
+	blocks := int(math.Ceil(lateBy.Hours() / 24))
+	if blocks < 1 {
+		blocks = 1
+	}
+	payload["late"] = true
+	payload["late_seconds"] = int64(lateBy.Seconds())
+	payload["late_hours"] = lateBy.Hours()
+	payload["late_24h_blocks"] = blocks
+	payload["late_penalty_points"] = blocks * 10
+	return payload
 }
 
 func (s *Server) loadHomeworkGradeVisibility(ctx context.Context) map[string]bool {
@@ -1980,6 +2333,9 @@ func (s *Server) homeworkAssignmentPayload(ctx context.Context, course string, c
 		visibility := s.loadHomeworkAssignmentVisibility(ctx)
 		payload["hidden"] = homeworkAssignmentHidden(visibility, course, assignmentID)
 		payload["locked"] = s.homeworkAssignmentLocked(ctx, course, assignmentID)
+	}
+	for key, value := range s.homeworkAssignmentSchedulePayload(ctx, course, assignmentID) {
+		payload[key] = value
 	}
 	return payload
 }
@@ -2314,6 +2670,11 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
 	payload["extra_download_url"] = s.pathPrefix() + "/api/homework/download?slot=extra"
 	payload["locked"] = s.homeworkAssignmentLocked(context.Background(), submission.Course, submission.AssignmentID)
+	schedule := s.homeworkAssignmentSchedule(context.Background(), submission.Course, submission.AssignmentID)
+	for key, value := range s.homeworkAssignmentSchedulePayload(context.Background(), submission.Course, submission.AssignmentID) {
+		payload[key] = value
+	}
+	payload["late_info"] = homeworkLateSubmissionPayload(studentSubmittedAt, schedule)
 	if admin && courseID > 0 {
 		cid := strconv.Itoa(courseID)
 		dlParams := func(slot string) string {

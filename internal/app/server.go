@@ -69,14 +69,16 @@ type Server struct {
 	pregradeMu         sync.RWMutex
 	shortAnswerGradeMu sync.Mutex
 
-	courseQuizzes        map[int]*domain.Quiz // course_id -> loaded quiz
-	courseQuizAssetDirs  map[int]string       // course_id -> metadata quiz dir (for asset serving)
-	authTokens           map[string]authSession
-	shutdownFn           func()
-	maintenanceMode      bool
-	homeworkPregradeJobs map[string]*homeworkPregradeJob
-	shortAnswerGradeJobs map[string]struct{}
-	shortAnswerGradeSem  chan struct{}
+	courseQuizzes           map[int]*domain.Quiz // course_id -> loaded quiz
+	courseQuizAssetDirs     map[int]string       // course_id -> metadata quiz dir (for asset serving)
+	authTokens              map[string]authSession
+	shutdownFn              func()
+	maintenanceMode         bool
+	homeworkPregradeJobs    map[string]*homeworkPregradeJob
+	homeworkPregradeQueue   map[int][]string
+	homeworkPregradeRunning map[int]bool
+	shortAnswerGradeJobs    map[string]struct{}
+	shortAnswerGradeSem     chan struct{}
 
 	// currentQuiz holds the legacy global quiz loaded via the admin panel's
 	// "load-quiz" endpoint. New code should resolve quizzes through
@@ -91,15 +93,17 @@ const studentSessionMaxAge = 3 * 3600 // 3 hours
 
 func New(cfg Config, st store.Store) *Server {
 	return &Server{
-		cfg:                  cfg,
-		store:                st,
-		aiClient:             ai.NewClientWithTimeout(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel, cfg.AITimeout),
-		courseQuizzes:        map[int]*domain.Quiz{},
-		courseQuizAssetDirs:  map[int]string{},
-		authTokens:           map[string]authSession{},
-		homeworkPregradeJobs: map[string]*homeworkPregradeJob{},
-		shortAnswerGradeJobs: map[string]struct{}{},
-		shortAnswerGradeSem:  make(chan struct{}, 3),
+		cfg:                     cfg,
+		store:                   st,
+		aiClient:                ai.NewClientWithTimeout(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel, cfg.AITimeout),
+		courseQuizzes:           map[int]*domain.Quiz{},
+		courseQuizAssetDirs:     map[int]string{},
+		authTokens:              map[string]authSession{},
+		homeworkPregradeJobs:    map[string]*homeworkPregradeJob{},
+		homeworkPregradeQueue:   map[int][]string{},
+		homeworkPregradeRunning: map[int]bool{},
+		shortAnswerGradeJobs:    map[string]struct{}{},
+		shortAnswerGradeSem:     make(chan struct{}, 3),
 	}
 }
 
@@ -287,6 +291,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/delete-file", s.apiTeacherCourseHomeworkAssignmentDeleteFile)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/visibility", s.apiTeacherCourseHomeworkAssignmentVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/assignments/lock", s.apiTeacherCourseHomeworkAssignmentLock)
+	mux.HandleFunc("/api/teacher/courses/homework/assignments/schedule", s.apiTeacherCourseHomeworkAssignmentSchedule)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions", s.apiTeacherCourseHomeworkSubmissions)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade", s.apiTeacherCourseHomeworkSubmissionGrade)
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/grade-ai", s.apiTeacherCourseHomeworkSubmissionGradeAI)
@@ -295,6 +300,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/courses/homework/submissions/delete", s.apiTeacherCourseHomeworkSubmissionDelete)
 	mux.HandleFunc("/api/teacher/courses/homework/pregrade/start", s.apiTeacherCourseHomeworkPregradeStart)
 	mux.HandleFunc("/api/teacher/courses/homework/pregrade/status", s.apiTeacherCourseHomeworkPregradeStatus)
+	mux.HandleFunc("/api/teacher/homework/pregrade/jobs", s.apiTeacherHomeworkPregradeJobs)
 	mux.HandleFunc("/api/teacher/courses/homework/grades/visibility", s.apiTeacherCourseHomeworkGradeVisibility)
 	mux.HandleFunc("/api/teacher/courses/homework/archive-all", s.apiTeacherCourseHomeworkArchiveAll)
 	mux.HandleFunc("/api/teacher/courses/homework/qa", s.apiTeacherCourseHomeworkQA)
