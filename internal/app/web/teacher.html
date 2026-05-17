@@ -132,6 +132,34 @@
       color: var(--text-muted);
     }
 
+    .homework-secret-toggle {
+      appearance: none;
+      display: inline-block !important;
+      max-width: 140px;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      color: var(--text) !important;
+      font-family: var(--mono);
+      font-size: 11px !important;
+      line-height: 1.5;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: none;
+      vertical-align: middle;
+    }
+
+    .homework-secret-toggle:hover {
+      transform: none !important;
+      box-shadow: none !important;
+      color: var(--primary) !important;
+      text-decoration: underline;
+    }
+
     .badge-dot {
       display: inline-block;
       width: 6px;
@@ -1426,6 +1454,7 @@
       return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
     function jsArg(s) { return encodeURIComponent(String(s || '')); }
+    function maskSecret(s) { return '*'.repeat(Math.max(6, String(s || '').length)); }
     function showToast(msg) { if (window.App) App.toast(msg); }
     function formatSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
@@ -3199,7 +3228,7 @@
           : '<span class="badge badge-warning">未评分</span>';
         const pregradeStatus = homeworkPregradeStatusCell(item);
         const keyCell = item.secret_key
-          ? `<span style="font-family:monospace;font-size:11px;user-select:all;cursor:pointer;" title="点击可选中复制">${escapeHTML(item.secret_key)}</span>`
+          ? `<button type="button" class="homework-secret-toggle" data-secret="${escapeHTML(item.secret_key)}" data-visible="false" title="点击显示密钥" aria-label="显示密钥" onclick="toggleHomeworkSecret(this)">${escapeHTML(maskSecret(item.secret_key))}</button>`
           : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
         return `<tr>
           <td>${escapeHTML(item.assignment_id)}</td>
@@ -3218,6 +3247,15 @@
         </tr>`;
       }).join('');
       root.innerHTML = `<table><thead><tr><th>作业</th><th>姓名</th><th>学号</th><th>班级</th><th>密钥</th><th>下载</th><th>评分</th><th>AI预评</th><th>最后提交</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function toggleHomeworkSecret(el) {
+      const secret = el.dataset.secret || '';
+      const visible = el.dataset.visible === 'true';
+      el.dataset.visible = visible ? 'false' : 'true';
+      el.textContent = visible ? maskSecret(secret) : secret;
+      el.title = visible ? '点击显示密钥' : '点击隐藏密钥';
+      el.setAttribute('aria-label', visible ? '显示密钥' : '隐藏密钥');
     }
 
     function homeworkPregradeStatusCell(item) {

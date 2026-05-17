@@ -83,6 +83,18 @@ test.describe("Homework lifecycle", () => {
     await teacherPage.page.waitForTimeout(1000);
 
     await expect(teacherPage.homeworkSubmissionsList).toContainText("作业学生");
+    const submissionRow = teacherPage.homeworkSubmissionsList.locator("tr", {
+      hasText: "作业学生",
+    });
+    const secretToggle = submissionRow.locator(".homework-secret-toggle");
+    await expect(secretToggle).toHaveText("*********");
+    await expect(submissionRow).not.toContainText("secret123");
+    await secretToggle.click();
+    await expect(secretToggle).toHaveText("secret123");
+    await expect(secretToggle).toHaveAccessibleName("隐藏密钥");
+    await secretToggle.click();
+    await expect(secretToggle).toHaveText("*********");
+    await expect(secretToggle).toHaveAccessibleName("显示密钥");
 
     await teacherCtx.close();
     await studentCtx.close();
