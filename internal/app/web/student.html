@@ -1695,7 +1695,7 @@
       document.getElementById('submissionMeta').innerHTML =
         '<div class="meta-item"><strong>课程</strong>' + escapeHTML(submission.course) + '</div>' +
         '<div class="meta-item"><strong>作业编号</strong>' + escapeHTML(submission.assignment_id) + '</div>' +
-        '<div class="meta-item"><strong>最后更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
+        '<div class="meta-item"><strong>最后提交</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
         (submission.locked ? '<div class="meta-item"><strong>提交状态</strong>已锁定</div>' : '');
       renderGradeResult(submission);
       document.getElementById('reportInfo').outerHTML = fileInfoHTML(submission.files && submission.files.report, '暂未上传报告 PDF');

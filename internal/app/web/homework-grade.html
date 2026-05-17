@@ -250,7 +250,7 @@
         '<div class="meta-item"><strong>姓名</strong>' + masked(submission.name) + '</div>' +
         '<div class="meta-item"><strong>学号</strong>' + masked(submission.student_no) + '</div>' +
         '<div class="meta-item"><strong>班级</strong>' + masked(submission.class_name) + '</div>' +
-        '<div class="meta-item"><strong>更新</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
+        '<div class="meta-item"><strong>最后提交</strong>' + escapeHTML(formatTime(submission.updated_at)) + '</div>' +
         '<div class="meta-item"><strong>评分</strong>' + (hasScore ? escapeHTML(formatScore(submission.score)) + '/100' : '未评分') + '</div>';
     }
 

@@ -267,6 +267,7 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	if got.ReportUploadedAt == nil || got.CodeUploadedAt == nil {
 		t.Fatalf("expected uploaded timestamps: %+v", got)
 	}
+	lastStudentSubmission := got.UpdatedAt
 	score := 92.5
 	if err := st.SaveHomeworkGrade(ctx, submission.ID, &score, "完成度较好，分析还可以更深入。"); err != nil {
 		t.Fatalf("SaveHomeworkGrade failed: %v", err)
@@ -284,6 +285,9 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	if graded.GradedAt == nil || graded.GradeUpdatedAt == nil {
 		t.Fatalf("expected grade timestamps: %+v", graded)
 	}
+	if !graded.UpdatedAt.Equal(lastStudentSubmission) {
+		t.Fatalf("grading changed student submission time: got %s want %s", graded.UpdatedAt, lastStudentSubmission)
+	}
 	preScore := 88.5
 	if err := st.SaveHomeworkAIPregrade(ctx, submission.ID, &preScore, "AI 预评内容", "按实验分析评分", ""); err != nil {
 		t.Fatalf("SaveHomeworkAIPregrade failed: %v", err)
@@ -300,6 +304,9 @@ func TestHomeworkSubmissionLifecycle(t *testing.T) {
 	}
 	if pregraded.AIPregradedAt == nil || pregraded.AIPregradeError != "" {
 		t.Fatalf("unexpected AI pregrade metadata: %+v", pregraded)
+	}
+	if !pregraded.UpdatedAt.Equal(lastStudentSubmission) {
+		t.Fatalf("AI pregrade changed student submission time: got %s want %s", pregraded.UpdatedAt, lastStudentSubmission)
 	}
 
 	items, err := st.ListHomeworkSubmissions(ctx, 0, "course-a", "task-1")

@@ -61,6 +61,24 @@ func writeHomeworkAssignmentBundleFile(t *testing.T, s *Server, course, assignme
 	}
 }
 
+func TestHomeworkLastStudentSubmissionAtPrefersUploadedFiles(t *testing.T) {
+	createdAt := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	reportAt := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	codeAt := time.Date(2026, 5, 3, 11, 0, 0, 0, time.UTC)
+	teacherTouchedAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	submission := &domain.HomeworkSubmission{
+		CreatedAt:        createdAt,
+		UpdatedAt:        teacherTouchedAt,
+		ReportUploadedAt: &reportAt,
+		CodeUploadedAt:   &codeAt,
+	}
+
+	got := homeworkLastStudentSubmissionAt(submission, nil)
+	if !got.Equal(codeAt) {
+		t.Fatalf("last student submission = %s, want %s", got, codeAt)
+	}
+}
+
 func doHomeworkMultiUpload(t *testing.T, h http.Handler, target string, fields map[string]string, files map[string][]byte, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer

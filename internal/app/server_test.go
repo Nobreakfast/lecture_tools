@@ -385,7 +385,6 @@ func (m *memStore) UpdateHomeworkSubmissionSession(_ context.Context, submission
 			m.homeworkSubmissions[i].Name = name
 			m.homeworkSubmissions[i].ClassName = className
 			m.homeworkSubmissions[i].SecretKey = secretKey
-			m.homeworkSubmissions[i].UpdatedAt = time.Now()
 			return nil
 		}
 	}
@@ -467,7 +466,6 @@ func (m *memStore) SaveHomeworkGrade(_ context.Context, submissionID string, sco
 		m.homeworkSubmissions[i].Score = score
 		m.homeworkSubmissions[i].Feedback = feedback
 		m.homeworkSubmissions[i].GradeUpdatedAt = &now
-		m.homeworkSubmissions[i].UpdatedAt = now
 		return nil
 	}
 	return errors.New("not found")
@@ -483,7 +481,6 @@ func (m *memStore) SaveHomeworkAIPregrade(_ context.Context, submissionID string
 		m.homeworkSubmissions[i].AIPregradePrompt = prompt
 		m.homeworkSubmissions[i].AIPregradedAt = &now
 		m.homeworkSubmissions[i].AIPregradeError = errorMessage
-		m.homeworkSubmissions[i].UpdatedAt = now
 		return nil
 	}
 	return errors.New("not found")

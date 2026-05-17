@@ -2292,6 +2292,8 @@ func (s *Server) resolveHomeworkCourse(courseID int, courseSlug string) *domain.
 }
 
 func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission, admin bool, courseID int) map[string]any {
+	others := s.listOthersFiles(submission)
+	studentSubmittedAt := homeworkLastStudentSubmissionAt(submission, others)
 	payload := map[string]any{
 		"id":            submission.ID,
 		"course":        submission.Course,
@@ -2300,13 +2302,13 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		"student_no":    submission.StudentNo,
 		"class_name":    submission.ClassName,
 		"created_at":    submission.CreatedAt,
-		"updated_at":    submission.UpdatedAt,
+		"updated_at":    studentSubmittedAt,
 		"files": map[string]any{
 			"report": homeworkFilePayload(submission, domain.HomeworkSlotReport),
 			"code":   homeworkFilePayload(submission, domain.HomeworkSlotCode),
 			"extra":  homeworkFilePayload(submission, domain.HomeworkSlotExtra),
 		},
-		"others": s.listOthersFiles(submission),
+		"others": others,
 	}
 	payload["report_download_url"] = s.pathPrefix() + "/api/homework/download?slot=report"
 	payload["code_download_url"] = s.pathPrefix() + "/api/homework/download?slot=code"
@@ -2347,6 +2349,24 @@ func (s *Server) homeworkSubmissionPayload(submission *domain.HomeworkSubmission
 		payload["bulk_archive_download_url"] = s.pathPrefix() + "/api/teacher/courses/homework/archive-all?" + bulkParams.Encode()
 	}
 	return payload
+}
+
+func homeworkLastStudentSubmissionAt(submission *domain.HomeworkSubmission, others []map[string]any) time.Time {
+	latest := time.Time{}
+	for _, ts := range []*time.Time{submission.ReportUploadedAt, submission.CodeUploadedAt, submission.ExtraUploadedAt} {
+		if ts != nil && ts.After(latest) {
+			latest = *ts
+		}
+	}
+	for _, item := range others {
+		if ts, ok := item["updated_at"].(time.Time); ok && ts.After(latest) {
+			latest = ts
+		}
+	}
+	if latest.IsZero() {
+		return submission.UpdatedAt
+	}
+	return latest
 }
 
 func (s *Server) resolveHomeworkQARequest(w http.ResponseWriter, r *http.Request) (*domain.Course, string, bool) {

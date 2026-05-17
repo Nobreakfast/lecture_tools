@@ -1114,8 +1114,7 @@ func (s *SQLiteStore) GetHomeworkSubmissionByScope(ctx context.Context, courseID
 }
 
 func (s *SQLiteStore) UpdateHomeworkSubmissionSession(ctx context.Context, submissionID, token, name, className, secretKey string) error {
-	now := time.Now().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET session_token = ?, name = ?, class_name = ?, secret_key = ?, updated_at = ? WHERE id = ?`, token, name, className, secretKey, now, submissionID)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET session_token = ?, name = ?, class_name = ?, secret_key = ? WHERE id = ?`, token, name, className, secretKey, submissionID)
 	if err != nil {
 		return err
 	}
@@ -1208,7 +1207,7 @@ func (s *SQLiteStore) DeleteHomeworkFileMetadata(ctx context.Context, submission
 
 func (s *SQLiteStore) SaveHomeworkGrade(ctx context.Context, submissionID string, score *float64, feedback string) error {
 	now := time.Now().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET score = ?, feedback = ?, graded_at = COALESCE(graded_at, ?), grade_updated_at = ?, updated_at = ? WHERE id = ?`, floatPtrValue(score), feedback, now, now, now, submissionID)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET score = ?, feedback = ?, graded_at = COALESCE(graded_at, ?), grade_updated_at = ? WHERE id = ?`, floatPtrValue(score), feedback, now, now, submissionID)
 	if err != nil {
 		return err
 	}
@@ -1224,8 +1223,8 @@ func (s *SQLiteStore) SaveHomeworkGrade(ctx context.Context, submissionID string
 
 func (s *SQLiteStore) SaveHomeworkAIPregrade(ctx context.Context, submissionID string, score *float64, feedback, prompt, errorMessage string) error {
 	now := time.Now().Format(time.RFC3339Nano)
-	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET ai_pregrade_score = ?, ai_pregrade_feedback = ?, ai_pregrade_prompt = ?, ai_pregraded_at = ?, ai_pregrade_error = ?, updated_at = ? WHERE id = ?`,
-		floatPtrValue(score), feedback, prompt, now, errorMessage, now, submissionID)
+	res, err := s.db.ExecContext(ctx, `UPDATE homework_submissions SET ai_pregrade_score = ?, ai_pregrade_feedback = ?, ai_pregrade_prompt = ?, ai_pregraded_at = ?, ai_pregrade_error = ? WHERE id = ?`,
+		floatPtrValue(score), feedback, prompt, now, errorMessage, submissionID)
 	if err != nil {
 		return err
 	}
