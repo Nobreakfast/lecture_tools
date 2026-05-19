@@ -1155,20 +1155,18 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionGrade(w http.ResponseWriter, 
 			http.Error(w, "评语不能超过 5000 字", http.StatusBadRequest)
 			return
 		}
-		if req.Score == nil {
-			http.Error(w, "请输入总分", http.StatusBadRequest)
-			return
+		if req.Score != nil {
+			score := *req.Score
+			if score < 0 || score > 100 {
+				http.Error(w, "总分必须在 0 到 100 之间", http.StatusBadRequest)
+				return
+			}
+			if math.Abs(score*10-math.Round(score*10)) > 0.000001 {
+				http.Error(w, "总分最多保留一位小数", http.StatusBadRequest)
+				return
+			}
 		}
-		score := *req.Score
-		if score < 0 || score > 100 {
-			http.Error(w, "总分必须在 0 到 100 之间", http.StatusBadRequest)
-			return
-		}
-		if math.Abs(score*10-math.Round(score*10)) > 0.000001 {
-			http.Error(w, "总分最多保留一位小数", http.StatusBadRequest)
-			return
-		}
-		if err := s.store.SaveHomeworkGrade(r.Context(), submission.ID, &score, feedback); err != nil {
+		if err := s.store.SaveHomeworkGrade(r.Context(), submission.ID, req.Score, feedback); err != nil {
 			http.Error(w, "保存评分失败", http.StatusInternalServerError)
 			return
 		}
@@ -2092,9 +2090,14 @@ func (s *Server) loadHomeworkAssignmentLock(ctx context.Context) map[string]bool
 	return result
 }
 
+func (s *Server) homeworkAssignmentLockOverride(ctx context.Context, course, assignmentID string) (bool, bool) {
+	locked, ok := s.loadHomeworkAssignmentLock(ctx)[course+"/"+assignmentID]
+	return locked, ok
+}
+
 func (s *Server) homeworkAssignmentLocked(ctx context.Context, course, assignmentID string) bool {
-	if s.loadHomeworkAssignmentLock(ctx)[course+"/"+assignmentID] {
-		return true
+	if locked, ok := s.homeworkAssignmentLockOverride(ctx, course, assignmentID); ok {
+		return locked
 	}
 	schedule := s.homeworkAssignmentSchedule(ctx, course, assignmentID)
 	return homeworkAssignmentAutoLocked(schedule, time.Now())
@@ -2109,11 +2112,7 @@ func (s *Server) setHomeworkAssignmentLock(ctx context.Context, course, assignme
 		_ = json.Unmarshal([]byte(raw), &locks)
 	}
 	key := course + "/" + assignmentID
-	if locked {
-		locks[key] = true
-	} else {
-		delete(locks, key)
-	}
+	locks[key] = locked
 	payload, _ := json.Marshal(locks)
 	_ = s.store.SetSetting(ctx, homeworkAssignmentLockKey, string(payload))
 }
@@ -2200,7 +2199,12 @@ func (s *Server) homeworkAssignmentSchedulePayload(ctx context.Context, course, 
 		payload["lock_at"] = lockAt
 		payload["late_grace_days"] = 10
 	}
-	payload["auto_locked"] = homeworkAssignmentAutoLocked(schedule, time.Now())
+	autoLocked := homeworkAssignmentAutoLocked(schedule, time.Now())
+	payload["auto_locked"] = autoLocked
+	if locked, ok := s.homeworkAssignmentLockOverride(ctx, course, assignmentID); ok {
+		payload["lock_override"] = locked
+		payload["manual_unlocked"] = !locked && autoLocked
+	}
 	return payload
 }
 

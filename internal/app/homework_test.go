@@ -421,6 +421,40 @@ func TestLockedHomeworkKeepsStudentReadOnly(t *testing.T) {
 	}
 }
 
+func TestHomeworkGradeCanSaveFeedbackDraftWithoutScore(t *testing.T) {
+	s := newHomeworkTestServer(t)
+	h := s.Routes()
+
+	body := []byte(`{"name":"张三","student_no":"2026001","class_name":"1班","secret_key":"mykey","course":"course-a","assignment_id":"task-1"}`)
+	createRR := doHomeworkJSON(t, h, http.MethodPost, "/api/homework/session", body)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+	submissionID := decodeSubmissionResponse(t, createRR)["submission"].(map[string]any)["id"].(string)
+	adminCookie := &http.Cookie{Name: "auth_token", Value: "test-admin"}
+
+	draftRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/submissions/grade?course_id=1&id="+submissionID, []byte(`{"score":null,"feedback":"先保存评语草稿"}`), adminCookie)
+	if draftRR.Code != http.StatusOK {
+		t.Fatalf("expected draft save 200, got %d body=%s", draftRR.Code, draftRR.Body.String())
+	}
+	saved := decodeSubmissionResponse(t, draftRR)["submission"].(map[string]any)
+	if _, ok := saved["score"]; ok {
+		t.Fatalf("draft without score should not expose score, got %+v", saved)
+	}
+	if saved["feedback"] != "先保存评语草稿" {
+		t.Fatalf("expected feedback draft saved, got %+v", saved["feedback"])
+	}
+
+	scoreRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/submissions/grade?course_id=1&id="+submissionID, []byte(`{"score":88.5,"feedback":"最终评语"}`), adminCookie)
+	if scoreRR.Code != http.StatusOK {
+		t.Fatalf("expected scored save 200, got %d body=%s", scoreRR.Code, scoreRR.Body.String())
+	}
+	scored := decodeSubmissionResponse(t, scoreRR)["submission"].(map[string]any)
+	if scored["score"] != 88.5 || scored["feedback"] != "最终评语" {
+		t.Fatalf("expected final grade saved, got %+v", scored)
+	}
+}
+
 func TestHomeworkScheduleControlsVisibilityLockAndLateInfo(t *testing.T) {
 	s := newHomeworkTestServer(t)
 	h := s.Routes()
@@ -483,6 +517,38 @@ func TestHomeworkScheduleControlsVisibilityLockAndLateInfo(t *testing.T) {
 	replaceRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "new.pdf", []byte("%PDF-1.4\nnew"), cookie)
 	if replaceRR.Code != http.StatusConflict {
 		t.Fatalf("expected auto locked upload 409, got %d body=%s", replaceRR.Code, replaceRR.Body.String())
+	}
+
+	unlockRR := doHomeworkJSON(t, h, http.MethodPost, "/api/teacher/courses/homework/assignments/lock?course_id=1", []byte(`{"assignment_id":"task-1","locked":false}`), adminCookie)
+	if unlockRR.Code != http.StatusOK {
+		t.Fatalf("expected manual unlock 200, got %d body=%s", unlockRR.Code, unlockRR.Body.String())
+	}
+	assignmentsRR := doHomeworkJSON(t, h, http.MethodGet, "/api/teacher/courses/homework/assignments?course_id=1", nil, adminCookie)
+	if assignmentsRR.Code != http.StatusOK {
+		t.Fatalf("expected assignments 200, got %d body=%s", assignmentsRR.Code, assignmentsRR.Body.String())
+	}
+	var assignmentsResp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(assignmentsRR.Body.Bytes(), &assignmentsResp); err != nil {
+		t.Fatalf("unmarshal assignments: %v", err)
+	}
+	var task map[string]any
+	for _, item := range assignmentsResp.Items {
+		if item["assignment_id"] == "task-1" {
+			task = item
+			break
+		}
+	}
+	if task == nil {
+		t.Fatalf("expected task-1 assignment, got %+v", assignmentsResp.Items)
+	}
+	if task["locked"] != false || task["auto_locked"] != true || task["manual_unlocked"] != true {
+		t.Fatalf("expected manual unlock to override auto lock, got %+v", task)
+	}
+	replaceAfterUnlockRR := doHomeworkUpload(t, h, "/api/homework/upload", map[string]string{"slot": "report"}, "after-unlock.pdf", []byte("%PDF-1.4\nafter unlock"), cookie)
+	if replaceAfterUnlockRR.Code != http.StatusOK {
+		t.Fatalf("expected manual unlock upload 200, got %d body=%s", replaceAfterUnlockRR.Code, replaceAfterUnlockRR.Body.String())
 	}
 }
 

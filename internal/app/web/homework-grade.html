@@ -38,6 +38,8 @@
     button, .link-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 10px 14px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; }
     button.secondary, .link-btn.secondary { background: #e2e8f0; color: #1e293b; }
     button:disabled { opacity: .55; cursor: not-allowed; }
+    .save-status { margin-top: 8px; min-height: 18px; color: var(--text-secondary); font-size: 12px; }
+    .save-status.error { color: var(--danger); }
     .message { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
     .message.show { display: block; }
     .message.info { background: #eff6ff; color: #1d4ed8; }
@@ -106,6 +108,7 @@
         <button id="aiBtn" class="secondary">AI 生成评语</button>
         <button id="saveBtn">保存评分</button>
       </div>
+      <div id="autosaveStatus" class="save-status"></div>
       <div id="msg" class="message info"></div>
     </aside>
   </main>
@@ -118,6 +121,11 @@
     let submission = null;
     let submissionsList = [];
     let anonymousMode = false;
+    let autosaveTimer = null;
+    let autosaveInFlight = null;
+    let autosaveDirty = false;
+    let lastSavedGradeSnapshot = '';
+    let loadingGrade = false;
 
     function escapeHTML(s) {
       return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -128,6 +136,11 @@
       el.className = 'message show ' + type;
       el.textContent = text;
     }
+    function setAutosaveStatus(text, isError) {
+      const el = document.getElementById('autosaveStatus');
+      el.textContent = text || '';
+      el.className = isError ? 'save-status error' : 'save-status';
+    }
     function formatTime(v) {
       if (!v) return '—';
       const d = new Date(v);
@@ -137,6 +150,30 @@
       const n = Number(value);
       if (!Number.isFinite(n)) return '';
       return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    }
+    function readGradeForm(showError) {
+      const rawScore = document.getElementById('scoreInput').value.trim();
+      const feedback = document.getElementById('feedbackInput').value.trim();
+      let score = null;
+      if (rawScore) {
+        score = Number(rawScore);
+        if (!Number.isFinite(score) || score < 0 || score > 100) {
+          if (showError) setMsg('error', '总分必须在 0 到 100 之间。');
+          return { ok: false };
+        }
+        if (Math.abs(score * 10 - Math.round(score * 10)) > 0.000001) {
+          if (showError) setMsg('error', '总分最多保留一位小数。');
+          return { ok: false };
+        }
+      }
+      return { ok: true, payload: { score, feedback } };
+    }
+    function gradeSnapshot(payload) {
+      return JSON.stringify([payload.score === undefined ? null : payload.score, payload.feedback || '']);
+    }
+    function currentGradeSnapshot() {
+      const form = readGradeForm(false);
+      return form.ok ? gradeSnapshot(form.payload) : '';
     }
     function formatLateInfo(info) {
       if (!info || !info.late) return '未迟交';
@@ -202,10 +239,11 @@
       submissionsList = data.items || [];
       updateNavigation();
     }
-    function goRelative(delta) {
+    async function goRelative(delta) {
       const idx = currentIndex();
       const next = submissionsList[idx + delta];
       if (!next) return;
+      if (!await flushAutosave()) return;
       submissionId = String(next.id);
       history.replaceState(null, '', gradeURL(submissionId));
       setMsg('', '');
@@ -217,8 +255,11 @@
         setMsg('error', '缺少 course_id 或 submission_id。');
         return;
       }
+      loadingGrade = true;
+      setAutosaveStatus('');
       const r = await fetch('/api/teacher/courses/homework/submissions/grade?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), { credentials: 'include' });
       if (!r.ok) {
+        loadingGrade = false;
         setMsg('error', await r.text());
         return;
       }
@@ -227,6 +268,7 @@
       assignmentId = submission.assignment_id || assignmentId;
       updateBackLink();
       render(data.grade_published);
+      loadingGrade = false;
       await loadSubmissionList();
     }
 
@@ -237,6 +279,7 @@
       renderAIPregrade();
       document.getElementById('scoreInput').value = submission.score !== undefined && submission.score !== null ? formatScore(submission.score) : '';
       document.getElementById('feedbackInput').value = submission.feedback || '';
+      lastSavedGradeSnapshot = currentGradeSnapshot();
       const report = submission.files && submission.files.report;
       document.getElementById('aiBtn').disabled = false;
       if (report && report.uploaded && submission.report_preview_url) {
@@ -298,32 +341,96 @@
         document.getElementById('feedbackInput').value = submission.ai_pregrade_feedback;
       }
       setMsg('info', 'AI 预评已填入评分表单，可继续修改后保存。');
+      queueAutosave();
+    }
+
+    function queueAutosave() {
+      if (loadingGrade) return;
+      autosaveDirty = true;
+      clearTimeout(autosaveTimer);
+      setAutosaveStatus('尚未保存，稍后自动保存...');
+      autosaveTimer = setTimeout(() => {
+        persistGrade({ autosave: true });
+      }, 900);
+    }
+
+    async function flushAutosave() {
+      clearTimeout(autosaveTimer);
+      const snapshot = currentGradeSnapshot();
+      if (!snapshot) {
+        setAutosaveStatus('分数格式有误，暂未自动保存。', true);
+        return false;
+      }
+      if (snapshot !== lastSavedGradeSnapshot) {
+        return await persistGrade({ autosave: true });
+      } else if (autosaveInFlight) {
+        return await autosaveInFlight;
+      }
+      return true;
+    }
+
+    async function persistGrade(opts) {
+      opts = opts || {};
+      const manual = !!opts.manual;
+      if (autosaveInFlight) {
+        await autosaveInFlight;
+      }
+      const form = readGradeForm(manual);
+      if (!form.ok) {
+        if (!manual) setAutosaveStatus('分数格式有误，暂未自动保存。', true);
+        return false;
+      }
+      const snapshot = gradeSnapshot(form.payload);
+      if (!manual && snapshot === lastSavedGradeSnapshot) {
+        autosaveDirty = false;
+        setAutosaveStatus('已自动保存');
+        return true;
+      }
+      autosaveDirty = false;
+      if (manual) {
+        setMsg('info', '正在保存...');
+      } else {
+        setAutosaveStatus('正在自动保存...');
+      }
+      autosaveInFlight = fetch('/api/teacher/courses/homework/submissions/grade?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(form.payload)
+      }).then(async r => {
+        if (!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        submission = data.submission || submission;
+        lastSavedGradeSnapshot = snapshot;
+        renderMeta();
+        await loadSubmissionList();
+        if (manual) {
+          setMsg('info', form.payload.score === null ? '评语草稿已保存。' : '评分已保存。');
+        } else {
+          setAutosaveStatus('已自动保存');
+        }
+        return true;
+      }).catch(err => {
+        const text = err && err.message ? err.message : '保存失败';
+        if (manual) {
+          setMsg('error', text);
+        } else {
+          setAutosaveStatus('自动保存失败：' + text, true);
+        }
+        return false;
+      }).finally(() => {
+        autosaveInFlight = null;
+        if (autosaveDirty) queueAutosave();
+      });
+      return autosaveInFlight;
     }
 
     async function saveGrade() {
-      const rawScore = document.getElementById('scoreInput').value.trim();
-      if (!rawScore) { setMsg('error', '请输入总分。'); return; }
-      const score = Number(rawScore);
-      if (!Number.isFinite(score) || score < 0 || score > 100) {
-        setMsg('error', '总分必须在 0 到 100 之间。');
-        return;
-      }
+      clearTimeout(autosaveTimer);
       const btn = document.getElementById('saveBtn');
       btn.disabled = true;
-      setMsg('info', '正在保存...');
       try {
-        const r = await fetch('/api/teacher/courses/homework/submissions/grade?course_id=' + encodeURIComponent(courseId) + '&id=' + encodeURIComponent(submissionId), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ score, feedback: document.getElementById('feedbackInput').value.trim() })
-        });
-        if (!r.ok) { setMsg('error', await r.text()); return; }
-        const data = await r.json();
-        submission = data.submission || submission;
-        render(submission.grade_published);
-        await loadSubmissionList();
-        setMsg('info', '评分已保存。');
+        await persistGrade({ manual: true });
       } finally {
         btn.disabled = false;
       }
@@ -344,6 +451,7 @@
         const data = await r.json();
         document.getElementById('feedbackInput').value = data.feedback || '';
         setMsg('info', 'AI 评语已生成，可继续修改后保存。');
+        queueAutosave();
       } finally {
         btn.disabled = false;
       }
@@ -354,6 +462,16 @@
     document.getElementById('useAIPregradeBtn').onclick = useAIPregrade;
     document.getElementById('prevBtn').onclick = () => goRelative(-1);
     document.getElementById('nextBtn').onclick = () => goRelative(1);
+    document.getElementById('scoreInput').addEventListener('input', queueAutosave);
+    document.getElementById('feedbackInput').addEventListener('input', queueAutosave);
+    document.getElementById('backLink').addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (!await flushAutosave()) return;
+      window.close();
+      setTimeout(() => {
+        location.href = teacherReturnURL();
+      }, 250);
+    });
     document.getElementById('anonymousToggle').onchange = (e) => {
       anonymousMode = !!e.target.checked;
       if (submission) renderMeta();

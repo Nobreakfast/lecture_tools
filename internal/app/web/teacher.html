@@ -3216,6 +3216,7 @@
       root.innerHTML = hwAssignmentsCache.map(item => {
         const hiddenBadge = item.hidden ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.12);color:#b91c1c;margin-left:6px;">已隐藏</span>' : '';
         const lockedBadge = item.locked ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.14);color:#92400e;margin-left:6px;">已锁定</span>' : '';
+        const manualUnlockBadge = item.manual_unlocked ? '<span style="display:inline-flex;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.12);color:#047857;margin-left:6px;">手动解锁</span>' : '';
         const scheduleBits = [];
         if (item.visible_at) scheduleBits.push('显示：' + new Date(item.visible_at).toLocaleString('zh-CN', { hour12: false }));
         if (item.deadline_at) scheduleBits.push('deadline：' + new Date(item.deadline_at).toLocaleString('zh-CN', { hour12: false }));
@@ -3226,7 +3227,7 @@
         ).join('');
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge}${lockedBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span>${scheduleLine}</div>
+            <div><strong>${escapeHTML(item.assignment_id)}</strong>${hiddenBadge}${lockedBadge}${manualUnlockBadge} <span style="font-size:12px;color:var(--text-secondary);">${item.file_count || 0} 个文件</span>${scheduleLine}</div>
             <div class="row" style="gap:6px;flex-wrap:wrap;">
               <button class="small btn-secondary" style="margin-top:0;font-size:11px;padding:3px 8px;" onclick="openHomeworkSchedule(decodeURIComponent('${jsArg(item.assignment_id)}'))">设置</button>
               <button class="small" style="margin-top:0;font-size:11px;padding:3px 8px;background:${item.hidden ? 'var(--primary)' : '#6b7280'};" onclick="toggleHwVis(decodeURIComponent('${jsArg(item.assignment_id)}'),${item.hidden ? 'false' : 'true'})">${item.hidden ? '显示' : '隐藏'}</button>

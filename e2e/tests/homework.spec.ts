@@ -311,17 +311,17 @@ test.describe("Homework lifecycle", () => {
     await expect(gradePage.locator("#studentMeta")).toContainText(studentNo);
     await gradePage.locator("#scoreInput").fill("88.5");
     await gradePage.locator("#feedbackInput").fill("结构完整，继续加强分析。");
-    await gradePage.locator("#saveBtn").click();
-    await expect(gradePage.locator("#msg")).toContainText("评分已保存");
+    await expect(gradePage.locator("#autosaveStatus")).toContainText("已自动保存");
     await expect(gradePage.locator("#navStatus")).toContainText("2 / 2");
     await expect(gradePage.locator("#studentMeta")).toContainText(studentNo);
 
+    const closePromise = gradePage.waitForEvent("close");
     await gradePage.locator("#backLink").click();
-    await expect(gradePage.locator("#view-main")).toBeVisible();
-    await expect(gradePage.locator("#tab-upload")).toBeVisible();
-    await expect(gradePage.locator("#sub-homework")).toBeVisible();
-    await expect(gradePage.locator("#homeworkAssignmentFilter")).toHaveValue(assignmentId);
-    await gradePage.close();
+    await closePromise;
+    await expect(teacherPage.page.locator("#view-main")).toBeVisible();
+    await expect(teacherPage.page.locator("#tab-upload")).toBeVisible();
+    await expect(teacherPage.page.locator("#sub-homework")).toBeVisible();
+    await expect(teacherPage.homeworkAssignmentFilter).toHaveValue(assignmentId);
 
     await studentPage.page.locator("#refreshBtn").click();
     await expect(studentPage.page.locator("#gradeResult")).toBeHidden();
