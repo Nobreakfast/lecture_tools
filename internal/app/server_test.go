@@ -2025,6 +2025,93 @@ func TestTeacherHomeworkDownloadUsesStructuredFilename(t *testing.T) {
 	}
 }
 
+func TestTeacherHomeworkReportPreviewRevalidatesCachedPDF(t *testing.T) {
+	now := time.Now()
+	st := &memStore{
+		teachers: []domain.Teacher{
+			{ID: "t1", Name: "教师一", Role: domain.RoleTeacher},
+		},
+		courses: []domain.Course{
+			{ID: 1, TeacherID: "t1", Slug: "course_a", InternalName: "course_a"},
+		},
+		homeworkSubmissions: []domain.HomeworkSubmission{
+			{
+				ID:                 "sub-1",
+				CourseID:           1,
+				Course:             "course_a",
+				AssignmentID:       "task_1",
+				Name:               "张三",
+				StudentNo:          "2023001",
+				ClassName:          "计科1班",
+				ReportOriginalName: "原始文件.pdf",
+				UpdatedAt:          now,
+			},
+		},
+	}
+	tmpDir := t.TempDir()
+	s := New(Config{MetadataDir: tmpDir}, st)
+	s.authTokens["teacher-token"] = authSession{
+		TeacherID: "t1",
+		Role:      domain.RoleTeacher,
+		Expiry:    now.Add(time.Hour),
+	}
+	submission := &st.homeworkSubmissions[0]
+	dir := s.homeworkSubmissionDir(submission)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	reportPath := filepath.Join(dir, "report.pdf")
+	if err := os.WriteFile(reportPath, []byte("%PDF-1.4 cached"), 0o644); err != nil {
+		t.Fatalf("write report failed: %v", err)
+	}
+
+	url := "/api/teacher/courses/homework/submissions/download?course_id=1&id=sub-1&slot=report"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "private, no-cache" {
+		t.Fatalf("unexpected cache-control: %s", got)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("unexpected content type: %s", got)
+	}
+	if got := rr.Header().Get("Vary"); !strings.Contains(got, "Cookie") {
+		t.Fatalf("expected Cookie in Vary, got %s", got)
+	}
+	etag := rr.Header().Get("ETag")
+	if etag == "" {
+		t.Fatalf("expected ETag header")
+	}
+	if rr.Header().Get("Last-Modified") == "" {
+		t.Fatalf("expected Last-Modified header")
+	}
+
+	revalidateReq := httptest.NewRequest(http.MethodGet, url, nil)
+	revalidateReq.AddCookie(&http.Cookie{Name: "auth_token", Value: "teacher-token"})
+	revalidateReq.Header.Set("If-None-Match", etag)
+	revalidateRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(revalidateRR, revalidateReq)
+	if revalidateRR.Code != http.StatusNotModified {
+		t.Fatalf("expected 304, got %d body=%s", revalidateRR.Code, revalidateRR.Body.String())
+	}
+	if revalidateRR.Body.Len() != 0 {
+		t.Fatalf("expected empty 304 body, got %q", revalidateRR.Body.String())
+	}
+
+	unauthorizedReq := httptest.NewRequest(http.MethodGet, url, nil)
+	unauthorizedReq.Header.Set("If-None-Match", etag)
+	unauthorizedRR := httptest.NewRecorder()
+	s.Routes().ServeHTTP(unauthorizedRR, unauthorizedReq)
+	if unauthorizedRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized revalidation to stay unauthorized, got %d", unauthorizedRR.Code)
+	}
+}
+
 func TestHomeworkGradeHiddenUntilPublished(t *testing.T) {
 	now := time.Now()
 	score := 88.5

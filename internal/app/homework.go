@@ -172,7 +172,8 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "该作业不可访问", http.StatusForbidden)
 		return
 	}
-	if _, err := os.Stat(fp); err != nil {
+	info, err := os.Stat(fp)
+	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -183,6 +184,9 @@ func (s *Server) apiHomeworkAssignmentFile(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(fileName, "download.bin")))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if setRevalidatingFileCacheHeaders(w, r, "homework-assignment:"+course+":"+assignmentID+":"+fileName, info) {
+		return
+	}
 	http.ServeFile(w, r, fp)
 }
 
@@ -621,13 +625,17 @@ func (s *Server) apiHomeworkDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fp := s.homeworkStoredFilePath(submission, slot)
-	if _, err := os.Stat(fp); err != nil {
+	info, err := os.Stat(fp)
+	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHomeworkMetadataFilename(originalName, homeworkDiskFilename(slot))))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if setRevalidatingFileCacheHeaders(w, r, "homework-submission:"+submission.ID+":"+string(slot), info) {
+		return
+	}
 	http.ServeFile(w, r, fp)
 }
 

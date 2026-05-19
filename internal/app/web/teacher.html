@@ -1980,6 +1980,8 @@
       });
       refreshActiveTab();
       loadHomeworkPregradeJobs();
+      checkHomeworkGradeSyncStorage();
+      maybeRefreshHomeworkFromGradeSync();
     }
 
     function buildJoinURL(inviteCode) {
@@ -3196,6 +3198,70 @@
     let homeworkPregradeDockCollapsed = localStorage.getItem('homeworkPregradeDockCollapsed') === 'true';
     let homeworkPregradeDockHidden = localStorage.getItem('homeworkPregradeDockHidden') === 'true';
     const homeworkPregradeInlineHidden = new Set();
+    const HOMEWORK_GRADE_SYNC_KEY = 'courseAssistantHomeworkGradeSync';
+    let homeworkGradeSyncChannel = null;
+    let pendingHomeworkGradeSync = null;
+    let homeworkGradeSyncTimer = null;
+    let lastHomeworkGradeSyncAt = 0;
+    try {
+      const cachedSync = JSON.parse(localStorage.getItem(HOMEWORK_GRADE_SYNC_KEY) || 'null');
+      lastHomeworkGradeSyncAt = Number(cachedSync && cachedSync.updated_at) || 0;
+    } catch (_) { lastHomeworkGradeSyncAt = 0; }
+    try {
+      if ('BroadcastChannel' in window) {
+        homeworkGradeSyncChannel = new BroadcastChannel('course-assistant-homework-grade');
+        homeworkGradeSyncChannel.onmessage = evt => noteHomeworkGradeSync(evt.data);
+      }
+    } catch (_) { homeworkGradeSyncChannel = null; }
+
+    function normalizeHomeworkGradeSyncPayload(payload) {
+      if (!payload) return null;
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload); } catch (_) { return null; }
+      }
+      if (!payload || payload.type !== 'homework-grade-updated') return null;
+      return payload;
+    }
+
+    function noteHomeworkGradeSync(payload) {
+      payload = normalizeHomeworkGradeSyncPayload(payload);
+      if (!payload) return;
+      const updatedAt = Number(payload.updated_at) || Date.now();
+      if (updatedAt <= lastHomeworkGradeSyncAt) return;
+      lastHomeworkGradeSyncAt = updatedAt;
+      pendingHomeworkGradeSync = payload;
+      maybeRefreshHomeworkFromGradeSync();
+    }
+
+    function checkHomeworkGradeSyncStorage() {
+      try {
+        noteHomeworkGradeSync(localStorage.getItem(HOMEWORK_GRADE_SYNC_KEY));
+      } catch (_) { }
+    }
+
+    function isHomeworkSubtabActive() {
+      return getActiveTab() === 'tab-upload' && getActiveSubTab() === 'sub-homework';
+    }
+
+    function homeworkGradeSyncRelevant(payload) {
+      if (!payload || !selectedCourseId) return false;
+      if (payload.course_id && String(payload.course_id) !== String(selectedCourseId)) return false;
+      const sel = document.getElementById('homeworkAssignmentFilter');
+      const currentAssignment = sel ? (sel.value || '') : '';
+      if (currentAssignment && payload.assignment_id && currentAssignment !== payload.assignment_id) return false;
+      return true;
+    }
+
+    function maybeRefreshHomeworkFromGradeSync() {
+      if (!pendingHomeworkGradeSync || !homeworkGradeSyncRelevant(pendingHomeworkGradeSync) || !isHomeworkSubtabActive()) return;
+      if (homeworkGradeSyncTimer) clearTimeout(homeworkGradeSyncTimer);
+      homeworkGradeSyncTimer = setTimeout(async () => {
+        const payload = pendingHomeworkGradeSync;
+        pendingHomeworkGradeSync = null;
+        if (!homeworkGradeSyncRelevant(payload) || !isHomeworkSubtabActive()) return;
+        await loadHomeworkSubmissions();
+      }, 120);
+    }
 
     async function loadHomeworkAssignments() {
       if (!selectedCourseId) return;
@@ -4150,6 +4216,22 @@
     document.getElementById('pregradeTaskHide').onclick = hideHomeworkPregradeDock;
     document.getElementById('downloadHomeworkBulkBtn').onclick = downloadHomeworkBulk;
     document.getElementById('refreshHomeworkBtn').onclick = () => { loadHomeworkAssignments(); loadHomeworkSubmissions(); loadHomeworkPregradeJobs(); };
+    window.addEventListener('storage', evt => {
+      if (evt.key === HOMEWORK_GRADE_SYNC_KEY) noteHomeworkGradeSync(evt.newValue);
+    });
+    window.addEventListener('message', evt => {
+      if (evt.origin !== window.location.origin) return;
+      noteHomeworkGradeSync(evt.data);
+    });
+    window.addEventListener('focus', () => {
+      checkHomeworkGradeSyncStorage();
+      maybeRefreshHomeworkFromGradeSync();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      checkHomeworkGradeSyncStorage();
+      maybeRefreshHomeworkFromGradeSync();
+    });
     loadHomeworkPregradeJobs();
 
     document.getElementById('agentLauncher').onclick = openAgentPanel;

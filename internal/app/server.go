@@ -3845,7 +3845,8 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 			return
 		}
 		fp := filepath.Join(subDir, homeworkDiskFilename(domain.HomeworkSlotReport))
-		if _, statErr := os.Stat(fp); statErr != nil {
+		info, statErr := os.Stat(fp)
+		if statErr != nil {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
 		}
@@ -3854,6 +3855,9 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 		if r.URL.Query().Get("download") == "1" {
 			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotReport)))
 		}
+		if setRevalidatingFileCacheHeaders(w, r, "teacher-homework-submission:"+course.Slug+":"+submission.ID+":report", info) {
+			return
+		}
 		http.ServeFile(w, r, fp)
 	case domain.HomeworkSlotCode:
 		if strings.TrimSpace(submission.CodeOriginalName) == "" {
@@ -3861,13 +3865,17 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 			return
 		}
 		fp := s.homeworkStoredFilePath(submission, domain.HomeworkSlotCode)
-		if _, statErr := os.Stat(fp); statErr != nil {
+		info, statErr := os.Stat(fp)
+		if statErr != nil {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-ipynb+json")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotCode)))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if setRevalidatingFileCacheHeaders(w, r, "teacher-homework-submission:"+course.Slug+":"+submission.ID+":code", info) {
+			return
+		}
 		http.ServeFile(w, r, fp)
 	case domain.HomeworkSlotExtra:
 		if strings.TrimSpace(submission.ExtraOriginalName) == "" {
@@ -3875,13 +3883,17 @@ func (s *Server) apiTeacherCourseHomeworkSubmissionDownload(w http.ResponseWrite
 			return
 		}
 		fp := filepath.Join(subDir, "extra.zip")
-		if _, statErr := os.Stat(fp); statErr != nil {
+		info, statErr := os.Stat(fp)
+		if statErr != nil {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", homeworkSubmissionDownloadFilename(submission, domain.HomeworkSlotExtra)))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if setRevalidatingFileCacheHeaders(w, r, "teacher-homework-submission:"+course.Slug+":"+submission.ID+":extra", info) {
+			return
+		}
 		http.ServeFile(w, r, fp)
 	default:
 		http.Error(w, "无效的 slot 参数", http.StatusBadRequest)

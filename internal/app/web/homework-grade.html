@@ -126,6 +126,11 @@
     let autosaveDirty = false;
     let lastSavedGradeSnapshot = '';
     let loadingGrade = false;
+    const HOMEWORK_GRADE_SYNC_KEY = 'courseAssistantHomeworkGradeSync';
+    let homeworkGradeSyncChannel = null;
+    try {
+      if ('BroadcastChannel' in window) homeworkGradeSyncChannel = new BroadcastChannel('course-assistant-homework-grade');
+    } catch (_) { homeworkGradeSyncChannel = null; }
 
     function escapeHTML(s) {
       return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -203,6 +208,26 @@
     }
     function updateBackLink() {
       document.getElementById('backLink').href = teacherReturnURL();
+    }
+    function homeworkGradeSyncPayload(reason) {
+      return {
+        type: 'homework-grade-updated',
+        course_id: courseId,
+        assignment_id: assignmentId || (submission && submission.assignment_id) || '',
+        submission_id: submissionId,
+        updated_at: Date.now(),
+        reason: reason || 'save'
+      };
+    }
+    function notifyHomeworkGradeChanged(reason) {
+      const payload = homeworkGradeSyncPayload(reason);
+      try { localStorage.setItem(HOMEWORK_GRADE_SYNC_KEY, JSON.stringify(payload)); } catch (_) { }
+      try { if (homeworkGradeSyncChannel) homeworkGradeSyncChannel.postMessage(payload); } catch (_) { }
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(payload, window.location.origin);
+        }
+      } catch (_) { }
     }
     function gradeURL(id) {
       const qp = new URLSearchParams();
@@ -404,6 +429,7 @@
         lastSavedGradeSnapshot = snapshot;
         renderMeta();
         await loadSubmissionList();
+        notifyHomeworkGradeChanged(manual ? 'manual-save' : 'autosave');
         if (manual) {
           setMsg('info', form.payload.score === null ? '评语草稿已保存。' : '评分已保存。');
         } else {
@@ -467,6 +493,7 @@
     document.getElementById('backLink').addEventListener('click', async (e) => {
       e.preventDefault();
       if (!await flushAutosave()) return;
+      notifyHomeworkGradeChanged('return');
       window.close();
       setTimeout(() => {
         location.href = teacherReturnURL();
