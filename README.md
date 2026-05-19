@@ -119,6 +119,7 @@ snapshots/
 - `admin_summaries` 主键 = `(course_id, quiz_id)` 复合；不同课程的同一 YAML 有独立总结
 - `homework_submissions.course_id` 为权威字段；`course` 列保留 slug 仅用于展示
 - `courses.display_name` 保存教师输入的英文展示名（空格版）；`courses.internal_name` 保存自动转换后的内部名（空格转下划线）；`courses.slug` 继续兼容旧逻辑并镜像 `internal_name`
+- 删除课程时级联清理该课程下的 `qa_issues` 和 `qa_messages`，避免孤立记录
 - 建课接口会对英文名做 `trim + collapse spaces + replace spaces with "_"` 处理；历史课程不会被强制改写展示名
 
 ## 路由表
@@ -177,6 +178,7 @@ snapshots/
 
 - 所有学生输入经 HTML 转义后再呈现给管理员
 - CSV 导出自动前缀 `=+\-@` 防公式注入
+- 题库加载接口对 `file_path` 参数做路径穿越校验，仅允许访问 `METADATA_DIR` 和 `DATA_DIR` 内的文件
 - 同源 CORS；Cookie 带 `HttpOnly` + `SameSite=Lax`
 - 单一学号在同一课程内唯一进行中 attempt
 - SQLite WAL + 复合索引

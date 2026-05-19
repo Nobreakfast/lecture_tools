@@ -23,7 +23,7 @@
   - `snapshots.go`：系统快照创建/下载/恢复
 - `internal/domain`：核心领域模型
 - `internal/store`：持久化接口与 SQLite 实现
-  - `store.go`：按领域拆分的小接口（`SettingStore`、`TeacherStore`、`CourseStore`、`AttemptStore`、`HomeworkStore`）及组合接口 `Store`
+  - `store.go`：按领域拆分的小接口（`SettingStore`、`TeacherStore`、`CourseStore`、`AttemptStore`、`HomeworkStore`）及组合接口 `Store`；`AttemptStore` 提供 `ListAttemptsByQuizID` 在数据库层按 `quiz_id` 过滤，避免全表加载后内存筛选
   - `sqlite.go`：SQLite 实现
 - `internal/quiz`：YAML 题库解析与校验
 - `internal/ai`：AI 总结适配层（含规则兜底）
@@ -57,6 +57,8 @@
 - 作业 PDF 的文件名（去掉 `.pdf`）就是 `assignment_id`
 - 学生上传报告/代码后立即保存，最新上传覆盖旧文件；没有单独的 `/api/homework/finalize`
 - `_homework` 目录中的作业 PDF 不进入普通 materials 列表，也不能通过通用 `/ppt/`、`/materials-files/` 学生路径直接访问
+- 删除课程（`DeleteCourse`）在同一事务内级联清理 `qa_messages` → `qa_issues`，不留孤立记录
+- Store 层所有返回切片的列表方法在 `rows.Next()` 循环后均检查 `rows.Err()`，确保迭代期间的 IO 错误不被静默丢弃
 
 ## 并发与锁
 `Server` 结构体使用域作用域锁代替全局 `sync.RWMutex`，减少不相关子系统之间的虚假争用：
@@ -193,7 +195,8 @@
 ## 安全措施
 - 学生提交的字段全部使用 HTML 转义（`escapeHTML`），防止存储型 XSS
 - CSV 导出使用 `safeCSV` 防止公式注入（`=`、`+`、`-`、`@` 开头的单元格前缀 `'`）
-- 移除了通配符 CORS（`Access-Control-Allow-Origin: *`），全部为同源访问
+- 题库加载接口（`apiAdminLoadQuiz`、`apiTeacherCourseLoadQuiz`）对客户端传入的 `file_path` 做路径穿越校验，仅允许读取 `MetadataDir` 或 `DataDir` 下的文件
+- 全部为同源访问，不设置 CORS 头
 - Cookie 设置 `HttpOnly` + `SameSite=Lax`
 - 作业 PDF 上传会校验文件内容是否为 PDF，而不只依赖扩展名
 - 学生作业 ZIP 上传会校验文件内容是否为 ZIP，而不只依赖扩展名
