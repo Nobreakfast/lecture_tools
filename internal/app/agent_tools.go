@@ -59,6 +59,7 @@ func (s *Server) agentTools() *AgentToolRegistry {
 	r.add(agentTool{Name: "read_material_text", Description: "读取课程资料文本，PDF 会提取正文", Kind: agentToolTeacherRead, Call: s.agentToolReadMaterialText})
 	r.add(agentTool{Name: "get_quiz_attempts", Description: "获取课程小测记录和最佳成绩", Kind: agentToolTeacherRead, Call: s.agentToolGetQuizAttempts})
 	r.add(agentTool{Name: "get_student_profile", Description: "读取单个学生跨小测、作业和 Q&A 的画像", Kind: agentToolTeacherRead, Call: s.agentToolGetStudentProfile})
+	r.add(agentTool{Name: "get_student_deep_analysis", Description: "读取单个学生所有小测逐题作答、反馈原文、Q&A 和作业详情，用于深度分析", Kind: agentToolTeacherRead, Call: s.agentToolGetStudentDeepAnalysis})
 	r.add(agentTool{Name: "get_attempt_detail", Description: "读取某次小测提交详情和错题", Kind: agentToolTeacherRead, Call: s.agentToolGetAttemptDetail})
 	r.add(agentTool{Name: "get_assignment_context", Description: "读取作业说明、提交概览、评分和预评状态", Kind: agentToolTeacherRead, Call: s.agentToolGetAssignmentContext})
 	r.add(agentTool{Name: "get_summary_stats", Description: "获取当前加载题库的统计概览", Kind: agentToolTeacherRead, Call: s.agentToolGetSummaryStats})
@@ -72,6 +73,7 @@ func (s *Server) agentTools() *AgentToolRegistry {
 	r.add(agentTool{Name: "draft_class_summary", Description: "生成当前小测课堂总结草稿", Kind: agentToolTeacherDraft, Call: s.agentToolDraftClassSummary})
 	r.add(agentTool{Name: "draft_history_summary", Description: "生成课程历史小测趋势总结草稿", Kind: agentToolTeacherDraft, Call: s.agentToolDraftHistorySummary})
 	r.add(agentTool{Name: "draft_homework_feedback", Description: "为单个作业提交生成评语草稿", Kind: agentToolTeacherDraft, Call: s.agentToolDraftHomeworkFeedback})
+	r.add(agentTool{Name: "draft_student_analysis", Description: "基于学生全量数据生成深度学习行为与参与度分析报告", Kind: agentToolTeacherDraft, Call: s.agentToolDraftStudentAnalysis})
 	r.add(agentTool{Name: "save_quiz_to_bank", Description: "保存题库 YAML 到课程题库库；平台内调用需要 confirmed=true", Kind: agentToolTeacherWrite, Call: s.agentToolWriteNotYetImplemented})
 	r.add(agentTool{Name: "load_quiz", Description: "加载课程题库；平台内调用需要 confirmed=true", Kind: agentToolTeacherWrite, Call: s.agentToolWriteNotYetImplemented})
 	r.add(agentTool{Name: "set_quiz_entry_open", Description: "开启或关闭小测入口；平台内调用需要 confirmed=true", Kind: agentToolTeacherWrite, Call: s.agentToolSetQuizEntryOpen})
@@ -483,22 +485,7 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 	if err != nil {
 		return "", err
 	}
-	studentNo := agentArgString(args, "student_no")
-	name := agentArgString(args, "name")
-	className := agentArgString(args, "class_name")
-	if studentNo == "" && name == "" {
-		rawID := agentArgString(args, "student_id")
-		parts := strings.Split(rawID, "|")
-		if len(parts) >= 1 {
-			studentNo = strings.TrimSpace(parts[0])
-		}
-		if len(parts) >= 2 {
-			name = strings.TrimSpace(parts[1])
-		}
-		if len(parts) >= 3 {
-			className = strings.TrimSpace(parts[2])
-		}
-	}
+	studentNo, name, className := agentParseStudentArgs(args)
 	if studentNo == "" && name == "" {
 		return "", fmt.Errorf("缺少学生标识")
 	}
@@ -553,6 +540,237 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 		}
 	}
 	return b.String(), nil
+}
+
+func (s *Server) agentToolGetStudentDeepAnalysis(ctx context.Context, tc agentToolContext, args map[string]any) (string, error) {
+	course, err := s.agentCourse(ctx, tc, args, false)
+	if err != nil {
+		return "", err
+	}
+	studentNo, name, className := agentParseStudentArgs(args)
+	if studentNo == "" && name == "" {
+		return "", fmt.Errorf("缺少学生标识")
+	}
+
+	attempts, err := s.store.ListAttemptsByCourse(ctx, course.ID)
+	if err != nil {
+		return "", err
+	}
+	homework, _ := s.store.ListHomeworkSubmissions(ctx, course.ID, course.Slug, "")
+	qaIssues, _ := s.store.ListQAIssuesByCourse(ctx, course.ID, false)
+
+	var matchedAttempts []domain.Attempt
+	for _, a := range attempts {
+		if agentStudentMatches(a.StudentNo, a.Name, a.ClassName, studentNo, name, className) {
+			matchedAttempts = append(matchedAttempts, a)
+		}
+	}
+	var matchedHomework []domain.HomeworkSubmission
+	for _, h := range homework {
+		if agentStudentMatches(h.StudentNo, h.Name, h.ClassName, studentNo, name, className) {
+			matchedHomework = append(matchedHomework, h)
+		}
+	}
+	var matchedIssues []domain.QAIssue
+	for _, issue := range qaIssues {
+		if studentNo != "" && strings.TrimSpace(issue.StudentNo) == studentNo {
+			matchedIssues = append(matchedIssues, issue)
+		}
+	}
+
+	if len(matchedAttempts) == 0 && len(matchedHomework) == 0 && len(matchedIssues) == 0 {
+		return "", fmt.Errorf("未找到该学生的数据")
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# 学生深度分析数据\n学生：%s（%s，%s）\n课程：%s\n\n",
+		valueOr(name, "未知姓名"), valueOr(studentNo, "未知学号"),
+		valueOr(className, "未知班级"), teacherAgentCourseName(course)))
+
+	// Quiz attempt details with per-question answers
+	if len(matchedAttempts) > 0 {
+		sort.Slice(matchedAttempts, func(i, j int) bool {
+			return matchedAttempts[i].UpdatedAt.Before(matchedAttempts[j].UpdatedAt)
+		})
+		qmap := s.teacherCourseQuizMap(course, nil, matchedAttempts)
+		b.WriteString("## 小测逐题作答详情\n")
+		for _, a := range matchedAttempts {
+			q := qmap[a.QuizID]
+			b.WriteString(fmt.Sprintf("\n### 小测 %s（次数 %d，状态 %s，时间 %s）\n",
+				a.QuizID, a.AttemptNo, a.Status, a.UpdatedAt.Format("2006-01-02 15:04")))
+			if q == nil {
+				b.WriteString("题库未找到，无法展示逐题详情。\n")
+				continue
+			}
+			if a.Status != domain.StatusSubmitted {
+				b.WriteString("未提交，跳过。\n")
+				continue
+			}
+			answers, aErr := s.store.GetAnswers(ctx, a.ID)
+			if aErr != nil {
+				b.WriteString("答案读取失败。\n")
+				continue
+			}
+			grades, _ := s.store.GetShortAnswerGrades(ctx, a.ID)
+			questions := shuffledQuestions(q, a.ID)
+			correct, total := 0, 0
+			for _, question := range questions {
+				ans := answers[question.ID]
+				switch question.Type {
+				case domain.QuestionSurvey:
+					ansText := ans
+					if question.AllowMultiple {
+						ansText = ans
+					}
+					optLabel := agentOptionLabel(question, ansText)
+					b.WriteString(fmt.Sprintf("- [调研] %s → %s\n", question.Stem, optLabel))
+				case domain.QuestionShortAnswer:
+					text := domain.ShortAnswerText(ans)
+					if text == "" {
+						text = "（未作答）"
+					}
+					b.WriteString(fmt.Sprintf("- [简答] %s → %s\n", question.Stem, text))
+					if g, ok := grades[question.ID]; ok && g.Status == domain.ShortAnswerGradeGraded {
+						score := "无"
+						if g.Score != nil {
+							score = fmt.Sprintf("%.1f", *g.Score)
+						}
+						b.WriteString(fmt.Sprintf("  AI评分: %s，反馈: %s\n", score, g.Feedback))
+					}
+				default:
+					total++
+					isCorrect := isCorrectAnswer(question, ans)
+					if isCorrect {
+						correct++
+					}
+					mark := "✗"
+					if isCorrect {
+						mark = "✓"
+					}
+					ansLabel := agentOptionLabel(question, ans)
+					correctLabel := agentOptionLabel(question, question.CorrectAnswer)
+					tag := ""
+					if question.KnowledgeTag != "" {
+						tag = " [" + question.KnowledgeTag + "]"
+					}
+					b.WriteString(fmt.Sprintf("- %s %s%s → 答 %s", mark, question.Stem, tag, ansLabel))
+					if !isCorrect {
+						b.WriteString(fmt.Sprintf("（正确 %s）", correctLabel))
+					}
+					b.WriteString("\n")
+				}
+			}
+			if total > 0 {
+				b.WriteString(fmt.Sprintf("得分: %d/%d\n", correct, total))
+			}
+		}
+	}
+
+	// Homework submissions with feedback
+	if len(matchedHomework) > 0 {
+		sort.Slice(matchedHomework, func(i, j int) bool {
+			return matchedHomework[i].UpdatedAt.Before(matchedHomework[j].UpdatedAt)
+		})
+		b.WriteString("\n## 作业提交详情\n")
+		for _, h := range matchedHomework {
+			score := "未评分"
+			if h.Score != nil {
+				score = fmt.Sprintf("%.1f", *h.Score)
+			}
+			b.WriteString(fmt.Sprintf("\n### 作业 %s（评分 %s，时间 %s）\n", h.AssignmentID, score, h.UpdatedAt.Format("2006-01-02 15:04")))
+			b.WriteString(fmt.Sprintf("文件: %s\n", teacherAgentHomeworkFiles(h)))
+			if h.Feedback != "" {
+				b.WriteString(fmt.Sprintf("教师评语: %s\n", h.Feedback))
+			}
+			if h.AIPregradeScore != nil || h.AIPregradeFeedback != "" {
+				preScore := "无"
+				if h.AIPregradeScore != nil {
+					preScore = fmt.Sprintf("%.1f", *h.AIPregradeScore)
+				}
+				b.WriteString(fmt.Sprintf("AI预评: 分数 %s，反馈: %s\n", preScore, h.AIPregradeFeedback))
+			}
+			if h.AIPregradeError != "" {
+				b.WriteString(fmt.Sprintf("AI预评错误: %s\n", h.AIPregradeError))
+			}
+		}
+	}
+
+	// Q&A issues and messages
+	if len(matchedIssues) > 0 {
+		sort.Slice(matchedIssues, func(i, j int) bool {
+			return matchedIssues[i].CreatedAt.Before(matchedIssues[j].CreatedAt)
+		})
+		b.WriteString("\n## Q&A 互动记录\n")
+		for _, issue := range matchedIssues {
+			b.WriteString(fmt.Sprintf("\n### #%d %s（状态 %s，时间 %s）\n",
+				issue.ID, issue.Title, issue.Status, issue.CreatedAt.Format("2006-01-02 15:04")))
+			msgs, _ := s.store.ListQAMessages(ctx, issue.ID)
+			for _, msg := range msgs {
+				sender := "学生"
+				if msg.Sender == "teacher" {
+					sender = "教师"
+				}
+				content := msg.Content
+				if len([]rune(content)) > 300 {
+					content = string([]rune(content)[:300]) + "..."
+				}
+				b.WriteString(fmt.Sprintf("- [%s %s] %s\n", sender, msg.CreatedAt.Format("01-02 15:04"), content))
+			}
+		}
+	}
+
+	return truncateAgentText(b.String()), nil
+}
+
+func agentParseStudentArgs(args map[string]any) (studentNo, name, className string) {
+	studentNo = agentArgString(args, "student_no")
+	name = agentArgString(args, "name")
+	className = agentArgString(args, "class_name")
+	if studentNo == "" && name == "" {
+		rawID := agentArgString(args, "student_id")
+		parts := strings.Split(rawID, "|")
+		if len(parts) >= 1 {
+			studentNo = strings.TrimSpace(parts[0])
+		}
+		if len(parts) >= 2 {
+			name = strings.TrimSpace(parts[1])
+		}
+		if len(parts) >= 3 {
+			className = strings.TrimSpace(parts[2])
+		}
+	}
+	return
+}
+
+func agentOptionLabel(q domain.Question, ansKey string) string {
+	if ansKey == "" {
+		return "（未作答）"
+	}
+	for _, opt := range q.Options {
+		if opt.Key == ansKey {
+			return opt.Key + "." + opt.Text
+		}
+	}
+	if strings.Contains(ansKey, ",") {
+		keys := strings.Split(ansKey, ",")
+		labels := make([]string, 0, len(keys))
+		for _, k := range keys {
+			k = strings.TrimSpace(k)
+			found := false
+			for _, opt := range q.Options {
+				if opt.Key == k {
+					labels = append(labels, opt.Key+"."+opt.Text)
+					found = true
+					break
+				}
+			}
+			if !found {
+				labels = append(labels, k)
+			}
+		}
+		return strings.Join(labels, ", ")
+	}
+	return ansKey
 }
 
 func agentStudentMatches(rowStudentNo, rowName, rowClassName, studentNo, name, className string) bool {
@@ -893,6 +1111,18 @@ func (s *Server) agentToolDraftHomeworkFeedback(ctx context.Context, tc agentToo
 		ClassName:     submission.ClassName,
 		TeacherNote:   agentArgString(args, "note"),
 		ReportContext: reportText,
+	})
+}
+
+func (s *Server) agentToolDraftStudentAnalysis(ctx context.Context, tc agentToolContext, args map[string]any) (string, error) {
+	rawData, err := s.agentToolGetStudentDeepAnalysis(ctx, tc, args)
+	if err != nil {
+		return "", err
+	}
+	teacherNote := agentArgString(args, "note")
+	return s.aiClient.StudentDeepAnalysis(ctx, ai.StudentAnalysisInput{
+		RawData:     rawData,
+		TeacherNote: teacherNote,
 	})
 }
 

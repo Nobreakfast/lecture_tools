@@ -1500,7 +1500,7 @@ func TestTeacherAgentMentionPlanningPassesQuizID(t *testing.T) {
 		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
 		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
 	})
-	calls, events := s.planTeacherAgentMentionTools(context.Background(), &authSession{TeacherID: "owner", Role: domain.RoleTeacher}, 1, []teacherAgentMention{{Type: "quiz", ID: "week7_l1", Label: "Week 7", CourseID: 1}})
+	calls, events := s.planTeacherAgentMentionTools(context.Background(), &authSession{TeacherID: "owner", Role: domain.RoleTeacher}, 1, []teacherAgentMention{{Type: "quiz", ID: "week7_l1", Label: "Week 7", CourseID: 1}}, "")
 	if len(events) == 0 {
 		t.Fatalf("expected mention events")
 	}

@@ -105,7 +105,7 @@ func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseI
 }, mentions []teacherAgentMention) (string, []teacherAgentEvent, error) {
 	events := []teacherAgentEvent{{Type: "thinking", Title: "理解教师问题并选择可用工具"}}
 	tc := agentToolContext{Session: sess, Platform: true, CourseID: courseID}
-	toolCalls, mentionEvents := s.planTeacherAgentMentionTools(ctx, sess, courseID, mentions)
+	toolCalls, mentionEvents := s.planTeacherAgentMentionTools(ctx, sess, courseID, mentions, latest)
 	events = append(events, mentionEvents...)
 	toolCalls = append(toolCalls, s.planTeacherAgentTools(latest, courseID)...)
 	if len(toolCalls) == 0 {
@@ -180,7 +180,8 @@ func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseI
 	return answer, events, nil
 }
 
-func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSession, fallbackCourseID int, mentions []teacherAgentMention) ([]plannedAgentTool, []teacherAgentEvent) {
+func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSession, fallbackCourseID int, mentions []teacherAgentMention, latestMsg string) ([]plannedAgentTool, []teacherAgentEvent) {
+	deepAnalysis := needsDeepStudentAnalysis(latestMsg)
 	var calls []plannedAgentTool
 	var events []teacherAgentEvent
 	for _, mention := range mentions {
@@ -223,7 +224,12 @@ func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSes
 			for k, v := range mention.Meta {
 				args[k] = v
 			}
-			calls = append(calls, plannedAgentTool{Name: "get_student_profile", Args: args})
+			if deepAnalysis {
+				calls = append(calls, plannedAgentTool{Name: "get_student_deep_analysis", Args: cloneAgentArgs(args)})
+				calls = append(calls, plannedAgentTool{Name: "draft_student_analysis", Args: args})
+			} else {
+				calls = append(calls, plannedAgentTool{Name: "get_student_profile", Args: args})
+			}
 		case "assignment":
 			args := cloneAgentArgs(base)
 			args["assignment_id"] = mid
@@ -283,6 +289,22 @@ func (s *Server) planTeacherAgentTools(latest string, courseID int) []plannedAge
 		calls = append(calls, plannedAgentTool{Name: "get_qa_issues", Args: cloneAgentArgs(args)})
 	}
 	return dedupePlannedAgentTools(calls)
+}
+
+func needsDeepStudentAnalysis(msg string) bool {
+	text := strings.ToLower(msg)
+	keywords := []string{
+		"分析", "画像", "深度", "心理", "不参与", "不理",
+		"沉默", "低参与", "不回应", "不配合", "不互动",
+		"不活跃", "消极", "退出", "缺席", "旷课",
+		"情况分析", "行为", "态度", "状态", "关注",
+	}
+	for _, kw := range keywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneAgentArgs(in map[string]any) map[string]any {

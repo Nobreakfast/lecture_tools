@@ -139,7 +139,7 @@ func (s *Server) teacherTaskAgentContext(ctx context.Context, req teacherTaskAge
 		req.Args = map[string]any{}
 	}
 	tc := agentToolContext{Session: req.Session, Platform: true, CourseID: req.CourseID}
-	calls, events := s.planTeacherAgentMentionTools(ctx, req.Session, req.CourseID, req.Mentions)
+	calls, events := s.planTeacherAgentMentionTools(ctx, req.Session, req.CourseID, req.Mentions, req.Prompt)
 	calls = append(calls, s.planTeacherTaskTools(ctx, req)...)
 	calls = dedupePlannedAgentTools(calls)
 	var b strings.Builder
