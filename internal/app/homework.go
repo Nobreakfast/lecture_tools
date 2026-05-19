@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -3034,12 +3033,12 @@ func looksLikeNotebookFile(path string) bool {
 		return false
 	}
 	defer f.Close()
-	dec := stdjson.NewDecoder(f)
+	dec := json.NewDecoder(f)
 	tok, err := dec.Token()
 	if err != nil {
 		return false
 	}
-	delim, ok := tok.(stdjson.Delim)
+	delim, ok := tok.(json.Delim)
 	if !ok || delim != '{' {
 		return false
 	}
@@ -3071,7 +3070,7 @@ func looksLikeNotebookFile(path string) bool {
 	if err != nil {
 		return false
 	}
-	delim, ok = tok.(stdjson.Delim)
+	delim, ok = tok.(json.Delim)
 	if !ok || delim != '}' {
 		return false
 	}
@@ -3082,12 +3081,12 @@ func looksLikeNotebookFile(path string) bool {
 	return hasCells && hasMetadata && hasNbformat
 }
 
-func skipJSONValue(dec *stdjson.Decoder) error {
+func skipJSONValue(dec *json.Decoder) error {
 	tok, err := dec.Token()
 	if err != nil {
 		return err
 	}
-	delim, ok := tok.(stdjson.Delim)
+	delim, ok := tok.(json.Delim)
 	if !ok {
 		return nil
 	}

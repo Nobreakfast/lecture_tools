@@ -393,7 +393,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/answer-image/delete", s.apiDeleteAnswerImage)
 	mux.HandleFunc("/uploads/", s.serveUpload)
 
-	var handler http.Handler = s.withMaintenanceGuard(withCORS(mux))
+	var handler http.Handler = s.withMaintenanceGuard(mux)
 	pfx := s.pathPrefix()
 	if pfx != "" {
 		inner := handler
@@ -1071,8 +1071,8 @@ func (s *Server) apiJoin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiEntryStatus(w http.ResponseWriter, r *http.Request) {
 	var courseID int
-	if s := r.URL.Query().Get("course_id"); s != "" {
-		fmt.Sscanf(s, "%d", &courseID)
+	if raw := r.URL.Query().Get("course_id"); raw != "" {
+		fmt.Sscanf(raw, "%d", &courseID)
 	}
 	if courseID <= 0 {
 		http.Error(w, "缺少 course_id", http.StatusBadRequest)
@@ -2001,6 +2001,10 @@ func (s *Server) apiAdminLoadQuiz(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.FilePath != "" {
+			if !s.isAllowedQuizFilePath(req.FilePath) {
+				http.Error(w, "文件路径不在允许范围内", http.StatusForbidden)
+				return
+			}
 			data, err := os.ReadFile(req.FilePath)
 			if err != nil {
 				http.Error(w, "读取题库文件失败: "+err.Error(), http.StatusBadRequest)
@@ -4252,6 +4256,23 @@ func (s *Server) collectQuizAssetDirs() []string {
 	return dirs
 }
 
+func (s *Server) isAllowedQuizFilePath(fp string) bool {
+	cleaned := filepath.Clean(fp)
+	if s.cfg.MetadataDir != "" {
+		rel, err := filepath.Rel(s.cfg.MetadataDir, cleaned)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return true
+		}
+	}
+	if s.cfg.DataDir != "" {
+		rel, err := filepath.Rel(s.cfg.DataDir, cleaned)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) resolveAssetPath(raw string) (string, bool) {
 	name := filepath.Clean(strings.TrimSpace(raw))
 	if name == "" || name == "." {
@@ -4674,17 +4695,7 @@ func shuffleQuestionOptions(question domain.Question, quizID, attemptID string) 
 }
 
 func (s *Server) listAttemptsByQuizID(ctx context.Context, quizID string) ([]domain.Attempt, error) {
-	all, err := s.store.ListAttempts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	filtered := make([]domain.Attempt, 0, len(all))
-	for _, item := range all {
-		if item.QuizID == quizID {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered, nil
+	return s.store.ListAttemptsByQuizID(ctx, quizID)
 }
 
 func countSubmitted(items []domain.Attempt) int {
@@ -5079,8 +5090,3 @@ func safeCSV(s string) string {
 	return s
 }
 
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	})
-}

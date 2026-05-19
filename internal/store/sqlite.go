@@ -368,7 +368,24 @@ func (s *SQLiteStore) ListAttempts(ctx context.Context) ([]domain.Attempt, error
 		}
 		items = append(items, *a)
 	}
-	return items, nil
+	return items, rows.Err()
+}
+
+func (s *SQLiteStore) ListAttemptsByQuizID(ctx context.Context, quizID string) ([]domain.Attempt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+attemptCols+` FROM attempts WHERE quiz_id = ? ORDER BY created_at DESC`, quizID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Attempt, 0)
+	for rows.Next() {
+		a, err := scanAttemptRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *a)
+	}
+	return items, rows.Err()
 }
 
 func (s *SQLiteStore) ListAttemptsByCourse(ctx context.Context, courseID int) ([]domain.Attempt, error) {
@@ -385,7 +402,7 @@ func (s *SQLiteStore) ListAttemptsByCourse(ctx context.Context, courseID int) ([
 		}
 		items = append(items, *a)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 func (s *SQLiteStore) GetAttemptByID(ctx context.Context, attemptID string) (*domain.Attempt, error) {
@@ -762,7 +779,7 @@ func (s *SQLiteStore) ListTeachers(ctx context.Context) ([]domain.Teacher, error
 		t.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 		items = append(items, t)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 func (s *SQLiteStore) UpdateTeacherPassword(ctx context.Context, id, passwordHash string) error {
@@ -973,6 +990,14 @@ func (s *SQLiteStore) DeleteCourse(ctx context.Context, id int) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM qa_messages WHERE issue_id IN (SELECT id FROM qa_issues WHERE course_id = ?)`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM qa_issues WHERE course_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM quiz_share WHERE course_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -1022,7 +1047,7 @@ func (s *SQLiteStore) listCourses(ctx context.Context, query string, args ...any
 		c.UpdatedAt = parseTime(time.RFC3339Nano, updated)
 		items = append(items, c)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 // ── Course state ──
@@ -1223,7 +1248,7 @@ func (s *SQLiteStore) ListHomeworkSubmissions(ctx context.Context, courseID int,
 		}
 		items = append(items, *item)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 func (s *SQLiteStore) SaveHomeworkFileMetadata(ctx context.Context, submissionID string, slot domain.HomeworkFileSlot, originalName string) error {
@@ -2204,7 +2229,7 @@ func (s *SQLiteStore) ListActiveQuizShares(ctx context.Context, courseID int, qu
 		}
 		items = append(items, qs)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 func (s *SQLiteStore) RevokeQuizShare(ctx context.Context, id int) error {

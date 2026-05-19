@@ -55,6 +55,7 @@ type CourseStore interface {
 type AttemptStore interface {
 	CreateAttempt(ctx context.Context, a *domain.Attempt) error
 	ListAttempts(ctx context.Context) ([]domain.Attempt, error)
+	ListAttemptsByQuizID(ctx context.Context, quizID string) ([]domain.Attempt, error)
 	ListAttemptsByCourse(ctx context.Context, courseID int) ([]domain.Attempt, error)
 	GetAttemptByID(ctx context.Context, attemptID string) (*domain.Attempt, error)
 	GetAttemptByToken(ctx context.Context, token string) (*domain.Attempt, error)

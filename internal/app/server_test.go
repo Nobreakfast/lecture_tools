@@ -297,6 +297,15 @@ func (m *memStore) CreateAttempt(_ context.Context, a *domain.Attempt) error {
 	return nil
 }
 func (m *memStore) ListAttempts(context.Context) ([]domain.Attempt, error) { return m.attempts, nil }
+func (m *memStore) ListAttemptsByQuizID(_ context.Context, quizID string) ([]domain.Attempt, error) {
+	items := make([]domain.Attempt, 0)
+	for _, item := range m.attempts {
+		if item.QuizID == quizID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
 func (m *memStore) GetAttemptByID(context.Context, string) (*domain.Attempt, error) {
 	return nil, errors.New("not implemented")
 }

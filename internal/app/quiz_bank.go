@@ -64,6 +64,10 @@ func (s *Server) apiTeacherCourseLoadQuiz(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if req.FilePath != "" {
+			if !s.isAllowedQuizFilePath(req.FilePath) {
+				http.Error(w, "文件路径不在允许范围内", http.StatusForbidden)
+				return
+			}
 			data, err := os.ReadFile(req.FilePath)
 			if err != nil {
 				http.Error(w, "读取题库文件失败: "+err.Error(), http.StatusBadRequest)
