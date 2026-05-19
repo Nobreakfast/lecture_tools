@@ -80,6 +80,9 @@ type Server struct {
 	shortAnswerGradeJobs    map[string]struct{}
 	shortAnswerGradeSem     chan struct{}
 
+	studentAgentMu  sync.Mutex
+	studentAgentSem chan struct{}
+
 	// currentQuiz holds the legacy global quiz loaded via the admin panel's
 	// "load-quiz" endpoint. New code should resolve quizzes through
 	// courseQuizzes[course_id]; currentQuiz remains for backward-compatible
@@ -104,6 +107,7 @@ func New(cfg Config, st store.Store) *Server {
 		homeworkPregradeRunning: map[int]bool{},
 		shortAnswerGradeJobs:    map[string]struct{}{},
 		shortAnswerGradeSem:     make(chan struct{}, 3),
+		studentAgentSem:         make(chan struct{}, 2),
 	}
 }
 
@@ -147,6 +151,7 @@ func (s *Server) Init(ctx context.Context) error {
 	// We no longer force entry_open=false on every boot (that would
 	// silently disable in-progress quizzes across process restarts).
 	s.restoreCourseQuizzes(ctx)
+	s.restoreStudentAgentConcurrency(ctx)
 	return nil
 }
 
@@ -231,6 +236,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/system/teachers/reset-password", s.apiAdminTeacherResetPassword)
 	mux.HandleFunc("/api/system/ai-health", s.apiAdminAIHealth)
 	mux.HandleFunc("/api/system/ai-config", s.apiAdminAIConfig)
+	mux.HandleFunc("/api/system/student-agent-concurrency", s.apiSystemStudentAgentConcurrency)
 	mux.HandleFunc("/api/system/shutdown", s.apiAdminShutdown)
 	mux.HandleFunc("/api/system/snapshots", s.apiSystemSnapshots)
 	mux.HandleFunc("/api/system/snapshots/create", s.apiSystemSnapshotsCreate)
@@ -331,6 +337,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/mcp/download", s.apiTeacherMCPDownload)
 	mux.HandleFunc("/api/student/mcp", s.apiStudentMCPDisabled)
 	mux.HandleFunc("/api/teacher/agent/mentions", s.apiTeacherAgentMentions)
+	mux.HandleFunc("/api/teacher/agent/conversations", s.apiTeacherAgentConversations)
+	mux.HandleFunc("/api/teacher/agent/conversations/detail", s.apiTeacherAgentConversationDetail)
+	mux.HandleFunc("/api/teacher/agent/conversations/delete", s.apiTeacherAgentConversationDelete)
+	mux.HandleFunc("/api/teacher/prompt-templates", s.apiTeacherPromptTemplates)
 	mux.HandleFunc("/api/student/agent/chat", s.apiStudentAgentChat)
 	mux.HandleFunc("/api/teacher/agent/chat", s.apiTeacherAgentChat)
 	// MCP SSE endpoints — mounted under /mcp so that after optional path-prefix

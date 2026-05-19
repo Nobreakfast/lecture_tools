@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,15 @@ func (s *Server) apiStudentAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Message = truncateAgentText(req.Message)
+
+	release, err := s.acquireStudentAgentSlot(r.Context())
+	if err != nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "当前使用人数较多，请稍后再试",
+		})
+		return
+	}
+	defer release()
 
 	prompt := s.studentAgentPrompt(r, submission, req.Message, req.Messages)
 	raw, err := s.aiClient.StudentAgentChat(r.Context(), prompt)
@@ -217,7 +227,7 @@ func (s *Server) studentAgentPrompt(r *http.Request, submission *domain.Homework
 	b.WriteString("4. 如果学生的问题需要教师判断、确认课程/作业规则、课程安排、作业要求、申诉或个性化处理，且已有 Q&A 不能覆盖，请 action=create_qa，把诉求总结成 Q&A。\n")
 	b.WriteString("5. 可以使用学生可见的课程资料和当前作业附件；隐藏资料、教师数据、访问凭据和内部工具细节都不能透露。\n")
 	b.WriteString("6. 遇到违反中国网络安全、数据安全或学校师德师风要求的内容，请 action=refuse，不要直接解答。\n")
-	b.WriteString("7. 必须只输出一个 JSON 对象：{\"action\":\"answer|create_qa|refuse\",\"answer\":\"给学生看的中文回复\",\"qa_title\":\"可选标题\",\"qa_summary\":\"需要创建 Q&A 时给教师看的问题摘要\"}。\n\n")
+	b.WriteString("7. 记住：你的回复必须是且仅是一个 JSON 对象，直接以 { 开头，以 } 结尾，不要包含任何其他文字。\n\n")
 
 	b.WriteString("【历史小测内部结果】\n")
 	if text, err := s.callAgentTool(r.Context(), "get_my_quiz_history", agentToolContext{Student: submission}, map[string]any{"limit": 10}); err == nil {
@@ -321,4 +331,82 @@ func truncateAgentText(text string) string {
 		return string(runes)
 	}
 	return string(runes[:agentMaxMessageRunes]) + "..."
+}
+
+const defaultStudentAgentConcurrency = 2
+
+func (s *Server) acquireStudentAgentSlot(ctx context.Context) (func(), error) {
+	s.studentAgentMu.Lock()
+	sem := s.studentAgentSem
+	if sem == nil {
+		sem = make(chan struct{}, defaultStudentAgentConcurrency)
+		s.studentAgentSem = sem
+	}
+	s.studentAgentMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(30 * time.Second):
+		return nil, fmt.Errorf("queue timeout")
+	}
+}
+
+func (s *Server) restoreStudentAgentConcurrency(ctx context.Context) {
+	val, err := s.store.GetSetting(ctx, "student_agent_concurrency")
+	if err != nil || strings.TrimSpace(val) == "" {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(val))
+	if err != nil || n < 1 || n > 50 {
+		return
+	}
+	s.studentAgentMu.Lock()
+	s.studentAgentSem = make(chan struct{}, n)
+	s.studentAgentMu.Unlock()
+}
+
+func (s *Server) setStudentAgentConcurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 50 {
+		n = 50
+	}
+	s.studentAgentMu.Lock()
+	s.studentAgentSem = make(chan struct{}, n)
+	s.studentAgentMu.Unlock()
+}
+
+func (s *Server) apiSystemStudentAgentConcurrency(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.studentAgentMu.Lock()
+		n := cap(s.studentAgentSem)
+		s.studentAgentMu.Unlock()
+		writeJSON(w, map[string]any{"concurrency": n})
+	case http.MethodPost:
+		var req struct {
+			Concurrency int `json:"concurrency"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.Concurrency < 1 || req.Concurrency > 50 {
+			http.Error(w, "concurrency must be between 1 and 50", http.StatusBadRequest)
+			return
+		}
+		s.setStudentAgentConcurrency(req.Concurrency)
+		_ = s.store.SetSetting(r.Context(), "student_agent_concurrency", strconv.Itoa(req.Concurrency))
+		writeJSON(w, map[string]any{"ok": true, "concurrency": req.Concurrency})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }

@@ -127,6 +127,25 @@ type QAIssueStore interface {
 	ListQAMessages(ctx context.Context, issueID int) ([]domain.QAMessage, error)
 }
 
+// TeacherPromptStore provides teacher-customizable prompt template persistence.
+type TeacherPromptStore interface {
+	GetTeacherPrompt(ctx context.Context, teacherID, promptKey string) (string, error)
+	ListTeacherPrompts(ctx context.Context, teacherID string) ([]domain.TeacherPromptTemplate, error)
+	SetTeacherPrompt(ctx context.Context, teacherID, promptKey, content string) error
+	DeleteTeacherPrompt(ctx context.Context, teacherID, promptKey string) error
+}
+
+// AgentConversationStore provides agent conversation persistence.
+type AgentConversationStore interface {
+	CreateAgentConversation(ctx context.Context, conv *domain.AgentConversation) error
+	ListAgentConversations(ctx context.Context, teacherID string, limit int) ([]domain.AgentConversation, error)
+	GetAgentConversation(ctx context.Context, id string) (*domain.AgentConversation, error)
+	UpdateAgentConversationTitle(ctx context.Context, id, title string) error
+	DeleteAgentConversation(ctx context.Context, id string) error
+	CreateAgentMessage(ctx context.Context, msg *domain.AgentMessage) error
+	ListAgentMessages(ctx context.Context, conversationID string) ([]domain.AgentMessage, error)
+}
+
 // Store is the composition of all domain-scoped store interfaces.
 // New consumers should prefer accepting the smallest interface they need
 // (e.g. AttemptStore) rather than the full Store.
@@ -138,6 +157,8 @@ type Store interface {
 	AttemptStore
 	HomeworkStore
 	QAIssueStore
+	AgentConversationStore
+	TeacherPromptStore
 	Init(ctx context.Context) error
 	Close() error
 }

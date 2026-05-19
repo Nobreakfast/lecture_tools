@@ -442,6 +442,29 @@ func ensureCoreTables(ctx context.Context, db *sql.DB) error {
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY(quiz_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS agent_conversations (
+			id TEXT PRIMARY KEY,
+			teacher_id TEXT NOT NULL,
+			course_id INTEGER NOT NULL DEFAULT 0,
+			title TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS agent_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			events TEXT,
+			created_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS teacher_prompt_templates (
+			teacher_id TEXT NOT NULL,
+			prompt_key TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY(teacher_id, prompt_key)
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {
@@ -466,6 +489,8 @@ var migrationIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_homework_submissions_lookup ON homework_submissions(course_id, assignment_id, student_no)`,
 	`CREATE INDEX IF NOT EXISTS idx_homework_submissions_legacy ON homework_submissions(course, assignment_id, student_no)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_summaries_course_quiz ON admin_summaries(course_id, quiz_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_conversations_teacher ON agent_conversations(teacher_id, updated_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_messages_conv ON agent_messages(conversation_id, created_at)`,
 }
 
 func migrateInProgressIndex(ctx context.Context, db *sql.DB) error {

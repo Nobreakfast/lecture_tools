@@ -286,3 +286,28 @@ func (h HomeworkSubmission) HasSlot(slot HomeworkFileSlot) bool {
 		return false
 	}
 }
+
+type TeacherPromptTemplate struct {
+	TeacherID  string
+	PromptKey  string
+	Content    string
+	UpdatedAt  time.Time
+}
+
+type AgentConversation struct {
+	ID        string
+	TeacherID string
+	CourseID  int
+	Title     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AgentMessage struct {
+	ID             int64
+	ConversationID string
+	Role           string
+	Content        string
+	Events         string
+	CreatedAt      time.Time
+}

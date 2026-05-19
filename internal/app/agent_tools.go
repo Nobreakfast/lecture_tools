@@ -1103,13 +1103,23 @@ func (s *Server) agentToolDraftHomeworkFeedback(ctx context.Context, tc agentToo
 	}
 	reportPath := filepath.Join(s.resolveHomeworkSubmissionDirForCourse(course, submission), homeworkDiskFilename(domain.HomeworkSlotReport))
 	reportText, _ := pdftext.ExtractText(reportPath)
+	note := agentArgString(args, "note")
+	if tc.Session != nil {
+		customPrompt := s.getTeacherPromptOrDefault(ctx, tc.Session.TeacherID, "homework_feedback")
+		if strings.TrimSpace(customPrompt) != "" {
+			if note != "" {
+				note += "\n\n"
+			}
+			note += "【教师 AI 偏好】\n" + customPrompt
+		}
+	}
 	return s.aiClient.GenerateHomeworkFeedback(ctx, ai.HomeworkGradeFeedbackInput{
 		CourseName:    teacherAgentCourseName(course),
 		AssignmentID:  submission.AssignmentID,
 		StudentName:   submission.Name,
 		StudentNo:     submission.StudentNo,
 		ClassName:     submission.ClassName,
-		TeacherNote:   agentArgString(args, "note"),
+		TeacherNote:   note,
 		ReportContext: reportText,
 	})
 }
@@ -1120,6 +1130,15 @@ func (s *Server) agentToolDraftStudentAnalysis(ctx context.Context, tc agentTool
 		return "", err
 	}
 	teacherNote := agentArgString(args, "note")
+	if tc.Session != nil {
+		customPrompt := s.getTeacherPromptOrDefault(ctx, tc.Session.TeacherID, "student_analysis")
+		if strings.TrimSpace(customPrompt) != "" {
+			if teacherNote != "" {
+				teacherNote += "\n\n"
+			}
+			teacherNote += "【教师 AI 偏好】\n" + customPrompt
+		}
+	}
 	return s.aiClient.StudentDeepAnalysis(ctx, ai.StudentAnalysisInput{
 		RawData:     rawData,
 		TeacherNote: teacherNote,

@@ -44,6 +44,15 @@ func (s *Server) runTeacherTaskAgent(ctx context.Context, req teacherTaskAgentRe
 	ctxText, ctxEvents := s.teacherTaskAgentContext(ctx, req)
 	events = append(events, ctxEvents...)
 	prompt := s.teacherTaskPrompt(req, ctxText)
+
+	// Inject teacher's custom prompt template if available.
+	if req.Session != nil && req.Session.TeacherID != "" {
+		customPrompt := s.getTeacherPromptOrDefault(ctx, req.Session.TeacherID, req.TaskType)
+		if strings.TrimSpace(customPrompt) != "" {
+			prompt += "\n\n【教师 AI 偏好设置】\n" + customPrompt
+		}
+	}
+
 	events = append(events, teacherAgentEvent{Type: "thinking", Title: "基于固定模板和工具上下文生成结果"})
 
 	var out teacherTaskAgentResult

@@ -181,6 +181,31 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			images_json TEXT NOT NULL DEFAULT '[]',
 			created_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS agent_conversations (
+			id TEXT PRIMARY KEY,
+			teacher_id TEXT NOT NULL,
+			course_id INTEGER NOT NULL DEFAULT 0,
+			title TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		);`,
+		`CREATE TABLE IF NOT EXISTS agent_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			events TEXT,
+			created_at TEXT NOT NULL DEFAULT ''
+		);`,
+		`CREATE TABLE IF NOT EXISTS teacher_prompt_templates (
+			teacher_id TEXT NOT NULL,
+			prompt_key TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY(teacher_id, prompt_key)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_conversations_teacher ON agent_conversations(teacher_id, updated_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_messages_conv ON agent_messages(conversation_id, created_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -2474,4 +2499,165 @@ func (s *SQLiteStore) MergeAttemptStudent(ctx context.Context, sourceName, sourc
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// ─── Agent Conversations ───
+
+func (s *SQLiteStore) CreateAgentConversation(ctx context.Context, conv *domain.AgentConversation) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	if conv.CreatedAt.IsZero() {
+		conv.CreatedAt = time.Now()
+	}
+	if conv.UpdatedAt.IsZero() {
+		conv.UpdatedAt = conv.CreatedAt
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO agent_conversations(id, teacher_id, course_id, title, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
+		conv.ID, conv.TeacherID, conv.CourseID, conv.Title, now, now)
+	return err
+}
+
+func (s *SQLiteStore) ListAgentConversations(ctx context.Context, teacherID string, limit int) ([]domain.AgentConversation, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, teacher_id, course_id, title, created_at, updated_at FROM agent_conversations WHERE teacher_id = ? ORDER BY updated_at DESC LIMIT ?`,
+		teacherID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.AgentConversation
+	for rows.Next() {
+		var c domain.AgentConversation
+		var createdAt, updatedAt string
+		if err := rows.Scan(&c.ID, &c.TeacherID, &c.CourseID, &c.Title, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s *SQLiteStore) GetAgentConversation(ctx context.Context, id string) (*domain.AgentConversation, error) {
+	var c domain.AgentConversation
+	var createdAt, updatedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, teacher_id, course_id, title, created_at, updated_at FROM agent_conversations WHERE id = ?`, id).
+		Scan(&c.ID, &c.TeacherID, &c.CourseID, &c.Title, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	c.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	return &c, nil
+}
+
+func (s *SQLiteStore) UpdateAgentConversationTitle(ctx context.Context, id, title string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE agent_conversations SET title = ?, updated_at = ? WHERE id = ?`, title, now, id)
+	return err
+}
+
+func (s *SQLiteStore) DeleteAgentConversation(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_messages WHERE conversation_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_conversations WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) CreateAgentMessage(ctx context.Context, msg *domain.AgentMessage) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO agent_messages(conversation_id, role, content, events, created_at) VALUES(?,?,?,?,?)`,
+		msg.ConversationID, msg.Role, msg.Content, msg.Events, now)
+	if err != nil {
+		return err
+	}
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE agent_conversations SET updated_at = ? WHERE id = ?`, now, msg.ConversationID)
+	return nil
+}
+
+func (s *SQLiteStore) ListAgentMessages(ctx context.Context, conversationID string) ([]domain.AgentMessage, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, role, content, COALESCE(events,''), created_at FROM agent_messages WHERE conversation_id = ? ORDER BY created_at ASC`,
+		conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.AgentMessage
+	for rows.Next() {
+		var m domain.AgentMessage
+		var createdAt string
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Events, &createdAt); err != nil {
+			continue
+		}
+		m.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// --- TeacherPromptStore ---
+
+func (s *SQLiteStore) GetTeacherPrompt(ctx context.Context, teacherID, promptKey string) (string, error) {
+	var content string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT content FROM teacher_prompt_templates WHERE teacher_id = ? AND prompt_key = ?`,
+		teacherID, promptKey).Scan(&content)
+	if err != nil {
+		return "", err
+	}
+	return content, nil
+}
+
+func (s *SQLiteStore) ListTeacherPrompts(ctx context.Context, teacherID string) ([]domain.TeacherPromptTemplate, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT teacher_id, prompt_key, content, updated_at FROM teacher_prompt_templates WHERE teacher_id = ? ORDER BY prompt_key`,
+		teacherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.TeacherPromptTemplate
+	for rows.Next() {
+		var t domain.TeacherPromptTemplate
+		var updatedAt string
+		if err := rows.Scan(&t.TeacherID, &t.PromptKey, &t.Content, &updatedAt); err != nil {
+			continue
+		}
+		t.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+func (s *SQLiteStore) SetTeacherPrompt(ctx context.Context, teacherID, promptKey, content string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO teacher_prompt_templates(teacher_id, prompt_key, content, updated_at) VALUES(?,?,?,?)
+		 ON CONFLICT(teacher_id, prompt_key) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at`,
+		teacherID, promptKey, content, now)
+	return err
+}
+
+func (s *SQLiteStore) DeleteTeacherPrompt(ctx context.Context, teacherID, promptKey string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM teacher_prompt_templates WHERE teacher_id = ? AND prompt_key = ?`,
+		teacherID, promptKey)
+	return err
 }

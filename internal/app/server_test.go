@@ -767,6 +767,30 @@ func (m *memStore) MergeAttemptStudent(_ context.Context, _, _, _, _, _, _ strin
 	return 0, errors.New("not implemented")
 }
 
+func (m *memStore) CreateAgentConversation(context.Context, *domain.AgentConversation) error {
+	return nil
+}
+func (m *memStore) ListAgentConversations(context.Context, string, int) ([]domain.AgentConversation, error) {
+	return nil, nil
+}
+func (m *memStore) GetAgentConversation(context.Context, string) (*domain.AgentConversation, error) {
+	return nil, errors.New("not found")
+}
+func (m *memStore) UpdateAgentConversationTitle(context.Context, string, string) error { return nil }
+func (m *memStore) DeleteAgentConversation(context.Context, string) error             { return nil }
+func (m *memStore) CreateAgentMessage(context.Context, *domain.AgentMessage) error     { return nil }
+func (m *memStore) ListAgentMessages(context.Context, string) ([]domain.AgentMessage, error) {
+	return nil, nil
+}
+func (m *memStore) GetTeacherPrompt(context.Context, string, string) (string, error) {
+	return "", errors.New("not found")
+}
+func (m *memStore) ListTeacherPrompts(context.Context, string) ([]domain.TeacherPromptTemplate, error) {
+	return nil, nil
+}
+func (m *memStore) SetTeacherPrompt(context.Context, string, string, string) error   { return nil }
+func (m *memStore) DeleteTeacherPrompt(context.Context, string, string) error { return nil }
+
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{
 		QuizID: "w2",

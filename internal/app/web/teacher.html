@@ -747,6 +747,72 @@
       color: var(--text-muted);
     }
 
+    .agent-history-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      color: var(--text-muted);
+    }
+    .agent-history-toggle:hover { background: var(--hover); }
+
+    .agent-history-panel {
+      display: none;
+      flex-direction: column;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--surface);
+      z-index: 10;
+    }
+    .agent-history-panel.open { display: flex; }
+
+    .agent-history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+    }
+
+    .agent-history-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .agent-history-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .agent-history-item:hover { background: var(--hover); }
+    .agent-history-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-history-item .time { flex: 0 0 auto; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+    .agent-history-item .del-btn {
+      flex: 0 0 auto;
+      margin-left: 6px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .agent-history-item .del-btn:hover { background: #fee2e2; color: #dc2626; }
+
     /* ── Responsive ── */
     @media (max-width: 720px) {
       .login-wrap {
@@ -1242,6 +1308,11 @@
           </p>
         </div>
       </div>
+      <!-- AI Prompt 偏好设置 -->
+      <div class="card">
+        <p><strong>AI 偏好设置</strong><span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">自定义各 AI 功能的输出风格和规则，留空则使用系统默认</span></p>
+        <div id="promptTemplatesContainer" style="margin-top:12px;"></div>
+      </div>
     </div>
 
   </div>
@@ -1462,9 +1533,17 @@
         <div style="font-size:12px;color:var(--text-muted);">只读查询：可基于课程、小测、作业数据回答</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
+        <button id="agentHistoryBtn" class="agent-history-toggle" type="button" title="历史对话">📋</button>
         <button id="agentNewBtn" class="small btn-secondary" type="button" style="margin-top:0;">新对话</button>
         <button id="agentCloseBtn" class="small btn-secondary" type="button" style="margin-top:0;">关闭</button>
       </div>
+    </div>
+    <div id="agentHistoryPanel" class="agent-history-panel">
+      <div class="agent-history-header">
+        <span>历史对话</span>
+        <button id="agentHistoryBackBtn" class="small btn-secondary" type="button" style="margin-top:0;">返回</button>
+      </div>
+      <div id="agentHistoryList" class="agent-history-list"></div>
     </div>
     <div id="agentMessages" class="agent-messages" role="log" aria-live="polite"></div>
       <div class="agent-input-wrap">
@@ -1579,6 +1658,8 @@
     let agentMentionCandidates = [];
     let agentMentionActiveIndex = 0;
     let agentMentionQuery = '';
+    let agentConversationId = '';
+    let agentConversations = [];
 
 
     function setAgentVisible(visible) {
@@ -1623,6 +1704,7 @@
       agentMentionCandidates = [];
       agentMentionActiveIndex = 0;
       agentMentionQuery = '';
+      agentConversationId = '';
       const input = document.getElementById('agentInput');
       if (input) input.value = '';
       renderAgentMentionChips();
@@ -1811,13 +1893,16 @@
       renderAgentMessages();
       try {
         const history = agentMessages.filter(m => m !== typing).slice(0, -1).slice(-8);
+        const payload = { course_id: selectedCourseId || '', message, messages: history, mentions: agentMentions };
+        if (agentConversationId) payload.conversation_id = agentConversationId;
         const data = await App.fetchJSON('/api/teacher/agent/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ course_id: selectedCourseId || '', message, messages: history, mentions: agentMentions })
+          body: JSON.stringify(payload)
         });
         typing.content = data.answer || '没有返回内容。';
         typing.events = data.events || [];
+        if (data.conversation_id) agentConversationId = data.conversation_id;
         agentMentions = [];
         renderAgentMentionChips();
       } catch (e) {
@@ -1828,6 +1913,80 @@
         if (newBtn) newBtn.disabled = false;
         renderAgentMessages();
       }
+    }
+
+    async function loadAgentConversations() {
+      try {
+        const data = await App.fetchJSON('/api/teacher/agent/conversations', { credentials: 'include' });
+        agentConversations = data.conversations || [];
+      } catch (_) { agentConversations = []; }
+      renderAgentHistoryList();
+    }
+
+    function renderAgentHistoryList() {
+      const list = document.getElementById('agentHistoryList');
+      if (!list) return;
+      if (agentConversations.length === 0) {
+        list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">暂无历史对话</div>';
+        return;
+      }
+      list.innerHTML = agentConversations.map(c => {
+        const d = new Date(c.UpdatedAt || c.CreatedAt);
+        const timeStr = isNaN(d.getTime()) ? '' : (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+        return `<div class="agent-history-item" data-id="${escapeHTML(c.ID)}">
+          <span class="title" onclick="loadAgentConversation('${escapeHTML(c.ID)}')">${escapeHTML(c.Title || '未命名对话')}</span>
+          <span class="time">${timeStr}</span>
+          <button class="del-btn" onclick="event.stopPropagation();deleteAgentConversation('${escapeHTML(c.ID)}')" title="删除">×</button>
+        </div>`;
+      }).join('');
+    }
+
+    function openAgentHistory() {
+      loadAgentConversations();
+      const panel = document.getElementById('agentHistoryPanel');
+      if (panel) panel.classList.add('open');
+    }
+
+    function closeAgentHistory() {
+      const panel = document.getElementById('agentHistoryPanel');
+      if (panel) panel.classList.remove('open');
+    }
+
+    async function loadAgentConversation(id) {
+      try {
+        const data = await App.fetchJSON('/api/teacher/agent/conversations/detail?id=' + encodeURIComponent(id), { credentials: 'include' });
+        agentConversationId = id;
+        agentMessages = [];
+        const msgs = data.messages || [];
+        for (const m of msgs) {
+          const entry = { role: m.Role, content: m.Content };
+          if (m.Events) { try { entry.events = JSON.parse(m.Events); } catch(_) {} }
+          agentMessages.push(entry);
+        }
+        if (agentMessages.length === 0) {
+          addAgentMessage('assistant', '你好，我可以基于你有权限访问的课程、小测、作业和资料数据回答问题。');
+        } else {
+          renderAgentMessages();
+        }
+        closeAgentHistory();
+      } catch (e) {
+        alert('加载对话失败');
+      }
+    }
+
+    async function deleteAgentConversation(id) {
+      if (!confirm('确定删除此对话？')) return;
+      try {
+        await App.fetchJSON('/api/teacher/agent/conversations/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        if (agentConversationId === id) {
+          resetTeacherAgentConversation();
+        }
+        loadAgentConversations();
+      } catch (_) { alert('删除失败'); }
     }
 
     function teacherLastCourseKey() {
@@ -4237,6 +4396,8 @@
     document.getElementById('agentLauncher').onclick = openAgentPanel;
     document.getElementById('agentNewBtn').onclick = resetTeacherAgentConversation;
     document.getElementById('agentCloseBtn').onclick = closeAgentPanel;
+    document.getElementById('agentHistoryBtn').onclick = openAgentHistory;
+    document.getElementById('agentHistoryBackBtn').onclick = closeAgentHistory;
     document.getElementById('agentSendBtn').onclick = sendAgentMessage;
     document.getElementById('agentInput').addEventListener('input', onAgentInputChange);
     document.getElementById('agentInput').addEventListener('keydown', (evt) => {
@@ -4532,6 +4693,83 @@
     if (mcpToggle) {
       mcpToggle.addEventListener('change', onMCPEnabledToggle);
     }
+
+    // --- AI Prompt Templates ---
+    let promptTemplates = [];
+
+    async function loadPromptTemplates() {
+      const container = document.getElementById('promptTemplatesContainer');
+      if (!container) return;
+      try {
+        const r = await fetch('/api/teacher/prompt-templates', { credentials: 'include' });
+        if (!r.ok) throw new Error('加载失败');
+        const data = await r.json();
+        promptTemplates = data.templates || [];
+        renderPromptTemplates();
+      } catch (e) {
+        container.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">加载 AI 偏好失败</p>';
+      }
+    }
+
+    function renderPromptTemplates() {
+      const container = document.getElementById('promptTemplatesContainer');
+      if (!container) return;
+      if (!promptTemplates.length) {
+        container.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">暂无可配置项</p>';
+        return;
+      }
+      container.innerHTML = promptTemplates.map((t, i) => `
+        <div style="margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:13px;font-weight:600;">${escapeHTML(t.label)}</span>
+            <div style="display:flex;gap:6px;">
+              ${t.is_default ? '<span style="font-size:11px;color:var(--text-secondary);padding:2px 6px;border:1px solid var(--border);border-radius:4px;">默认</span>' : '<button class="small btn-secondary" style="margin:0;padding:2px 8px;font-size:11px;" onclick="resetPromptTemplate(\'' + t.key + '\')">恢复默认</button>'}
+              <button class="small" style="margin:0;padding:2px 8px;font-size:11px;" onclick="savePromptTemplate(\'' + t.key + '\',' + i + ')">保存</button>
+            </div>
+          </div>
+          <textarea id="promptTpl_${t.key}" rows="5" style="width:100%;font-size:12px;line-height:1.6;font-family:monospace;resize:vertical;border:1px solid var(--border);border-radius:6px;padding:8px;">${escapeHTML(t.content)}</textarea>
+        </div>
+      `).join('');
+    }
+
+    async function savePromptTemplate(key, idx) {
+      const textarea = document.getElementById('promptTpl_' + key);
+      if (!textarea) return;
+      const content = textarea.value.trim();
+      if (!content) { showToast('内容不能为空'); return; }
+      try {
+        const r = await fetch('/api/teacher/prompt-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ key, content })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        showToast('已保存');
+        await loadPromptTemplates();
+      } catch (e) {
+        showToast(e.message || '保存失败');
+      }
+    }
+
+    async function resetPromptTemplate(key) {
+      if (!confirm('确定恢复为系统默认模板？')) return;
+      try {
+        const r = await fetch('/api/teacher/prompt-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ key, reset: true })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        showToast('已恢复默认');
+        await loadPromptTemplates();
+      } catch (e) {
+        showToast(e.message || '恢复失败');
+      }
+    }
+
+    loadPromptTemplates();
   </script>
 </body>
 

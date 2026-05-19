@@ -5,6 +5,8 @@ package app
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -47,9 +49,10 @@ func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		CourseID string `json:"course_id"`
-		Message  string `json:"message"`
-		Messages []struct {
+		CourseID       string `json:"course_id"`
+		ConversationID string `json:"conversation_id"`
+		Message        string `json:"message"`
+		Messages       []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
@@ -67,12 +70,166 @@ func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
 	req.Message = truncateAgentText(req.Message)
 
 	courseID, _ := strconv.Atoi(strings.TrimSpace(req.CourseID))
+
+	convID := strings.TrimSpace(req.ConversationID)
+	if convID == "" {
+		convID = generateConversationID()
+		title := string([]rune(req.Message)[:min(len([]rune(req.Message)), 30)])
+		_ = s.store.CreateAgentConversation(r.Context(), &domain.AgentConversation{
+			ID:        convID,
+			TeacherID: sess.TeacherID,
+			CourseID:  courseID,
+			Title:     title,
+		})
+	}
+
 	answer, events, err := s.runTeacherAgent(r.Context(), sess, courseID, req.Message, req.Messages, req.Mentions)
 	if err != nil {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "events": events})
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "events": events, "conversation_id": convID})
 		return
 	}
-	writeJSON(w, map[string]any{"answer": answer, "events": events})
+
+	eventsJSON, _ := json.Marshal(events)
+	_ = s.store.CreateAgentMessage(r.Context(), &domain.AgentMessage{
+		ConversationID: convID,
+		Role:           "user",
+		Content:        req.Message,
+	})
+	_ = s.store.CreateAgentMessage(r.Context(), &domain.AgentMessage{
+		ConversationID: convID,
+		Role:           "assistant",
+		Content:        answer,
+		Events:         string(eventsJSON),
+	})
+
+	writeJSON(w, map[string]any{"answer": answer, "events": events, "conversation_id": convID})
+}
+
+func generateConversationID() string {
+	buf := make([]byte, 12)
+	_, _ = crand.Read(buf)
+	return hex.EncodeToString(buf)
+}
+
+func (s *Server) apiTeacherAgentConversations(w http.ResponseWriter, r *http.Request) {
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		items, err := s.store.ListAgentConversations(r.Context(), sess.TeacherID, 50)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if items == nil {
+			items = []domain.AgentConversation{}
+		}
+		writeJSON(w, map[string]any{"conversations": items})
+	case http.MethodPost:
+		var req struct {
+			CourseID int    `json:"course_id"`
+			Title    string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		convID := generateConversationID()
+		title := strings.TrimSpace(req.Title)
+		if title == "" {
+			title = "新对话"
+		}
+		conv := &domain.AgentConversation{
+			ID:        convID,
+			TeacherID: sess.TeacherID,
+			CourseID:  req.CourseID,
+			Title:     title,
+		}
+		if err := s.store.CreateAgentConversation(r.Context(), conv); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"conversation": conv})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) apiTeacherAgentConversationDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	convID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if convID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	conv, err := s.store.GetAgentConversation(r.Context(), convID)
+	if err != nil || conv == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if conv.TeacherID != sess.TeacherID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	messages, err := s.store.ListAgentMessages(r.Context(), convID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if messages == nil {
+		messages = []domain.AgentMessage{}
+	}
+	writeJSON(w, map[string]any{"conversation": conv, "messages": messages})
+}
+
+func (s *Server) apiTeacherAgentConversationDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	convID := strings.TrimSpace(req.ID)
+	if convID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	conv, err := s.store.GetAgentConversation(r.Context(), convID)
+	if err != nil || conv == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if conv.TeacherID != sess.TeacherID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := s.store.DeleteAgentConversation(r.Context(), convID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) apiTeacherAgentMentions(w http.ResponseWriter, r *http.Request) {
