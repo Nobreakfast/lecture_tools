@@ -265,6 +265,7 @@ func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseI
 	toolCalls, mentionEvents := s.planTeacherAgentMentionTools(ctx, sess, courseID, mentions, latest)
 	events = append(events, mentionEvents...)
 	toolCalls = append(toolCalls, s.planTeacherAgentTools(latest, courseID)...)
+	toolCalls = append(toolCalls, s.planTeacherAgentImplicitStudentTools(ctx, sess, courseID, latest)...)
 	if len(toolCalls) == 0 {
 		toolCalls = append(toolCalls, plannedAgentTool{Name: "list_courses", Args: map[string]any{}})
 		if courseID > 0 {
@@ -381,9 +382,15 @@ func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSes
 			for k, v := range mention.Meta {
 				args[k] = v
 			}
+			homeworkFocus := needsStudentHomework(latestMsg)
 			if deepAnalysis {
 				calls = append(calls, plannedAgentTool{Name: "get_student_deep_analysis", Args: cloneAgentArgs(args)})
+				if homeworkFocus {
+					calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: cloneAgentArgs(args)})
+				}
 				calls = append(calls, plannedAgentTool{Name: "draft_student_analysis", Args: args})
+			} else if homeworkFocus {
+				calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: args})
 			} else {
 				calls = append(calls, plannedAgentTool{Name: "get_student_profile", Args: args})
 			}
@@ -448,6 +455,44 @@ func (s *Server) planTeacherAgentTools(latest string, courseID int) []plannedAge
 	return dedupePlannedAgentTools(calls)
 }
 
+func (s *Server) planTeacherAgentImplicitStudentTools(ctx context.Context, sess *authSession, courseID int, latest string) []plannedAgentTool {
+	if sess == nil || courseID <= 0 {
+		return nil
+	}
+	deepAnalysis := needsDeepStudentAnalysis(latest)
+	homeworkFocus := needsStudentHomework(latest)
+	if !deepAnalysis && !homeworkFocus {
+		return nil
+	}
+	items, err := s.agentMentionCandidates(ctx, sess, courseID, "", 200)
+	if err != nil {
+		return nil
+	}
+	var calls []plannedAgentTool
+	for _, item := range items {
+		if item.Type != "student" || !agentStudentCandidateMentioned(latest, item) {
+			continue
+		}
+		args := map[string]any{"course_id": item.CourseID, "student_id": item.ID}
+		for k, v := range item.Meta {
+			args[k] = v
+		}
+		if deepAnalysis {
+			calls = append(calls, plannedAgentTool{Name: "get_student_deep_analysis", Args: cloneAgentArgs(args)})
+			if homeworkFocus {
+				calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: cloneAgentArgs(args)})
+			}
+			calls = append(calls, plannedAgentTool{Name: "draft_student_analysis", Args: args})
+		} else {
+			calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: args})
+		}
+		if len(calls) >= 3 {
+			break
+		}
+	}
+	return dedupePlannedAgentTools(calls)
+}
+
 func needsDeepStudentAnalysis(msg string) bool {
 	text := strings.ToLower(msg)
 	keywords := []string{
@@ -458,6 +503,45 @@ func needsDeepStudentAnalysis(msg string) bool {
 	}
 	for _, kw := range keywords {
 		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func needsStudentHomework(msg string) bool {
+	text := strings.ToLower(msg)
+	keywords := []string{
+		"作业", "提交", "报告", "评分", "评语", "预评", "批改",
+		"homework", "assignment", "submission", "grade", "feedback",
+	}
+	for _, kw := range keywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentStudentCandidateMentioned(text string, item agentMentionCandidate) bool {
+	hay := strings.ToLower(strings.TrimSpace(text))
+	if hay == "" {
+		return false
+	}
+	if studentNo := strings.ToLower(strings.TrimSpace(fmt.Sprint(item.Meta["student_no"]))); studentNo != "" && strings.Contains(hay, studentNo) {
+		return true
+	}
+	name := strings.TrimSpace(fmt.Sprint(item.Meta["name"]))
+	if name == "" {
+		name = strings.TrimSpace(item.Label)
+	}
+	if len([]rune(name)) >= 2 && strings.Contains(hay, strings.ToLower(name)) {
+		return true
+	}
+	parts := strings.Split(item.ID, "|")
+	if len(parts) > 0 {
+		rawNo := strings.ToLower(strings.TrimSpace(parts[0]))
+		if rawNo != "" && strings.Contains(hay, rawNo) {
 			return true
 		}
 	}

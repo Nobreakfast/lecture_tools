@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"course-assistant/internal/ai"
 	"course-assistant/internal/domain"
@@ -59,6 +60,7 @@ func (s *Server) agentTools() *AgentToolRegistry {
 	r.add(agentTool{Name: "read_material_text", Description: "读取课程资料文本，PDF 会提取正文", Kind: agentToolTeacherRead, Call: s.agentToolReadMaterialText})
 	r.add(agentTool{Name: "get_quiz_attempts", Description: "获取课程小测记录和最佳成绩", Kind: agentToolTeacherRead, Call: s.agentToolGetQuizAttempts})
 	r.add(agentTool{Name: "get_student_profile", Description: "读取单个学生跨小测、作业和 Q&A 的画像", Kind: agentToolTeacherRead, Call: s.agentToolGetStudentProfile})
+	r.add(agentTool{Name: "get_student_homework", Description: "读取单个学生在课程内所有作业的发布、提交、评分、评语和预评详情", Kind: agentToolTeacherRead, Call: s.agentToolGetStudentHomework})
 	r.add(agentTool{Name: "get_student_deep_analysis", Description: "读取单个学生所有小测逐题作答、反馈原文、Q&A 和作业详情，用于深度分析", Kind: agentToolTeacherRead, Call: s.agentToolGetStudentDeepAnalysis})
 	r.add(agentTool{Name: "get_attempt_detail", Description: "读取某次小测提交详情和错题", Kind: agentToolTeacherRead, Call: s.agentToolGetAttemptDetail})
 	r.add(agentTool{Name: "get_assignment_context", Description: "读取作业说明、提交概览、评分和预评状态", Kind: agentToolTeacherRead, Call: s.agentToolGetAssignmentContext})
@@ -345,7 +347,7 @@ func agentStudentKey(studentNo, name, className string) string {
 
 func (s *Server) agentAssignmentCandidates(course *domain.Course) []agentMentionCandidate {
 	seen := map[string]bool{}
-	for _, id := range s.listMetadataHomeworkAssignments(course) {
+	for _, id := range s.agentCourseHomeworkAssignmentIDs(course, nil) {
 		seen[id] = true
 	}
 	var out []agentMentionCandidate
@@ -537,6 +539,99 @@ func (s *Server) agentToolGetStudentProfile(ctx context.Context, tc agentToolCon
 				pregrade = "有"
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n", escapeMCPTableCell(h.AssignmentID), teacherAgentHomeworkFiles(h), score, pregrade, h.UpdatedAt.Format("2006-01-02 15:04")))
+		}
+	}
+	return b.String(), nil
+}
+
+func (s *Server) agentToolGetStudentHomework(ctx context.Context, tc agentToolContext, args map[string]any) (string, error) {
+	course, err := s.agentCourse(ctx, tc, args, false)
+	if err != nil {
+		return "", err
+	}
+	studentNo, name, className := agentParseStudentArgs(args)
+	if studentNo == "" && name == "" {
+		return "", fmt.Errorf("缺少学生标识")
+	}
+
+	homework, err := s.store.ListHomeworkSubmissions(ctx, course.ID, course.Slug, "")
+	if err != nil {
+		return "", err
+	}
+	var matched []domain.HomeworkSubmission
+	for _, h := range homework {
+		if agentStudentMatches(h.StudentNo, h.Name, h.ClassName, studentNo, name, className) {
+			matched = append(matched, h)
+			if studentNo == "" {
+				studentNo = strings.TrimSpace(h.StudentNo)
+			}
+			if name == "" {
+				name = strings.TrimSpace(h.Name)
+			}
+			if className == "" {
+				className = strings.TrimSpace(h.ClassName)
+			}
+		}
+	}
+
+	assignmentIDs := s.agentCourseHomeworkAssignmentIDs(course, matched)
+	if len(assignmentIDs) == 0 && len(matched) == 0 {
+		return "该课程暂无作业发布或提交记录。", nil
+	}
+
+	byAssignment := map[string][]domain.HomeworkSubmission{}
+	for _, h := range matched {
+		byAssignment[h.AssignmentID] = append(byAssignment[h.AssignmentID], h)
+	}
+	for aid := range byAssignment {
+		sort.Slice(byAssignment[aid], func(i, j int) bool {
+			return byAssignment[aid][i].UpdatedAt.After(byAssignment[aid][j].UpdatedAt)
+		})
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# 学生作业全量数据\n学生：%s（%s，%s）\n课程：%s\n",
+		valueOr(name, "未知姓名"), valueOr(studentNo, "未知学号"), valueOr(className, "未知班级"), teacherAgentCourseName(course)))
+	b.WriteString(fmt.Sprintf("作业发布数：%d；有提交记录：%d；未创建提交：%d。\n",
+		len(assignmentIDs), len(byAssignment), max(0, len(assignmentIDs)-len(byAssignment))))
+
+	for _, assignmentID := range assignmentIDs {
+		payload := s.homeworkAssignmentPayload(ctx, course.Slug, course.ID, assignmentID, true)
+		b.WriteString(fmt.Sprintf("\n## 作业 %s\n", assignmentID))
+		b.WriteString(fmt.Sprintf("- 作业附件数：%v；隐藏：%v；锁定：%v\n", payload["file_count"], payload["hidden"], payload["locked"]))
+		b.WriteString(agentAssignmentScheduleLine(payload))
+		subs := byAssignment[assignmentID]
+		if len(subs) == 0 {
+			b.WriteString("- 提交状态：未创建提交记录/未提交。\n")
+			continue
+		}
+		for _, h := range subs {
+			b.WriteString(fmt.Sprintf("- 提交ID：%s；更新时间：%s；学生最后提交时间：%s\n",
+				h.ID, formatMCPTime(h.UpdatedAt), formatMCPTime(homeworkLastStudentSubmissionAt(&h, s.listOthersFiles(&h)))))
+			b.WriteString("- 文件：" + agentHomeworkFilesDetailed(s, &h) + "\n")
+			if h.Score != nil {
+				b.WriteString(fmt.Sprintf("- 教师评分：%.1f\n", *h.Score))
+			} else {
+				b.WriteString("- 教师评分：未评分\n")
+			}
+			if strings.TrimSpace(h.Feedback) != "" {
+				b.WriteString("- 教师评语：" + strings.TrimSpace(h.Feedback) + "\n")
+			}
+			if h.GradedAt != nil || h.GradeUpdatedAt != nil {
+				b.WriteString(fmt.Sprintf("- 评分时间：%s；最后改分：%s\n", agentFormatTimePtr(h.GradedAt), agentFormatTimePtr(h.GradeUpdatedAt)))
+			}
+			if h.AIPregradeScore != nil {
+				b.WriteString(fmt.Sprintf("- AI预评分：%.1f\n", *h.AIPregradeScore))
+			}
+			if strings.TrimSpace(h.AIPregradeFeedback) != "" {
+				b.WriteString("- AI预评反馈：" + strings.TrimSpace(h.AIPregradeFeedback) + "\n")
+			}
+			if strings.TrimSpace(h.AIPregradeError) != "" {
+				b.WriteString("- AI预评错误：" + strings.TrimSpace(h.AIPregradeError) + "\n")
+			}
+			if h.AIPregradedAt != nil {
+				b.WriteString("- AI预评时间：" + agentFormatTimePtr(h.AIPregradedAt) + "\n")
+			}
 		}
 	}
 	return b.String(), nil
@@ -740,6 +835,86 @@ func agentParseStudentArgs(args map[string]any) (studentNo, name, className stri
 		}
 	}
 	return
+}
+
+func (s *Server) agentCourseHomeworkAssignmentIDs(course *domain.Course, submissions []domain.HomeworkSubmission) []string {
+	seen := map[string]bool{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, err := validateHomeworkAssignmentID(id); err != nil {
+			return
+		}
+		seen[id] = true
+	}
+	for _, id := range s.listMetadataHomeworkAssignments(course) {
+		if s.homeworkAssignmentExists(course.Slug, course.ID, id) {
+			add(id)
+		}
+	}
+	if legacy, err := s.listHomeworkAssignments(course.Slug); err == nil {
+		for _, id := range legacy {
+			add(id)
+		}
+	}
+	for _, sub := range submissions {
+		add(sub.AssignmentID)
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func agentAssignmentScheduleLine(payload map[string]any) string {
+	parts := make([]string, 0, 2)
+	if v, ok := payload["visible_at"]; ok && fmt.Sprint(v) != "" && fmt.Sprint(v) != "<nil>" {
+		parts = append(parts, "开放时间："+fmt.Sprint(v))
+	}
+	if v, ok := payload["deadline_at"]; ok && fmt.Sprint(v) != "" && fmt.Sprint(v) != "<nil>" {
+		parts = append(parts, "截止时间："+fmt.Sprint(v))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "- " + strings.Join(parts, "；") + "\n"
+}
+
+func agentHomeworkFilesDetailed(s *Server, h *domain.HomeworkSubmission) string {
+	var parts []string
+	if strings.TrimSpace(h.ReportOriginalName) != "" {
+		parts = append(parts, "报告="+strings.TrimSpace(h.ReportOriginalName)+"（"+agentFormatTimePtr(h.ReportUploadedAt)+"）")
+	}
+	if strings.TrimSpace(h.CodeOriginalName) != "" {
+		parts = append(parts, "代码="+strings.TrimSpace(h.CodeOriginalName)+"（"+agentFormatTimePtr(h.CodeUploadedAt)+"）")
+	}
+	if strings.TrimSpace(h.ExtraOriginalName) != "" {
+		parts = append(parts, "附件="+strings.TrimSpace(h.ExtraOriginalName)+"（"+agentFormatTimePtr(h.ExtraUploadedAt)+"）")
+	}
+	var others []string
+	for _, item := range s.listOthersFiles(h) {
+		if name, ok := item["name"].(string); ok && strings.TrimSpace(name) != "" {
+			others = append(others, strings.TrimSpace(name))
+		}
+	}
+	if len(others) > 0 {
+		parts = append(parts, "补充文件="+strings.Join(others, "、"))
+	}
+	if len(parts) == 0 {
+		return "未上传文件"
+	}
+	return strings.Join(parts, "；")
+}
+
+func agentFormatTimePtr(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "-"
+	}
+	return formatMCPTime(*t)
 }
 
 func agentOptionLabel(q domain.Question, ansKey string) string {
@@ -953,17 +1128,35 @@ func (s *Server) agentToolGetHomeworkSubmissions(ctx context.Context, tc agentTo
 	if err != nil {
 		return "", err
 	}
+	studentNo, name, className := agentParseStudentArgs(args)
+	if studentNo != "" || name != "" || className != "" {
+		filtered := make([]domain.HomeworkSubmission, 0, len(items))
+		for _, h := range items {
+			if agentStudentMatches(h.StudentNo, h.Name, h.ClassName, studentNo, name, className) {
+				filtered = append(filtered, h)
+			}
+		}
+		items = filtered
+	}
 	if len(items) == 0 {
 		return "该课程暂无作业提交记录", nil
 	}
 	var b strings.Builder
-	b.WriteString("| 姓名 | 学号 | 班级 | 作业 | 文件 | 评分 |\n|------|------|------|------|------|------|\n")
+	b.WriteString("| 姓名 | 学号 | 班级 | 作业 | 提交ID | 文件 | 评分 | AI预评 |\n|------|------|------|------|--------|------|------|--------|\n")
 	for _, h := range items {
 		score := "未评分"
 		if h.Score != nil {
 			score = fmt.Sprintf("%.1f", *h.Score)
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n", escapeMCPTableCell(h.Name), escapeMCPTableCell(h.StudentNo), escapeMCPTableCell(h.ClassName), escapeMCPTableCell(h.AssignmentID), teacherAgentHomeworkFiles(h), score))
+		pregrade := "无"
+		if h.AIPregradeScore != nil {
+			pregrade = fmt.Sprintf("%.1f", *h.AIPregradeScore)
+		} else if strings.TrimSpace(h.AIPregradeFeedback) != "" {
+			pregrade = "有反馈"
+		} else if strings.TrimSpace(h.AIPregradeError) != "" {
+			pregrade = "失败"
+		}
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n", escapeMCPTableCell(h.Name), escapeMCPTableCell(h.StudentNo), escapeMCPTableCell(h.ClassName), escapeMCPTableCell(h.AssignmentID), escapeMCPTableCell(h.ID), teacherAgentHomeworkFiles(h), score, escapeMCPTableCell(pregrade)))
 	}
 	return b.String(), nil
 }

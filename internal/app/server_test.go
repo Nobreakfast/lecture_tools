@@ -777,7 +777,7 @@ func (m *memStore) GetAgentConversation(context.Context, string) (*domain.AgentC
 	return nil, errors.New("not found")
 }
 func (m *memStore) UpdateAgentConversationTitle(context.Context, string, string) error { return nil }
-func (m *memStore) DeleteAgentConversation(context.Context, string) error             { return nil }
+func (m *memStore) DeleteAgentConversation(context.Context, string) error              { return nil }
 func (m *memStore) CreateAgentMessage(context.Context, *domain.AgentMessage) error     { return nil }
 func (m *memStore) ListAgentMessages(context.Context, string) ([]domain.AgentMessage, error) {
 	return nil, nil
@@ -788,8 +788,8 @@ func (m *memStore) GetTeacherPrompt(context.Context, string, string) (string, er
 func (m *memStore) ListTeacherPrompts(context.Context, string) ([]domain.TeacherPromptTemplate, error) {
 	return nil, nil
 }
-func (m *memStore) SetTeacherPrompt(context.Context, string, string, string) error   { return nil }
-func (m *memStore) DeleteTeacherPrompt(context.Context, string, string) error { return nil }
+func (m *memStore) SetTeacherPrompt(context.Context, string, string, string) error { return nil }
+func (m *memStore) DeleteTeacherPrompt(context.Context, string, string) error      { return nil }
 
 func TestShuffledQuestionsWithSampling(t *testing.T) {
 	quiz := &domain.Quiz{
@@ -1597,6 +1597,74 @@ func TestAgentStudentProfileDoesNotMixSameNameDifferentStudentNo(t *testing.T) {
 	}
 	if !strings.Contains(text, "S001") || strings.Contains(text, "S002") || strings.Contains(text, "q2") {
 		t.Fatalf("student profile mixed other student: %s", text)
+	}
+}
+
+func TestAgentStudentHomeworkListsAllAssignmentsAndDetails(t *testing.T) {
+	root := t.TempDir()
+	score := 92.5
+	preScore := 88.0
+	now := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
+	reportAt := now.Add(-2 * time.Hour)
+	st := &memStore{
+		teachers: []domain.Teacher{{ID: "owner", Name: "Owner", Role: domain.RoleTeacher}},
+		courses:  []domain.Course{{ID: 1, TeacherID: "owner", Name: "AI", Slug: "ai", InternalName: "ai", DisplayName: "AI"}},
+		homeworkSubmissions: []domain.HomeworkSubmission{
+			{
+				ID:                 "sub-1",
+				CourseID:           1,
+				Course:             "ai",
+				AssignmentID:       "hw1",
+				Name:               "张三",
+				StudentNo:          "S001",
+				ClassName:          "一班",
+				ReportOriginalName: "hw1-report.pdf",
+				ReportUploadedAt:   &reportAt,
+				Score:              &score,
+				Feedback:           "结构完整，实验分析还可以更具体。",
+				AIPregradeScore:    &preScore,
+				AIPregradeFeedback: "建议补充误差分析。",
+				CreatedAt:          now.Add(-3 * time.Hour),
+				UpdatedAt:          now,
+			},
+			{
+				ID:           "sub-other",
+				CourseID:     1,
+				Course:       "ai",
+				AssignmentID: "hw1",
+				Name:         "李四",
+				StudentNo:    "S002",
+				ClassName:    "一班",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+		},
+	}
+	s := New(Config{DataDir: filepath.Join(root, "data"), MetadataDir: filepath.Join(root, "metadata")}, st)
+	for _, assignmentID := range []string{"hw1", "hw2"} {
+		dir := s.metadataHomeworkAssignmentDir("owner", "ai", assignmentID)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir assignment dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, assignmentID+".pdf"), []byte("%PDF-1.4\n"), 0o644); err != nil {
+			t.Fatalf("write assignment file: %v", err)
+		}
+	}
+
+	text, err := s.callAgentTool(context.Background(), "get_student_homework",
+		agentToolContext{Session: &authSession{TeacherID: "owner", Role: domain.RoleTeacher}},
+		map[string]any{"course_id": 1, "student_no": "S001", "name": "张三"},
+	)
+	if err != nil {
+		t.Fatalf("get_student_homework returned error: %v", err)
+	}
+	for _, want := range []string{"hw1", "sub-1", "hw1-report.pdf", "教师评分：92.5", "结构完整", "AI预评反馈：建议补充误差分析。", "hw2", "未创建提交"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("student homework missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "sub-other") || strings.Contains(text, "李四") {
+		t.Fatalf("student homework mixed another student:\n%s", text)
 	}
 }
 

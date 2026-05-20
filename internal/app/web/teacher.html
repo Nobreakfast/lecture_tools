@@ -2044,6 +2044,7 @@
       document.getElementById('coursePills').classList.remove('hidden');
       document.getElementById('teacherName').textContent = currentTeacher.name || currentTeacher.id || '教师';
       setAgentVisible(true);
+      loadPromptTemplates();
       loadCourses();
     }
 
@@ -2059,6 +2060,9 @@
       document.getElementById('view-main').classList.add('hidden');
       document.getElementById('view-login').classList.remove('hidden');
       setAgentVisible(false);
+      promptTemplates = [];
+      const promptBox = document.getElementById('promptTemplatesContainer');
+      if (promptBox) promptBox.innerHTML = '';
       document.getElementById('loginId').value = '';
       document.getElementById('loginPwd').value = '';
     }
@@ -2675,6 +2679,7 @@
       document.getElementById('summaryRawStats').innerHTML = '';
       document.getElementById('historyRawStats').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">加载中…</p>';
       await loadMCPConfig();
+      await loadPromptTemplates();
       if (!selectedCourseId) {
         document.getElementById('historyRawStats').innerHTML = '';
         return;
@@ -4707,7 +4712,7 @@
         promptTemplates = data.templates || [];
         renderPromptTemplates();
       } catch (e) {
-        container.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">加载 AI 偏好失败</p>';
+        container.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">加载 AI 偏好失败，请重新登录后再试</p>';
       }
     }
 
@@ -4768,8 +4773,6 @@
         showToast(e.message || '恢复失败');
       }
     }
-
-    loadPromptTemplates();
   </script>
 </body>
 

@@ -193,13 +193,22 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 
 	// ── Tool: get_homework_submissions ──
 	getHomeworkSubmissionsTool := mcp.NewTool("get_homework_submissions",
-		mcp.WithDescription("获取某课程的作业提交情况"),
+		mcp.WithDescription("获取某课程的作业提交情况；可按作业或学生筛选"),
 		mcp.WithString("course_id",
 			mcp.Required(),
 			mcp.Description("课程ID（数字）"),
 		),
 		mcp.WithString("assignment_id",
 			mcp.Description("作业编号（可选，留空则查询所有作业）"),
+		),
+		mcp.WithString("student_no",
+			mcp.Description("学生学号（可选）"),
+		),
+		mcp.WithString("name",
+			mcp.Description("学生姓名（可选）"),
+		),
+		mcp.WithString("class_name",
+			mcp.Description("班级（可选）"),
 		),
 	)
 	mcpServer.AddTool(getHomeworkSubmissionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -225,13 +234,25 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		if err != nil {
 			return mcp.NewToolResultError("读取作业列表失败: " + err.Error()), nil
 		}
+		studentNo := strings.TrimSpace(request.GetString("student_no", ""))
+		name := strings.TrimSpace(request.GetString("name", ""))
+		className := strings.TrimSpace(request.GetString("class_name", ""))
+		if studentNo != "" || name != "" || className != "" {
+			filtered := make([]domain.HomeworkSubmission, 0, len(items))
+			for _, item := range items {
+				if agentStudentMatches(item.StudentNo, item.Name, item.ClassName, studentNo, name, className) {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
 		if len(items) == 0 {
 			return mcp.NewToolResultText("该课程暂无作业提交记录"), nil
 		}
 
 		var b strings.Builder
-		b.WriteString("| 姓名 | 学号 | 班级 | 作业编号 | 报告 | 代码 | 补充 | 更新时间 |\n")
-		b.WriteString("|------|------|------|----------|------|------|------|----------|\n")
+		b.WriteString("| 姓名 | 学号 | 班级 | 作业编号 | 提交ID | 报告 | 代码 | 补充 | 评分 | AI预评 | 更新时间 |\n")
+		b.WriteString("|------|------|------|----------|--------|------|------|------|------|--------|----------|\n")
 		for _, item := range items {
 			report := "✗"
 			if item.ReportOriginalName != "" {
@@ -245,12 +266,30 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 			if item.ExtraOriginalName != "" {
 				extra = "✓"
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			score := "未评分"
+			if item.Score != nil {
+				score = fmt.Sprintf("%.1f", *item.Score)
+			}
+			pregrade := "无"
+			if item.AIPregradeScore != nil {
+				pregrade = fmt.Sprintf("%.1f", *item.AIPregradeScore)
+			} else if strings.TrimSpace(item.AIPregradeFeedback) != "" {
+				pregrade = "有反馈"
+			} else if strings.TrimSpace(item.AIPregradeError) != "" {
+				pregrade = "失败"
+			}
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 				escapeTableCell(item.Name),
 				escapeTableCell(item.StudentNo),
 				escapeTableCell(item.ClassName),
 				escapeTableCell(item.AssignmentID),
-				report, code, extra, item.UpdatedAt.Format("2006-01-02 15:04")))
+				escapeTableCell(item.ID),
+				report,
+				code,
+				extra,
+				escapeTableCell(score),
+				escapeTableCell(pregrade),
+				item.UpdatedAt.Format("2006-01-02 15:04")))
 		}
 		b.WriteString(fmt.Sprintf("\n共 %d 条记录", len(items)))
 		return mcp.NewToolResultText(b.String()), nil
@@ -802,6 +841,17 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 	)
 	mcpServer.AddTool(getStudentProfileTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return registryCall(ctx, "get_student_profile", map[string]any{"course_id": request.GetString("course_id", ""), "student_no": request.GetString("student_no", ""), "name": request.GetString("name", ""), "class_name": request.GetString("class_name", "")})
+	})
+
+	getStudentHomeworkTool := mcp.NewTool("get_student_homework",
+		mcp.WithDescription("读取单个学生在课程内所有作业的发布、提交、评分、评语和预评详情；适合查询某同学全部作业信息"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("student_no", mcp.Description("学号")),
+		mcp.WithString("name", mcp.Description("姓名")),
+		mcp.WithString("class_name", mcp.Description("班级")),
+	)
+	mcpServer.AddTool(getStudentHomeworkTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_student_homework", map[string]any{"course_id": request.GetString("course_id", ""), "student_no": request.GetString("student_no", ""), "name": request.GetString("name", ""), "class_name": request.GetString("class_name", "")})
 	})
 
 	getAttemptDetailTool := mcp.NewTool("get_attempt_detail",
