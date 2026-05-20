@@ -150,7 +150,8 @@ snapshots/
 - `GET /api/teacher/courses/attempts`、`/attempts-check`、`/export-csv` 会按“同一学生 + 同一题库”自动去重，保留最高分；教师页可查看重复检查结果
 - 教师端作业下载（单个 PDF、单个学生压缩包、批量压缩包内学生目录/文件）统一使用 `班级_作业编号_姓名_学号` 命名
 - “其它 > MCP” 支持开启/关闭教师专属长效 token；开启后页面直接给出可复制的 MCP 配置，关闭后旧 token 立即失效
-  - 教师 MCP tools 统一从 Agent 工具层暴露：`list_courses`、`search_agent_mentions`、`get_course_context`、`get_quiz_bank_list`、`read_quiz_bank_yaml`、`list_materials`、`read_material_text`、`get_quiz_attempts`、`get_student_profile`、`get_student_homework`、`get_attempt_detail`、`get_assignment_context`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`、`get_qa_issues`、`reply_qa_issue`
+  - 教师 MCP tools 统一从 Agent 工具层暴露；推荐优先使用通用只读工具：`list_courses`、`search_course_data`、`list_quizzes`、`read_quiz`、`list_quiz_attempts`、`read_quiz_attempt`、`list_assignments`、`list_homework_submissions`、`read_homework_submission`、`list_materials`、`read_course_file`、`list_qa_issues`、`read_qa_issue`
+  - 兼容 tools 继续保留：`search_agent_mentions`、`get_course_context`、`get_quiz_bank_list`、`read_quiz_bank_yaml`、`read_material_text`、`get_quiz_attempts`、`get_student_profile`、`get_student_quiz_responses`、`get_student_homework`、`get_attempt_detail`、`get_assignment_context`、`get_summary_stats`、`get_quiz_feedback`、`get_quiz_question_stats`、`get_homework_submissions`、`get_qa_issues`、`reply_qa_issue`
   - 草稿生成 tools：`draft_quiz_from_prompt`、`draft_quiz_from_material`、`autofill_quiz_yaml`、`draft_class_summary`、`draft_history_summary`、`draft_homework_feedback`
   - 写入 tools：`set_quiz_entry_open` 会修改系统状态；平台内 Agent 调用写工具需要二次确认，外部 MCP 客户端应在教师明确授权后再调用。题库保存/加载和批量预评已登记为受控工具，当前仍通过平台页面完成预览与确认。
 - 学生在作业页进入 / 恢复作业后可使用学生智能助手浮窗；学生端不会展示 MCP token 或外部 MCP 配置

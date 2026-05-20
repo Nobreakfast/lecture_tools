@@ -797,6 +797,59 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		return mcp.NewToolResultText(text), nil
 	}
 
+	addRegistryTool := func(toolName string) {
+		tool, ok := s.agentTools().Tool(toolName)
+		if !ok {
+			return
+		}
+		opts := []mcp.ToolOption{mcp.WithDescription(tool.Description)}
+		for _, param := range tool.Params {
+			propOpts := []mcp.PropertyOption{}
+			if strings.TrimSpace(param.Description) != "" {
+				propOpts = append(propOpts, mcp.Description(param.Description))
+			}
+			if param.Required {
+				propOpts = append(propOpts, mcp.Required())
+			}
+			if len(param.Enum) > 0 {
+				values := make([]string, 0, len(param.Enum))
+				for _, value := range param.Enum {
+					if value != "" {
+						values = append(values, value)
+					}
+				}
+				if len(values) > 0 {
+					propOpts = append(propOpts, mcp.Enum(values...))
+				}
+			}
+			if param.Type == agentToolParamBoolean {
+				opts = append(opts, mcp.WithBoolean(param.Name, propOpts...))
+			} else {
+				opts = append(opts, mcp.WithString(param.Name, propOpts...))
+			}
+		}
+		registeredTool := mcp.NewTool(tool.Name, opts...)
+		mcpServer.AddTool(registeredTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return registryCall(ctx, tool.Name, request.GetArguments())
+		})
+	}
+
+	for _, toolName := range []string{
+		"search_course_data",
+		"list_quizzes",
+		"read_quiz",
+		"list_quiz_attempts",
+		"read_quiz_attempt",
+		"list_assignments",
+		"list_homework_submissions",
+		"read_homework_submission",
+		"read_course_file",
+		"list_qa_issues",
+		"read_qa_issue",
+	} {
+		addRegistryTool(toolName)
+	}
+
 	getCourseContextTool := mcp.NewTool("get_course_context",
 		mcp.WithDescription("读取课程概览、小测、作业和材料摘要"),
 		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
@@ -843,6 +896,24 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 		return registryCall(ctx, "get_student_profile", map[string]any{"course_id": request.GetString("course_id", ""), "student_no": request.GetString("student_no", ""), "name": request.GetString("name", ""), "class_name": request.GetString("class_name", "")})
 	})
 
+	getStudentQuizResponsesTool := mcp.NewTool("get_student_quiz_responses",
+		mcp.WithDescription("读取单个学生所有小测的指定题目作答；默认返回每次小测最后一题，适合检查个人课堂反馈"),
+		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithString("student_no", mcp.Description("学号")),
+		mcp.WithString("name", mcp.Description("姓名")),
+		mcp.WithString("class_name", mcp.Description("班级")),
+		mcp.WithString("question_selector", mcp.Description("题目筛选：last=每次小测最后一题，feedback=反馈/调研/简答题，all=全部题目（可选，默认 last）")),
+	)
+	mcpServer.AddTool(getStudentQuizResponsesTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return registryCall(ctx, "get_student_quiz_responses", map[string]any{
+			"course_id":         request.GetString("course_id", ""),
+			"student_no":        request.GetString("student_no", ""),
+			"name":              request.GetString("name", ""),
+			"class_name":        request.GetString("class_name", ""),
+			"question_selector": request.GetString("question_selector", ""),
+		})
+	})
+
 	getStudentHomeworkTool := mcp.NewTool("get_student_homework",
 		mcp.WithDescription("读取单个学生在课程内所有作业的发布、提交、评分、评语和预评详情；适合查询某同学全部作业信息"),
 		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
@@ -873,11 +944,12 @@ func (s *Server) newMCPSSEServer() *server.SSEServer {
 	})
 
 	listMaterialsTool := mcp.NewTool("list_materials",
-		mcp.WithDescription("列出课程资料文件"),
-		mcp.WithString("course_id", mcp.Required(), mcp.Description("课程ID（数字）")),
+		mcp.WithDescription("列出课程资料文件，并返回可传给 read_course_file 的 file_ref"),
+		mcp.WithString("course_id", mcp.Description("课程ID（可选；省略时查询当前教师可访问的全部课程）")),
+		mcp.WithString("limit", mcp.Description("最多返回数量（可选）")),
 	)
 	mcpServer.AddTool(listMaterialsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return registryCall(ctx, "list_materials", map[string]any{"course_id": request.GetString("course_id", "")})
+		return registryCall(ctx, "list_materials", map[string]any{"course_id": request.GetString("course_id", ""), "limit": request.GetString("limit", "")})
 	})
 
 	readMaterialTextTool := mcp.NewTool("read_material_text",

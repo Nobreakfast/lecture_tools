@@ -18,7 +18,13 @@ import (
 	"course-assistant/internal/domain"
 )
 
-const teacherAgentMaxMessages = 8
+const (
+	teacherAgentMaxMessages         = 8
+	teacherAgentMaxToolRounds       = 6
+	teacherAgentMaxToolCalls        = 12
+	teacherAgentMaxObservationRunes = 6000
+	teacherAgentMaxTotalObsRunes    = 24000
+)
 
 type teacherAgentEvent struct {
 	Type    string         `json:"type"`
@@ -35,6 +41,19 @@ type teacherAgentMention struct {
 	Label    string         `json:"label"`
 	CourseID int            `json:"course_id"`
 	Meta     map[string]any `json:"meta"`
+}
+
+type teacherAgentDecision struct {
+	Action    string             `json:"action"`
+	Answer    string             `json:"answer"`
+	ToolCalls []plannedAgentTool `json:"tool_calls"`
+}
+
+type teacherAgentObservation struct {
+	Tool    string         `json:"tool"`
+	Args    map[string]any `json:"args"`
+	Content string         `json:"content,omitempty"`
+	Error   string         `json:"error,omitempty"`
 }
 
 func (s *Server) apiTeacherAgentChat(w http.ResponseWriter, r *http.Request) {
@@ -260,62 +279,128 @@ func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseI
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }, mentions []teacherAgentMention) (string, []teacherAgentEvent, error) {
-	events := []teacherAgentEvent{{Type: "thinking", Title: "理解教师问题并选择可用工具"}}
+	events := []teacherAgentEvent{{Type: "thinking", Title: "理解教师问题并规划数据读取"}}
 	tc := agentToolContext{Session: sess, Platform: true, CourseID: courseID}
-	toolCalls, mentionEvents := s.planTeacherAgentMentionTools(ctx, sess, courseID, mentions, latest)
-	events = append(events, mentionEvents...)
-	toolCalls = append(toolCalls, s.planTeacherAgentTools(latest, courseID)...)
-	toolCalls = append(toolCalls, s.planTeacherAgentImplicitStudentTools(ctx, sess, courseID, latest)...)
-	if len(toolCalls) == 0 {
-		toolCalls = append(toolCalls, plannedAgentTool{Name: "list_courses", Args: map[string]any{}})
-		if courseID > 0 {
-			toolCalls = append(toolCalls, plannedAgentTool{Name: "get_course_context", Args: map[string]any{"course_id": courseID}})
+	registry := s.agentTools()
+	var observations []teacherAgentObservation
+	var toolCalls []plannedAgentTool
+	var prompt string
+	var answer string
+	var rawResponse string
+	callCount := 0
+	for round := 0; round < teacherAgentMaxToolRounds; round++ {
+		forceFinal := round == teacherAgentMaxToolRounds-1 || callCount >= teacherAgentMaxToolCalls
+		prompt = s.teacherAgentToolLoopPrompt(registry.ModelTools(), observations, latest, messages, mentions, courseID, forceFinal)
+		if forceFinal {
+			events = append(events, teacherAgentEvent{Type: "thinking", Title: "基于已读取数据生成回复"})
+		} else {
+			events = append(events, teacherAgentEvent{Type: "thinking", Title: "决定下一步要读取的数据"})
 		}
-	}
-	var ctxText strings.Builder
-	for _, call := range toolCalls {
-		events = append(events, teacherAgentEvent{Type: "tool_call", Title: "调用工具 " + call.Name, Tool: call.Name, Args: call.Args})
-		text, err := s.callAgentTool(ctx, call.Name, tc, call.Args)
+		decision, raw, err := s.teacherAgentModelDecision(ctx, prompt)
+		rawResponse = raw
 		if err != nil {
-			events = append(events, teacherAgentEvent{Type: "tool_result", Title: "工具调用失败", Tool: call.Name, Error: err.Error()})
-			continue
+			events = append(events, teacherAgentEvent{Type: "tool_result", Title: "AI 工具规划解析失败", Error: err.Error()})
+			if strings.TrimSpace(raw) == "" {
+				return s.failTeacherAgentRun(ctx, sess, courseID, latest, messages, mentions, toolCalls, prompt, events, err)
+			}
+			answer = "我没有稳定解析出下一步工具调用。请稍微换一种问法，或补充课程/学生/小测范围后再试。"
+			break
 		}
-		brief := text
-		if len([]rune(brief)) > 500 {
-			brief = string([]rune(brief)[:500]) + "..."
+		switch decision.Action {
+		case "final":
+			answer = strings.TrimSpace(decision.Answer)
+			if answer == "" {
+				answer = "已读取到相关数据，但没有形成有效结论。请补充你想看的具体范围。"
+			}
+			events = append(events, teacherAgentEvent{Type: "final", Title: "完成"})
+			return s.finishTeacherAgentRun(ctx, sess, courseID, latest, messages, mentions, toolCalls, prompt, rawResponse, answer, events)
+		case "call_tools":
+			if forceFinal {
+				events = append(events, teacherAgentEvent{Type: "tool_result", Title: "已达到工具调用上限", Error: "停止继续读取，准备基于现有数据回答"})
+				continue
+			}
+			if len(decision.ToolCalls) == 0 {
+				observations = append(observations, teacherAgentObservation{Tool: "system", Error: "AI 请求调用工具但未提供 tool_calls"})
+				continue
+			}
+			for _, call := range decision.ToolCalls {
+				if callCount >= teacherAgentMaxToolCalls {
+					break
+				}
+				call.Name = strings.TrimSpace(call.Name)
+				if call.Args == nil {
+					call.Args = map[string]any{}
+				}
+				tool, ok := registry.Tool(call.Name)
+				if !ok || !tool.ModelVisible || tool.Kind != agentToolTeacherRead {
+					msg := "该工具不可由教师 Agent 自动调用"
+					events = append(events, teacherAgentEvent{Type: "tool_result", Title: "工具调用被拒绝", Tool: call.Name, Args: call.Args, Error: msg})
+					observations = append(observations, teacherAgentObservation{Tool: call.Name, Args: call.Args, Error: msg})
+					continue
+				}
+				toolCalls = append(toolCalls, call)
+				callCount++
+				events = append(events, teacherAgentEvent{Type: "tool_call", Title: "读取数据：" + call.Name, Tool: call.Name, Args: call.Args})
+				text, err := s.callAgentTool(ctx, call.Name, tc, call.Args)
+				if err != nil {
+					events = append(events, teacherAgentEvent{Type: "tool_result", Title: "读取失败", Tool: call.Name, Error: err.Error()})
+					observations = append(observations, teacherAgentObservation{Tool: call.Name, Args: call.Args, Error: err.Error()})
+					continue
+				}
+				brief := teacherAgentBriefToolResult(text)
+				events = append(events, teacherAgentEvent{Type: "tool_result", Title: "已读取数据", Tool: call.Name, Content: brief})
+				observations = append(observations, teacherAgentObservation{Tool: call.Name, Args: call.Args, Content: teacherAgentTrimObservation(text)})
+			}
+		default:
+			observations = append(observations, teacherAgentObservation{Tool: "system", Error: "AI 返回了未知 action：" + decision.Action})
 		}
-		events = append(events, teacherAgentEvent{Type: "tool_result", Title: "已获得工具结果", Tool: call.Name, Content: brief})
-		ctxText.WriteString("\n\n【工具 " + call.Name + "】\n")
-		ctxText.WriteString(text)
 	}
-	if strings.TrimSpace(ctxText.String()) == "" {
-		ctxText.WriteString("没有可用工具结果。")
-	}
-	prompt := s.teacherAgentPrompt(ctxText.String(), latest, messages)
-	events = append(events, teacherAgentEvent{Type: "thinking", Title: "基于工具结果生成回复"})
-	answer, err := s.aiClient.TeacherAgentChat(ctx, prompt)
-	if err != nil {
-		teacherLabel, courseLabel, nameLabel := s.teacherTrajectoryLabels(ctx, sess, courseID)
-		s.saveAgentTrajectory(ctx, agentTrajectory{
-			Kind:      "teacher",
-			CreatedAt: time.Now(),
-			Teacher:   teacherLabel,
-			Course:    courseLabel,
-			Name:      nameLabel,
-			Request: map[string]any{
-				"course_id":  courseID,
-				"message":    latest,
-				"messages":   messages,
-				"mentions":   mentions,
-				"tool_calls": toolCalls,
-			},
-			Prompt: prompt,
-			Events: events,
-			Error:  err.Error(),
-		})
-		return "", events, err
+	if strings.TrimSpace(answer) == "" {
+		prompt = s.teacherAgentToolLoopPrompt(registry.ModelTools(), observations, latest, messages, mentions, courseID, true)
+		events = append(events, teacherAgentEvent{Type: "thinking", Title: "基于已读取数据生成回复"})
+		decision, raw, err := s.teacherAgentModelDecision(ctx, prompt)
+		rawResponse = raw
+		if err == nil && decision.Action == "final" && strings.TrimSpace(decision.Answer) != "" {
+			answer = strings.TrimSpace(decision.Answer)
+		} else if strings.TrimSpace(raw) != "" && !strings.HasPrefix(strings.TrimSpace(raw), "{") {
+			answer = strings.TrimSpace(raw)
+		} else {
+			answer = "我已经尝试读取相关课程数据，但还没有得到足够明确的结果。请补充课程、学生学号/班级或小测/作业编号后再问一次。"
+		}
 	}
 	events = append(events, teacherAgentEvent{Type: "final", Title: "完成"})
+	return s.finishTeacherAgentRun(ctx, sess, courseID, latest, messages, mentions, toolCalls, prompt, rawResponse, answer, events)
+}
+
+func (s *Server) failTeacherAgentRun(ctx context.Context, sess *authSession, courseID int, latest string, messages []struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}, mentions []teacherAgentMention, toolCalls []plannedAgentTool, prompt string, events []teacherAgentEvent, err error) (string, []teacherAgentEvent, error) {
+	teacherLabel, courseLabel, nameLabel := s.teacherTrajectoryLabels(ctx, sess, courseID)
+	s.saveAgentTrajectory(ctx, agentTrajectory{
+		Kind:      "teacher",
+		CreatedAt: time.Now(),
+		Teacher:   teacherLabel,
+		Course:    courseLabel,
+		Name:      nameLabel,
+		Request: map[string]any{
+			"course_id":  courseID,
+			"message":    latest,
+			"messages":   messages,
+			"mentions":   mentions,
+			"tool_calls": toolCalls,
+		},
+		Prompt: prompt,
+		Events: events,
+		Error:  err.Error(),
+	})
+	return "", events, err
+}
+
+func (s *Server) finishTeacherAgentRun(ctx context.Context, sess *authSession, courseID int, latest string, messages []struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}, mentions []teacherAgentMention, toolCalls []plannedAgentTool, prompt, rawResponse, answer string, events []teacherAgentEvent) (string, []teacherAgentEvent, error) {
 	teacherLabel, courseLabel, nameLabel := s.teacherTrajectoryLabels(ctx, sess, courseID)
 	s.saveAgentTrajectory(ctx, agentTrajectory{
 		Kind:      "teacher",
@@ -331,11 +416,181 @@ func (s *Server) runTeacherAgent(ctx context.Context, sess *authSession, courseI
 			"tool_calls": toolCalls,
 		},
 		Prompt:      prompt,
-		RawResponse: answer,
+		RawResponse: rawResponse,
 		Answer:      answer,
 		Events:      events,
 	})
 	return answer, events, nil
+}
+
+func (s *Server) teacherAgentModelDecision(ctx context.Context, prompt string) (teacherAgentDecision, string, error) {
+	chat := s.teacherAgentChat
+	if chat == nil && s.aiClient != nil {
+		chat = s.aiClient.TeacherAgentChat
+	}
+	if chat == nil {
+		return teacherAgentDecision{}, "", fmt.Errorf("AI 未配置")
+	}
+	raw, err := chat(ctx, prompt)
+	if err != nil {
+		return teacherAgentDecision{}, raw, err
+	}
+	decision, parseErr := parseTeacherAgentDecision(raw)
+	if parseErr == nil {
+		return decision, raw, nil
+	}
+	repairPrompt := prompt + "\n\n上一轮输出无法解析为规定 JSON。请只修正格式，严格返回 {\"action\":\"call_tools\",\"tool_calls\":[...]} 或 {\"action\":\"final\",\"answer\":\"...\"}。上一轮输出：\n" + truncateAgentText(raw)
+	repaired, repairErr := chat(ctx, repairPrompt)
+	if repairErr != nil {
+		return teacherAgentDecision{}, repaired, repairErr
+	}
+	decision, parseErr = parseTeacherAgentDecision(repaired)
+	return decision, repaired, parseErr
+}
+
+func (s *Server) teacherAgentToolLoopPrompt(tools []agentTool, observations []teacherAgentObservation, latest string, messages []struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}, mentions []teacherAgentMention, courseID int, forceFinal bool) string {
+	var b strings.Builder
+	b.WriteString("你是教师课程数据 Agent。你可以分多步读取平台数据，然后回答教师问题。\n")
+	b.WriteString("必须严格输出一个 JSON 对象，不要输出 Markdown 代码块、解释前缀或后缀。\n")
+	if forceFinal {
+		b.WriteString("本轮必须给最终回答，格式为：{\"action\":\"final\",\"answer\":\"...\"}。\n")
+	} else {
+		b.WriteString("如果需要读取数据，格式为：{\"action\":\"call_tools\",\"tool_calls\":[{\"name\":\"工具名\",\"args\":{}}]}。\n")
+		b.WriteString("如果已有数据足够回答，格式为：{\"action\":\"final\",\"answer\":\"...\"}。\n")
+	}
+	b.WriteString("只能调用工具清单里的只读工具。不要编造工具结果；数据不足时说明还缺什么。\n")
+	b.WriteString("course_id 省略时，工具会在当前教师可访问的全部课程中查询；如同名学生无法唯一判断，请先搜索并在回答中说明需要班级或学号。\n")
+	b.WriteString("优先使用通用工具逐步定位：search_course_data -> list_* -> read_*。不要使用未列出的旧高层工具。\n\n")
+
+	toolSpecs := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		params := make([]agentToolParam, len(tool.Params))
+		copy(params, tool.Params)
+		toolSpecs = append(toolSpecs, map[string]any{
+			"name":        tool.Name,
+			"description": tool.Description,
+			"params":      params,
+		})
+	}
+	if body, err := json.MarshalIndent(toolSpecs, "", "  "); err == nil {
+		b.WriteString("可用工具：\n")
+		b.Write(body)
+		b.WriteString("\n\n")
+	}
+	if courseID > 0 {
+		b.WriteString(fmt.Sprintf("当前页面课程ID：%d\n", courseID))
+	} else {
+		b.WriteString("当前页面未限定课程；可以跨该教师可访问课程查询。\n")
+	}
+	if len(mentions) > 0 {
+		if body, err := json.MarshalIndent(mentions, "", "  "); err == nil {
+			b.WriteString("教师显式引用：\n")
+			b.Write(body)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n最近对话：\n")
+	start := 0
+	if len(messages) > teacherAgentMaxMessages {
+		start = len(messages) - teacherAgentMaxMessages
+	}
+	for _, msg := range messages[start:] {
+		role := strings.TrimSpace(msg.Role)
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		if role != "assistant" {
+			role = "teacher"
+		}
+		b.WriteString(fmt.Sprintf("%s: %s\n", role, truncateAgentText(content)))
+	}
+	b.WriteString("teacher: ")
+	b.WriteString(latest)
+	b.WriteString("\n\n已读取的数据：\n")
+	if len(observations) == 0 {
+		b.WriteString("[]\n")
+	} else if body, err := json.MarshalIndent(teacherAgentTrimObservations(observations), "", "  "); err == nil {
+		b.Write(body)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func parseTeacherAgentDecision(raw string) (teacherAgentDecision, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSpace(strings.TrimSuffix(raw, "```"))
+	if raw == "" {
+		return teacherAgentDecision{}, fmt.Errorf("AI 返回为空")
+	}
+	candidates := []string{raw}
+	if idx := strings.Index(raw, "{"); idx > 0 {
+		candidates = append(candidates, raw[idx:])
+	}
+	var firstErr error
+	for _, candidate := range candidates {
+		var decision teacherAgentDecision
+		decoder := json.NewDecoder(strings.NewReader(candidate))
+		decoder.UseNumber()
+		if err := decoder.Decode(&decision); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		decision.Action = strings.TrimSpace(decision.Action)
+		if decision.Action != "call_tools" && decision.Action != "final" {
+			return teacherAgentDecision{}, fmt.Errorf("未知 action: %s", decision.Action)
+		}
+		return decision, nil
+	}
+	if firstErr == nil {
+		firstErr = fmt.Errorf("无法解析 JSON")
+	}
+	return teacherAgentDecision{}, firstErr
+}
+
+func teacherAgentBriefToolResult(text string) string {
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if len(runes) > 500 {
+		return string(runes[:500]) + "..."
+	}
+	return text
+}
+
+func teacherAgentTrimObservation(text string) string {
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if len(runes) > teacherAgentMaxObservationRunes {
+		return string(runes[:teacherAgentMaxObservationRunes]) + "..."
+	}
+	return text
+}
+
+func teacherAgentTrimObservations(in []teacherAgentObservation) []teacherAgentObservation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]teacherAgentObservation, 0, len(in))
+	used := 0
+	for i := len(in) - 1; i >= 0; i-- {
+		item := in[i]
+		used += len([]rune(item.Content)) + len([]rune(item.Error))
+		if used > teacherAgentMaxTotalObsRunes && len(out) > 0 {
+			break
+		}
+		out = append(out, item)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
 }
 
 func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSession, fallbackCourseID int, mentions []teacherAgentMention, latestMsg string) ([]plannedAgentTool, []teacherAgentEvent) {
@@ -383,6 +638,12 @@ func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSes
 				args[k] = v
 			}
 			homeworkFocus := needsStudentHomework(latestMsg)
+			quizResponseFocus := needsStudentQuizResponses(latestMsg)
+			if quizResponseFocus {
+				qArgs := cloneAgentArgs(args)
+				qArgs["question_selector"] = studentQuizQuestionSelector(latestMsg)
+				calls = append(calls, plannedAgentTool{Name: "get_student_quiz_responses", Args: qArgs})
+			}
 			if deepAnalysis {
 				calls = append(calls, plannedAgentTool{Name: "get_student_deep_analysis", Args: cloneAgentArgs(args)})
 				if homeworkFocus {
@@ -391,7 +652,7 @@ func (s *Server) planTeacherAgentMentionTools(ctx context.Context, sess *authSes
 				calls = append(calls, plannedAgentTool{Name: "draft_student_analysis", Args: args})
 			} else if homeworkFocus {
 				calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: args})
-			} else {
+			} else if !quizResponseFocus {
 				calls = append(calls, plannedAgentTool{Name: "get_student_profile", Args: args})
 			}
 		case "assignment":
@@ -461,7 +722,8 @@ func (s *Server) planTeacherAgentImplicitStudentTools(ctx context.Context, sess 
 	}
 	deepAnalysis := needsDeepStudentAnalysis(latest)
 	homeworkFocus := needsStudentHomework(latest)
-	if !deepAnalysis && !homeworkFocus {
+	quizResponseFocus := needsStudentQuizResponses(latest)
+	if !deepAnalysis && !homeworkFocus && !quizResponseFocus {
 		return nil
 	}
 	items, err := s.agentMentionCandidates(ctx, sess, courseID, "", 200)
@@ -477,13 +739,18 @@ func (s *Server) planTeacherAgentImplicitStudentTools(ctx context.Context, sess 
 		for k, v := range item.Meta {
 			args[k] = v
 		}
+		if quizResponseFocus {
+			qArgs := cloneAgentArgs(args)
+			qArgs["question_selector"] = studentQuizQuestionSelector(latest)
+			calls = append(calls, plannedAgentTool{Name: "get_student_quiz_responses", Args: qArgs})
+		}
 		if deepAnalysis {
 			calls = append(calls, plannedAgentTool{Name: "get_student_deep_analysis", Args: cloneAgentArgs(args)})
 			if homeworkFocus {
 				calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: cloneAgentArgs(args)})
 			}
 			calls = append(calls, plannedAgentTool{Name: "draft_student_analysis", Args: args})
-		} else {
+		} else if homeworkFocus {
 			calls = append(calls, plannedAgentTool{Name: "get_student_homework", Args: args})
 		}
 		if len(calls) >= 3 {
@@ -521,6 +788,35 @@ func needsStudentHomework(msg string) bool {
 		}
 	}
 	return false
+}
+
+func needsStudentQuizResponses(msg string) bool {
+	text := strings.ToLower(msg)
+	hasQuiz := strings.Contains(text, "小测") || strings.Contains(text, "测验") || strings.Contains(text, "题") || strings.Contains(text, "quiz")
+	if !hasQuiz {
+		return false
+	}
+	keywords := []string{"最后一题", "最后", "反馈", "回答", "作答", "内容", "建议", "不懂", "问卷", "简答", "response", "answer", "feedback"}
+	for _, kw := range keywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func studentQuizQuestionSelector(msg string) string {
+	text := strings.ToLower(msg)
+	if strings.Contains(text, "全部题") || strings.Contains(text, "所有题") || strings.Contains(text, "all") {
+		return "all"
+	}
+	if strings.Contains(text, "反馈") || strings.Contains(text, "问卷") || strings.Contains(text, "建议") || strings.Contains(text, "不懂") || strings.Contains(text, "feedback") {
+		if strings.Contains(text, "最后") {
+			return "last"
+		}
+		return "feedback"
+	}
+	return "last"
 }
 
 func agentStudentCandidateMentioned(text string, item agentMentionCandidate) bool {
@@ -565,6 +861,26 @@ func dedupePlannedAgentTools(in []plannedAgentTool) []plannedAgentTool {
 			continue
 		}
 		seen[key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func plannedAgentToolsContain(in []plannedAgentTool, name string) bool {
+	for _, item := range in {
+		if item.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func filterPlannedAgentTools(in []plannedAgentTool, skip map[string]bool) []plannedAgentTool {
+	out := make([]plannedAgentTool, 0, len(in))
+	for _, item := range in {
+		if skip[item.Name] {
+			continue
+		}
 		out = append(out, item)
 	}
 	return out

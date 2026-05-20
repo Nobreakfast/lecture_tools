@@ -231,10 +231,17 @@
 当前 MCP 已提供的工具（tools）包括：
 
 - `list_courses`：列出当前教师的课程列表（含课程 ID、标识、邀请码）
+- `search_course_data`：跨当前教师可访问课程搜索学生、小测、资料、作业和 Q&A
+- `list_quizzes` / `read_quiz`：列出并读取小测结构、最后一题和反馈题等信息
+- `list_quiz_attempts` / `read_quiz_attempt`：列出学生小测提交并读取一次提交的作答，可筛选最后一题、反馈题、错题或全部题目
+- `list_assignments`：列出课程作业及作业文件引用
+- `list_homework_submissions` / `read_homework_submission`：列出并读取作业提交、附件、评分、评语和 AI 预评
+- `read_course_file`：读取工具返回的受控课程文件引用，不支持任意路径
+- `list_qa_issues` / `read_qa_issue`：列出并读取课程或作业 Q&A
 - `search_agent_mentions`：搜索教师 Agent 可引用的课程、小测、资料、学生、作业和 Q&A
 - `get_course_context`：读取课程概览、小测、作业和资料摘要
 - `get_quiz_bank_list` / `read_quiz_bank_yaml`：列出并读取历史题库 YAML，适合参考旧小测出新题
-- `list_materials`：列出课程资料文件
+- `list_materials`：列出课程资料文件，并返回可由 `read_course_file` 读取的文件引用
 - `read_material_text`：读取课程资料文本，PDF 会自动提取正文
 - `get_quiz_attempts`：查询课程内学生小测记录（按“同一学生”保留最佳成绩）
 - `get_student_profile`：读取单个学生跨小测、作业和 Q&A 的表现摘要

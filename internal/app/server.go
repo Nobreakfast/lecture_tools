@@ -54,9 +54,10 @@ type authSession struct {
 }
 
 type Server struct {
-	cfg      Config
-	store    store.Store
-	aiClient *ai.Client
+	cfg              Config
+	store            store.Store
+	aiClient         *ai.Client
+	teacherAgentChat func(context.Context, string) (string, error)
 
 	// Domain-scoped locks replace the former global mu. Each lock protects
 	// only the fields listed beside it, reducing false contention between
@@ -95,10 +96,12 @@ const systemOverviewOnlineWindow = 15 * time.Minute
 const studentSessionMaxAge = 3 * 3600 // 3 hours
 
 func New(cfg Config, st store.Store) *Server {
+	aiClient := ai.NewClientWithTimeout(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel, cfg.AITimeout)
 	return &Server{
 		cfg:                     cfg,
 		store:                   st,
-		aiClient:                ai.NewClientWithTimeout(cfg.AIEndpoint, cfg.AIKey, cfg.AIModel, cfg.AITimeout),
+		aiClient:                aiClient,
+		teacherAgentChat:        aiClient.TeacherAgentChat,
 		courseQuizzes:           map[int]*domain.Quiz{},
 		courseQuizAssetDirs:     map[int]string{},
 		authTokens:              map[string]authSession{},
@@ -5099,4 +5102,3 @@ func safeCSV(s string) string {
 	}
 	return s
 }
-
