@@ -228,6 +228,20 @@ test.describe("Q&A Issue lifecycle", () => {
         await expect(teacherReply).toBeVisible();
         await expect(teacherReply.locator(".msg-sender")).toContainText("教师");
 
+        // Teacher can correct a sent answer in place.
+        await teacherReply.locator("button:text('编辑')").click();
+        await teacherReply
+            .locator("textarea")
+            .fill("递归就是函数调用自身。更准确地说，要有终止条件避免无限递归。");
+        await teacherReply.locator("button:text('保存回答')").click();
+        await teacherPage.page.waitForTimeout(1000);
+        await expect(
+            teacherPage.page.locator("#detailMessages .msg-item", {
+                hasText: "更准确地说，要有终止条件避免无限递归。",
+            })
+        ).toBeVisible();
+        await expect(teacherPage.page.locator("#detailMessages")).not.toContainText("比如计算阶乘");
+
         // ── Teacher: pin the issue ──
         await teacherPage.page.locator("#teacherActions button:text('置顶')").click();
         await teacherPage.page.waitForTimeout(1000);
@@ -258,7 +272,7 @@ test.describe("Q&A Issue lifecycle", () => {
 
         // Verify teacher message content
         const teacherMsg = studentPage.page
-            .locator("#detailMessages .msg-item", { hasText: "递归就是函数调用自身" });
+            .locator("#detailMessages .msg-item", { hasText: "更准确地说，要有终止条件避免无限递归。" });
         await expect(teacherMsg).toContainText("递归就是函数调用自身");
         await expect(teacherMsg.locator(".msg-sender")).toContainText("教师");
 

@@ -2473,6 +2473,31 @@ func (s *SQLiteStore) ListQAMessages(ctx context.Context, issueID int) ([]domain
 	return items, rows.Err()
 }
 
+func (s *SQLiteStore) UpdateQAMessageContent(ctx context.Context, issueID, messageID int, sender, content string) error {
+	now := time.Now().Format(time.RFC3339Nano)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE qa_messages SET content = ? WHERE id = ? AND issue_id = ? AND sender = ?`,
+		content, messageID, issueID, sender)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE qa_issues SET updated_at = ? WHERE id = ?`, now, issueID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 // UpdateAttemptStudentInfo updates the name, student_no, and class_name for a given attempt.
 func (s *SQLiteStore) UpdateAttemptStudentInfo(ctx context.Context, attemptID, name, studentNo, className string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET name = ?, student_no = ?, class_name = ?, updated_at = ? WHERE id = ?`, name, studentNo, className, time.Now().Format(time.RFC3339Nano), attemptID)

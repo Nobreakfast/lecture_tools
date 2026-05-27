@@ -125,6 +125,7 @@ type QAIssueStore interface {
 
 	CreateQAMessage(ctx context.Context, msg *domain.QAMessage) (int64, error)
 	ListQAMessages(ctx context.Context, issueID int) ([]domain.QAMessage, error)
+	UpdateQAMessageContent(ctx context.Context, issueID, messageID int, sender, content string) error
 }
 
 // TeacherPromptStore provides teacher-customizable prompt template persistence.

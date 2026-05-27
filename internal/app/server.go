@@ -331,6 +331,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/teacher/qa/issue/pin", s.apiTeacherQAIssuePin)
 	mux.HandleFunc("/api/teacher/qa/issue/hide", s.apiTeacherQAIssueHide)
 	mux.HandleFunc("/api/teacher/qa/issue/question", s.apiTeacherQAIssueQuestion)
+	mux.HandleFunc("/api/teacher/qa/message", s.apiTeacherQAMessageUpdate)
 	mux.HandleFunc("/api/teacher/courses/invite-qr", s.apiTeacherCourseInviteQR)
 	mux.HandleFunc("/api/teacher/courses/share", s.apiTeacherCourseShare)
 	mux.HandleFunc("/api/teacher/courses/share/list", s.apiTeacherCourseShareList)

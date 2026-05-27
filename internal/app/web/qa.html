@@ -406,6 +406,29 @@
             flex-wrap: wrap;
         }
 
+        .edit-answer-form {
+            display: none;
+            margin-top: 8px;
+        }
+
+        .edit-answer-form.show {
+            display: block;
+        }
+
+        .edit-answer-form textarea {
+            width: 100%;
+            min-height: 78px;
+            border: 1px solid var(--border, #e5e7eb);
+            border-radius: var(--radius, 8px);
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+            background: var(--card-bg, #fff);
+            color: var(--text, #1a1a2e);
+        }
+
         .msg-text {
             font-size: 14px;
             line-height: 1.6;
@@ -828,6 +851,19 @@
                     var tools = '';
                     if (isTeacherMode && m.sender === 'ai') {
                         tools = '<div class="msg-tools"><button class="btn btn-secondary btn-sm" onclick="useAIReply(' + m.id + ')">采用到回复框</button></div>';
+                    } else if (isTeacherMode && m.sender === 'teacher') {
+                        tools = '<div class="msg-tools"><button class="btn btn-secondary btn-sm" onclick="showEditTeacherAnswer(' + m.id + ')">编辑</button></div>';
+                    }
+                    var editForm = '';
+                    if (isTeacherMode && m.sender === 'teacher') {
+                        editForm = '<div class="edit-answer-form" id="editAnswerForm-' + m.id + '">' +
+                            '<textarea id="editAnswerText-' + m.id + '" maxlength="3000">' + escapeHTML(m.content) + '</textarea>' +
+                            '<div class="form-actions">' +
+                            '<div style="flex:1;"></div>' +
+                            '<button class="btn btn-secondary btn-sm" onclick="cancelEditTeacherAnswer(' + m.id + ')">取消</button>' +
+                            '<button class="btn btn-primary btn-sm" onclick="saveEditedTeacherAnswer(' + m.id + ')">保存回答</button>' +
+                            '</div>' +
+                            '</div>';
                     }
                     return '<div class="msg-item">' +
                         '<div class="msg-avatar ' + avatarClass + '">' + avatarText + '</div>' +
@@ -837,6 +873,7 @@
                         '<div class="msg-text">' + escapeHTML(m.content) + '</div>' +
                         images +
                         tools +
+                        editForm +
                         '</div>' +
                         '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
                         '</div>' +
@@ -864,6 +901,37 @@
             box.value = msg.content || '';
             box.focus();
             showToast('已填入回复框，可修改后发送');
+        }
+
+        function showEditTeacherAnswer(messageId) {
+            var form = document.getElementById('editAnswerForm-' + messageId);
+            var box = document.getElementById('editAnswerText-' + messageId);
+            if (!form || !box) return;
+            form.classList.add('show');
+            box.focus();
+        }
+
+        function cancelEditTeacherAnswer(messageId) {
+            var form = document.getElementById('editAnswerForm-' + messageId);
+            if (form) form.classList.remove('show');
+        }
+
+        async function saveEditedTeacherAnswer(messageId) {
+            if (!currentIssue) return;
+            var box = document.getElementById('editAnswerText-' + messageId);
+            if (!box) return;
+            var content = box.value.trim();
+            if (!content) { showToast('回答不能为空'); return; }
+            try {
+                var r = await fetch('/api/teacher/qa/message?course_id=' + encodeURIComponent(courseId), {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ issue_id: currentIssue.id, message_id: messageId, content: content })
+                });
+                if (!r.ok) { showToast(await r.text()); return; }
+                showToast('回答已更新');
+                await openIssue(currentIssue.id);
+            } catch (e) { showToast('保存失败'); }
         }
 
         function renderTeacherActions(iss) {

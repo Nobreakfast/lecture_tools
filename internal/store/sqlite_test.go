@@ -577,6 +577,66 @@ func TestQAIssueQuestionUpdate(t *testing.T) {
 	}
 }
 
+func TestQAMessageTeacherAnswerUpdate(t *testing.T) {
+	ctx := context.Background()
+	st, err := NewSQLiteStore("file:test-qa-message-answer?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("new sqlite store failed: %v", err)
+	}
+	defer st.Close()
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	now := time.Now()
+	issueID, err := st.CreateQAIssue(ctx, &domain.QAIssue{
+		CourseID:     10,
+		Course:       "course-a",
+		AssignmentID: "task-1",
+		StudentNo:    "2026001",
+		Title:        "递归是什么？",
+		Status:       "open",
+		MessageCount: 2,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("CreateQAIssue failed: %v", err)
+	}
+	studentMsgID, err := st.CreateQAMessage(ctx, &domain.QAMessage{
+		IssueID:   int(issueID),
+		Sender:    "student",
+		Content:   "递归是什么？",
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateQAMessage student failed: %v", err)
+	}
+	teacherMsgID, err := st.CreateQAMessage(ctx, &domain.QAMessage{
+		IssueID:   int(issueID),
+		Sender:    "teacher",
+		Content:   "递归就是自己调用自己。",
+		CreatedAt: now.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatalf("CreateQAMessage teacher failed: %v", err)
+	}
+
+	if err := st.UpdateQAMessageContent(ctx, int(issueID), int(teacherMsgID), "teacher", "递归是函数在终止条件前调用自身。"); err != nil {
+		t.Fatalf("UpdateQAMessageContent failed: %v", err)
+	}
+	if err := st.UpdateQAMessageContent(ctx, int(issueID), int(studentMsgID), "teacher", "不应更新学生消息"); err == nil {
+		t.Fatalf("teacher-scoped update should not update student message")
+	}
+	messages, err := st.ListQAMessages(ctx, int(issueID))
+	if err != nil {
+		t.Fatalf("ListQAMessages failed: %v", err)
+	}
+	if len(messages) != 2 || messages[0].Content != "递归是什么？" || messages[1].Content != "递归是函数在终止条件前调用自身。" {
+		t.Fatalf("unexpected messages after answer edit: %+v", messages)
+	}
+}
+
 func TestQAIssueInitPreservesStudentNo(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewSQLiteStore("file:test-qa-issue-clear-student?mode=memory&cache=shared")

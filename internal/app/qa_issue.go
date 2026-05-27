@@ -416,6 +416,55 @@ func (s *Server) apiTeacherQAIssueQuestion(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]any{"ok": true, "title": title})
 }
 
+func (s *Server) apiTeacherQAMessageUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.requireTeacherOrAdmin(r)
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	courseID, _, err := s.resolveTeacherCourse(r, sess)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	var req struct {
+		IssueID   int    `json:"issue_id"`
+		MessageID int    `json:"message_id"`
+		Content   string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	if req.IssueID <= 0 || req.MessageID <= 0 || content == "" {
+		http.Error(w, "回复不能为空", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(content)) > 3000 {
+		http.Error(w, "回复不能超过 3000 字", http.StatusBadRequest)
+		return
+	}
+	issue, err := s.store.GetQAIssueByID(r.Context(), req.IssueID)
+	if err != nil {
+		http.Error(w, "Issue 不存在", http.StatusNotFound)
+		return
+	}
+	if issue.CourseID != courseID && sess.Role != domain.RoleAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := s.store.UpdateQAMessageContent(r.Context(), req.IssueID, req.MessageID, "teacher", content); err != nil {
+		http.Error(w, "更新失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 func (s *Server) apiTeacherQAIssueBoolAction(w http.ResponseWriter, r *http.Request, status string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

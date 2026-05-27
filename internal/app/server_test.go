@@ -766,6 +766,21 @@ func (m *memStore) ListQAMessages(_ context.Context, issueID int) ([]domain.QAMe
 	}
 	return items, nil
 }
+func (m *memStore) UpdateQAMessageContent(_ context.Context, issueID, messageID int, sender, content string) error {
+	for i := range m.qaMessages {
+		if m.qaMessages[i].ID == messageID && m.qaMessages[i].IssueID == issueID && m.qaMessages[i].Sender == sender {
+			m.qaMessages[i].Content = content
+			for j := range m.qaIssues {
+				if m.qaIssues[j].ID == issueID {
+					m.qaIssues[j].UpdatedAt = time.Now()
+					break
+				}
+			}
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
 func (m *memStore) UpdateAttemptStudentInfo(_ context.Context, _, _, _, _ string) error {
 	return errors.New("not implemented")
 }
