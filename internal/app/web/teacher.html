@@ -979,6 +979,7 @@
       </div>
       <div class="row" id="headerRight">
         <span class="muted" id="teacherName"></span>
+        <button class="btn btn-secondary small" id="privacyToggleBtn" type="button">隐私保护</button>
         <button class="btn btn-secondary small" onclick="openTeacherDocs()">使用文档</button>
         <button class="btn btn-secondary small" onclick="showChangePasswordModal()">修改密码</button>
         <button class="btn btn-danger small" onclick="doLogout()">退出登录</button>
@@ -1565,6 +1566,84 @@
     function jsArg(s) { return encodeURIComponent(String(s || '')); }
     function maskSecret(s) { return '*'.repeat(Math.max(6, String(s || '').length)); }
     function showToast(msg) { if (window.App) App.toast(msg); }
+    function maskName(value) {
+      const text = String(value || '');
+      if (!text) return '';
+      return text.charAt(0) + '*'.repeat(Math.max(1, text.length - 1));
+    }
+    function maskStudentNo(value) {
+      const text = String(value || '');
+      return text ? '*'.repeat(text.length) : '';
+    }
+    function privacyStorageKey() {
+      const teacherId = currentTeacher && currentTeacher.id ? String(currentTeacher.id) : 'unknown';
+      return 'teacher_privacy_' + teacherId;
+    }
+    function loadPrivacyPreference() {
+      try {
+        privacyEnabled = localStorage.getItem(privacyStorageKey()) === 'true';
+      } catch (_) {
+        privacyEnabled = false;
+      }
+    }
+    function savePrivacyPreference() {
+      try {
+        localStorage.setItem(privacyStorageKey(), privacyEnabled ? 'true' : 'false');
+      } catch (_) { }
+    }
+    function displayTeacherName(value) {
+      return privacyEnabled ? maskName(value) : String(value || '');
+    }
+    function displayStudentName(value) {
+      return privacyEnabled ? maskName(value) : String(value || '');
+    }
+    function displayStudentNo(value) {
+      return privacyEnabled ? maskStudentNo(value) : String(value || '');
+    }
+    function displayMentionLabel(item) {
+      const label = item && (item.label || item.id);
+      return privacyEnabled && item && item.type === 'student' ? displayStudentName(label) : String(label || '');
+    }
+    function displayMentionSub(item) {
+      const meta = (item && item.meta) || {};
+      if (privacyEnabled && item && item.type === 'student') {
+        if (meta.student_no) return displayStudentNo(meta.student_no);
+        return meta.class_name || meta.stem || meta.assignment_id || meta.status || '';
+      }
+      return meta.student_no || meta.class_name || meta.stem || meta.assignment_id || meta.status || '';
+    }
+    function updatePrivacyButton() {
+      const btn = document.getElementById('privacyToggleBtn');
+      if (!btn) return;
+      btn.textContent = privacyEnabled ? '退出隐私' : '隐私保护';
+      btn.className = privacyEnabled ? 'btn btn-danger small' : 'btn btn-secondary small';
+      btn.setAttribute('aria-pressed', privacyEnabled ? 'true' : 'false');
+      btn.title = privacyEnabled ? '恢复显示真实姓名和学号' : '录屏时隐藏教师、学生姓名和学号';
+    }
+    function refreshPrivacyDisplays() {
+      const teacherEl = document.getElementById('teacherName');
+      if (teacherEl && currentTeacher) teacherEl.textContent = displayTeacherName(currentTeacher.name || currentTeacher.id || '教师');
+      updatePrivacyButton();
+      renderAttempts();
+      if (_attendanceData) renderAttendanceTable(_attendanceData);
+      renderHomeworkSubmissions();
+      renderAgentMentionChips();
+      renderAgentMentionMenu();
+      document.querySelectorAll('[id^="collab_"]').forEach(panel => {
+        if (panel.style.display !== 'none') loadCollaborators(panel.id.replace('collab_', ''), true);
+      });
+      const detailModal = document.getElementById('detailModal');
+      if (detailModal && detailModal.classList.contains('show')) {
+        if (_detailMode === 'attempt' && _currentAttemptDetailId) viewAttemptDetail(_currentAttemptDetailId, true);
+        if (_detailMode === 'attendance' && _currentAttendanceStudentIdx !== null) viewStudentAttendance(_currentAttendanceStudentIdx);
+      }
+    }
+    function togglePrivacyMode() {
+      privacyEnabled = !privacyEnabled;
+      savePrivacyPreference();
+      refreshPrivacyDisplays();
+      showToast(privacyEnabled ? '隐私保护已开启' : '隐私保护已关闭');
+    }
     function formatSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -1645,6 +1724,7 @@
     }
 
     let currentTeacher = null;
+    let privacyEnabled = false;
     let coursesCache = [];
     let selectedCourseId = '';
     let currentLoadedQuizId = '';
@@ -1728,8 +1808,8 @@
       const box = document.getElementById('agentMentionChips');
       if (!box) return;
       box.innerHTML = agentMentions.map((m, idx) => `
-        <span class="agent-mention-chip" title="${escapeHTML(mentionKindLabel(m.type) + ': ' + (m.label || m.id))}">
-          @${escapeHTML(m.label || m.id)}
+        <span class="agent-mention-chip" title="${escapeHTML(mentionKindLabel(m.type) + ': ' + displayMentionLabel(m))}">
+          @${escapeHTML(displayMentionLabel(m))}
           <button type="button" aria-label="移除引用" onclick="removeAgentMention(${idx})">×</button>
         </span>
       `).join('');
@@ -1776,10 +1856,9 @@
         return;
       }
       menu.innerHTML = agentMentionCandidates.slice(0, 40).map((m, idx) => {
-        const meta = m.meta || {};
-        const sub = meta.student_no || meta.class_name || meta.stem || meta.assignment_id || meta.status || '';
+        const sub = displayMentionSub(m);
         return `<button type="button" class="agent-mention-option ${idx === agentMentionActiveIndex ? 'active' : ''}" onmousedown="event.preventDefault();selectAgentMention(${idx})">
-          <span><strong>${escapeHTML(m.label || m.id)}</strong>${sub ? `<span style="display:block;font-size:11px;color:var(--text-muted);">${escapeHTML(String(sub))}</span>` : ''}</span>
+          <span><strong>${escapeHTML(displayMentionLabel(m))}</strong>${sub ? `<span style="display:block;font-size:11px;color:var(--text-muted);">${escapeHTML(String(sub))}</span>` : ''}</span>
           <span class="agent-mention-kind">${escapeHTML(mentionKindLabel(m.type))}</span>
         </button>`;
       }).join('');
@@ -1798,7 +1877,7 @@
       if (!item || !token || !input) return;
       const value = input.value;
       const label = item.label || item.id;
-      input.value = value.slice(0, token.start) + '@' + label + ' ' + value.slice(token.end);
+      input.value = value.slice(0, token.start) + '@' + displayMentionLabel(item) + ' ' + value.slice(token.end);
       const mention = {
         type: item.type,
         id: String(item.id),
@@ -2042,7 +2121,9 @@
       document.getElementById('view-login').classList.add('hidden');
       document.getElementById('view-main').classList.remove('hidden');
       document.getElementById('coursePills').classList.remove('hidden');
-      document.getElementById('teacherName').textContent = currentTeacher.name || currentTeacher.id || '教师';
+      loadPrivacyPreference();
+      document.getElementById('teacherName').textContent = displayTeacherName(currentTeacher.name || currentTeacher.id || '教师');
+      updatePrivacyButton();
       setAgentVisible(true);
       loadPromptTemplates();
       loadCourses();
@@ -2052,6 +2133,7 @@
       if (liveSSE) { liveSSE.close(); liveSSE = null; }
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       currentTeacher = null;
+      privacyEnabled = false;
       selectedCourseId = '';
       homeworkPregradeJobsCache = [];
       if (homeworkPregradeJobsTimer) clearTimeout(homeworkPregradeJobsTimer);
@@ -2335,7 +2417,7 @@
       }
       panel.innerHTML = items.map(item => {
         const tid = escapeHTML(item.teacher_id || '');
-        const name = escapeHTML(item.teacher_name || item.teacher_id || '');
+        const name = escapeHTML(displayTeacherName(item.teacher_name || item.teacher_id || ''));
         const perm = item.permission || 'manage';
         return `<span style="font-size:12px;color:var(--text-secondary);">${name}（${tid}）</span>
           <select onchange="updateCollaboratorPermission('${courseId}', '${tid}', this.value)" style="width:auto;min-width:92px;margin:0;padding:3px 8px;font-size:12px;">
@@ -2522,12 +2604,12 @@
         const rowCls = rate < threshold ? ' class="att-row-low"' : '';
 
         return `<tr${rowCls} style="cursor:pointer;" onclick="viewStudentAttendance(${si})">
-  <td style="min-width:64px;width:64px;max-width:64px;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(s.name || '')}</td>
+  <td style="min-width:64px;width:64px;max-width:64px;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(displayStudentName(s.name || ''))}</td>
   <td style="min-width:100px;width:100px;max-width:100px;">${escapeHTML(rateText)}</td>
   <td style="min-width:80px;width:80px;max-width:80px;">${escapeHTML(avgText)}</td>
   <td style="min-width:80px;">${escapeHTML(s.total_text || attText || '')}</td>
   <td style="min-width:140px;">${escapeHTML(s.class_name || '')}</td>
-  <td style="min-width:110px;">${escapeHTML(s.student_no || '')}</td>
+  <td style="min-width:110px;">${escapeHTML(displayStudentNo(s.student_no || ''))}</td>
   ${quizTds}
 </tr>`;
       }).join('');
@@ -2559,7 +2641,10 @@
       const modal = document.getElementById('detailModal');
       const content = document.getElementById('detailContent');
       const title = document.getElementById('detailTitle');
-      title.textContent = (s.name || '未知') + ' — 答题总览';
+      _detailMode = 'attendance';
+      _currentAttemptDetailId = '';
+      _currentAttendanceStudentIdx = studentIdx;
+      title.textContent = displayStudentName(s.name || '未知') + ' — 答题总览';
       modal.classList.add('show');
       document.body.style.overflow = 'hidden';
       syncDetailCloseBtn();
@@ -2571,7 +2656,7 @@
       const avgText = (avg === null || Number.isNaN(avg)) ? '-' : avg.toFixed(1);
 
       let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">
-  班级：${escapeHTML(s.class_name || '—')}　学号：${escapeHTML(s.student_no || '—')}　出勤率：${ratePct}%　均分：${escapeHTML(avgText)}
+  班级：${escapeHTML(s.class_name || '—')}　学号：${escapeHTML(s.student_no ? displayStudentNo(s.student_no) : '—')}　出勤率：${ratePct}%　均分：${escapeHTML(avgText)}
 </div>`;
       html += '<table style="width:100%;"><thead><tr>';
       html += '<th>序号</th><th>小测名称</th><th>出勤</th><th>状态</th><th>得分</th><th>操作</th>';
@@ -3009,16 +3094,16 @@
         const quizCol = showQuizCol ? `<td style="font-size:12px;color:var(--text-secondary);">${escapeHTML(item.quiz_id || '-')}</td>` : '';
         const history = Array.isArray(item.attempts) ? item.attempts : [];
         const historyCount = history.length;
-        const historyHtml = `<span style="font-weight:600;">${escapeHTML(item.name)}</span>`;
+        const historyHtml = `<span style="font-weight:600;">${escapeHTML(displayStudentName(item.name))}</span>`;
         const attemptBtns = history.map((a, ai) => {
           const label = a.attempt_no ? '第' + a.attempt_no + '次' : '第' + (ai + 1) + '次';
           return `<button class="small" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="event.stopPropagation();viewAttemptDetail('${jsArg(a.id)}')" title="${escapeHTML(a.submitted_at || a.updated_at || '')}">${escapeHTML(label)}</button>`;
         }).join(' ');
 
-        const editBtn = `<button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="event.stopPropagation();openEditStudentInfo('${jsArg(item.id)}','${escapeHTML(item.name)}','${escapeHTML(item.student_no)}','${escapeHTML(item.class_name)}')">编辑</button>`;
+        const editBtn = `<button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="event.stopPropagation();openEditStudentInfo(decodeURIComponent('${jsArg(item.id)}'),decodeURIComponent('${jsArg(item.name)}'),decodeURIComponent('${jsArg(item.student_no)}'),decodeURIComponent('${jsArg(item.class_name)}'))">编辑</button>`;
         return `<tr>
           <td>${historyHtml}</td>
-          <td>${escapeHTML(item.student_no)}</td>
+          <td>${escapeHTML(displayStudentNo(item.student_no))}</td>
           <td>${escapeHTML(item.class_name)}</td>
           ${quizCol}
           <td><div style="display:flex;flex-wrap:wrap;gap:4px;">${attemptBtns}</div></td>
@@ -3535,8 +3620,8 @@
           : '<span style="color:var(--text-secondary);font-size:11px;">-</span>';
         return `<tr>
           <td>${escapeHTML(item.assignment_id)}</td>
-          <td>${escapeHTML(item.name)}</td>
-          <td>${escapeHTML(item.student_no)}</td>
+          <td>${escapeHTML(displayStudentName(item.name))}</td>
+          <td>${escapeHTML(displayStudentNo(item.student_no))}</td>
           <td>${escapeHTML(item.class_name)}</td>
           <td>${keyCell}</td>
           <td>${dlCell}</td>
@@ -3546,7 +3631,7 @@
           <td>${escapeHTML(item.updated_at ? new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }) : '-')}</td>
           <td>
             <button class="small btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="openHomeworkGrade('${escapeHTML(item.id)}')">评分</button>
-            <button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission('${escapeHTML(item.id)}','${escapeHTML(item.student_no)}','${escapeHTML(item.assignment_id)}')">删除</button>
+            <button class="small btn-danger" style="font-size:11px;padding:2px 8px;margin-top:0;" onclick="deleteHwSubmission(decodeURIComponent('${jsArg(item.id)}'),decodeURIComponent('${jsArg(item.student_no)}'),decodeURIComponent('${jsArg(item.assignment_id)}'))">删除</button>
           </td>
         </tr>`;
       }).join('');
@@ -4062,7 +4147,7 @@
     }
 
     async function deleteHwSubmission(id, studentNo, assignmentID) {
-      if (!await showConfirm('删除学号「' + studentNo + '」在作业「' + assignmentID + '」的提交记录及所有文件，无法恢复。', { title: '删除学生提交', okLabel: '确认删除' })) return;
+      if (!await showConfirm('删除学号「' + displayStudentNo(studentNo) + '」在作业「' + assignmentID + '」的提交记录及所有文件，无法恢复。', { title: '删除学生提交', okLabel: '确认删除' })) return;
       const r = await fetch('/api/teacher/courses/homework/submissions/delete?course_id=' + selectedCourseId, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: id })
@@ -4103,13 +4188,16 @@
       return found ? (found.text ? found.key + '. ' + found.text : found.key) : key;
     }
 
-    async function viewAttemptDetail(attemptId) {
+    async function viewAttemptDetail(attemptId, replaceCurrent) {
       const modal = document.getElementById('detailModal');
       const content = document.getElementById('detailContent');
       const title = document.getElementById('detailTitle');
-      if (modal.classList.contains('show')) {
+      if (modal.classList.contains('show') && !replaceCurrent) {
         _detailHistory.push({ title: title.textContent, html: content.innerHTML });
       }
+      _detailMode = 'attempt';
+      _currentAttemptDetailId = attemptId;
+      _currentAttendanceStudentIdx = null;
       syncDetailCloseBtn();
       content.innerHTML = '<p>加载中...</p>';
       title.textContent = '答题详情';
@@ -4121,7 +4209,7 @@
         const data = await r.json();
         const stu = data.student || {};
         const sc = data.score || {};
-        title.textContent = (stu.name || '未知') + '（' + (stu.student_no || '') + '）';
+        title.textContent = displayStudentName(stu.name || '未知') + '（' + displayStudentNo(stu.student_no || '') + '）';
         let scoreNote = '';
         if (Number(sc.grading_pending || 0) > 0) scoreNote += '　简答评分中：' + Number(sc.grading_pending);
         if (Number(sc.grading_errors || 0) > 0) scoreNote += '　简答评分失败：' + Number(sc.grading_errors);
@@ -4190,6 +4278,9 @@
       }
     }
     let _detailHistory = [];
+    let _detailMode = '';
+    let _currentAttemptDetailId = '';
+    let _currentAttendanceStudentIdx = null;
     function syncDetailCloseBtn() {
       const btn = document.getElementById('detailCloseBtn');
       if (btn) btn.textContent = _detailHistory.length ? '返回' : '关闭';
@@ -4201,6 +4292,9 @@
         document.getElementById('detailContent').innerHTML = prev.html;
       } else {
         _detailHistory = [];
+        _detailMode = '';
+        _currentAttemptDetailId = '';
+        _currentAttendanceStudentIdx = null;
         document.getElementById('detailModal').classList.remove('show');
         document.body.style.overflow = '';
       }
@@ -4310,6 +4404,7 @@
     /* ── event bindings ── */
     document.getElementById('loginBtn').onclick = doLogin;
     document.getElementById('loginPwd').onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
+    document.getElementById('privacyToggleBtn').onclick = togglePrivacyMode;
     document.getElementById('createCourseBtn').onclick = createCourse;
     document.getElementById('joinCourseBtn').onclick = joinCourse;
     document.getElementById('changePwdBtn').onclick = doChangePassword;

@@ -6,7 +6,7 @@ import { TeacherPage } from "../pages/teacher.page";
 import { StudentPage } from "../pages/student.page";
 import { QuizPage } from "../pages/quiz.page";
 import { ResultPage } from "../pages/result.page";
-import { TEACHER_ID, TEACHER_PASSWORD, getSeedResult } from "../helpers/seed";
+import { TEACHER_ID, TEACHER_NAME, TEACHER_PASSWORD, getSeedResult } from "../helpers/seed";
 
 test.describe("Teacher panel", () => {
   let teacherPage: TeacherPage;
@@ -30,6 +30,67 @@ test.describe("Teacher panel", () => {
     await teacherPage.page.locator("#agentLauncher").click();
     await expect(teacherPage.page.locator("#agentPanel")).toBeVisible();
     await expect(teacherPage.page.locator("#agentMessages")).toContainText("仅支持只读查询");
+  });
+
+  test("privacy mode masks teacher and student identity and persists after reload", async ({
+    browser,
+  }) => {
+    const seed = getSeedResult();
+    const studentName = `隐私学生${Date.now().toString().slice(-4)}`;
+    const studentNo = `PRIV${Date.now().toString().slice(-6)}`;
+    const maskedStudentName = studentName.charAt(0) + "*".repeat(Math.max(1, studentName.length - 1));
+    const maskedStudentNo = "*".repeat(studentNo.length);
+
+    await teacherPage.page.evaluate((teacherId) => localStorage.removeItem(`teacher_privacy_${teacherId}`), TEACHER_ID);
+    await teacherPage.page.reload();
+    await teacherPage.viewMain.waitFor({ state: "visible" });
+    await expect(teacherPage.teacherName).toHaveText(TEACHER_NAME);
+
+    await teacherPage.selectCourse(seed.courseId);
+    await teacherPage.openEntry();
+
+    const studentCtx = await browser.newContext();
+    const studentPage = new StudentPage(await studentCtx.newPage());
+    await studentPage.enterCode(seed.inviteCode);
+    await studentPage.waitForQuizOpen();
+    await studentPage.joinQuiz(studentName, studentNo, "测试班级");
+
+    const quizPage = new QuizPage(studentPage.page);
+    await quizPage.waitForLoad();
+    await quizPage.answerAllViaAPI({
+      q1: "B",
+      q2: "Y",
+      q3: "A,B,C",
+      q4: "A",
+      q5: "隐私模式测试",
+    });
+    await quizPage.submit();
+    await studentCtx.close();
+
+    await teacherPage.switchTab("tab-attempts");
+    await expect(teacherPage.attemptsList).toContainText(studentName);
+    await expect(teacherPage.attemptsList).toContainText(studentNo);
+
+    await teacherPage.page.getByRole("button", { name: "隐私保护" }).click();
+    await expect(teacherPage.teacherName).toHaveText("E****");
+    await expect(teacherPage.page.getByRole("button", { name: "退出隐私" })).toBeVisible();
+    await expect(teacherPage.attemptsList).toContainText(maskedStudentName);
+    await expect(teacherPage.attemptsList).toContainText(maskedStudentNo);
+    await expect(teacherPage.attemptsList).not.toContainText(studentName);
+    await expect(teacherPage.attemptsList).not.toContainText(studentNo);
+
+    await teacherPage.page.reload();
+    await teacherPage.viewMain.waitFor({ state: "visible" });
+    await teacherPage.switchTab("tab-attempts");
+    await expect(teacherPage.teacherName).toHaveText("E****");
+    await expect(teacherPage.attemptsList).toContainText(maskedStudentName);
+    await expect(teacherPage.attemptsList).not.toContainText(studentName);
+    await expect(teacherPage.attemptsList).not.toContainText(studentNo);
+
+    await teacherPage.page.getByRole("button", { name: "退出隐私" }).click();
+    await expect(teacherPage.teacherName).toHaveText(TEACHER_NAME);
+    await expect(teacherPage.attemptsList).toContainText(studentName);
+    await expect(teacherPage.attemptsList).toContainText(studentNo);
   });
 
   test("opens teacher docs in a new page", async () => {
